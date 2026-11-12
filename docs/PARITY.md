@@ -13,8 +13,9 @@
 | SQLite WAL / history / events | Implemented |
 | Doctor | Native executable detection; Claude auth verified; other adapters pending |
 | Claude turns and permission bridge | Verified 2026-11-13: output, allow/deny via broker, warm second turn, read-only reviewer |
+| Personas / effort / composer shortcuts | Custom personas, room members, @mention + /effort + /model + keep; verified 2026-11-13 |
 | Codex and Gemini | Not implemented; UI reports unavailable rather than simulating |
-| Warm/sleep | Reuse and idle eviction implemented; resume after eviction pending |
+| Warm/sleep | Reuse, idle eviction and resume (`--resume`) verified with real Claude |
 | One writer | In-process overlapping-root lease implemented; durable OS containment pending |
 | Build & Review / Triad | Build then independent review stage implemented; real integrations unverified |
 | Fix and re-review | Pending structured findings and scheduler loop |

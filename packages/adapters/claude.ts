@@ -20,8 +20,10 @@ export class ClaudeSession {
   constructor(
     executable: string,
     cwd: string,
-    model: string,
+    readonly model: string,
     readonly: boolean,
+    readonly effort?: string,
+    resume?: string,
   ) {
     const args = [
       "--print",
@@ -43,8 +45,10 @@ export class ClaudeSession {
       "--disable-slash-commands",
       "--tools",
       readonly ? "Read,Glob,Grep" : "Read,Glob,Grep,Write,Edit",
-      "--model",
-      model,
+      ...(model ? ["--model", model] : []),
+      ...(effort ? ["--effort", effort] : []),
+      // a restarted process (new effort/model, or after sleeping) continues the same conversation
+      ...(resume ? ["--resume", resume] : []),
     ];
     this.child = spawn(executable, args, {
       cwd,

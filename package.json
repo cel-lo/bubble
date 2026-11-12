@@ -15,7 +15,8 @@
     "typecheck:core": "tsc --project tsconfig.core.json",
     "smoke:claude": "node scripts/smoke-claude.mjs",
     "smoke:provider": "node scripts/smoke-provider.mjs",
-    "smoke:tools": "node scripts/smoke-tools.mjs"
+    "smoke:tools": "node scripts/smoke-tools.mjs",
+    "smoke:resume": "node scripts/smoke-resume.mjs"
   },
   "dependencies": {
     "react": "19.2.5",

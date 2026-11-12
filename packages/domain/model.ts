@@ -1,4 +1,37 @@
-export type Persona = "codex" | "claude" | "sonnet" | "gemini";
+/** a persona id; the record lives in State.personas */
+export type Persona = string;
+export type Engine = "codex" | "claude" | "gemini";
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+/** one of the design kit's avatar tiles */
+export type Avatar = "codex" | "claude" | "sonnet" | "gemini";
+export interface PersonaDef {
+  id: string;
+  name: string;
+  engine: Engine;
+  /** model id or alias passed to the CLI; "" = the CLI's default */
+  model: string;
+  effort?: Effort;
+  strengths: string[];
+  avatar: Avatar;
+}
+/** effort levels each CLI accepts. claude: `claude --help` 2.1.322. gemini has no effort flag.
+ * shortcut: codex values are from its config docs, unverified until the Codex adapter exists */
+export const EFFORTS: Record<Engine, Effort[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  codex: ["low", "medium", "high", "xhigh"],
+  gemini: [],
+};
+export const DEFAULT_PERSONAS: PersonaDef[] = [
+  { id: "codex", name: "Codex", engine: "codex", model: "", strengths: ["Code changes", "Tests", "Refactors"], avatar: "codex" },
+  { id: "claude", name: "Claude Opus", engine: "claude", model: "opus", strengths: ["Planning", "Hard reviews", "Architecture"], avatar: "claude" },
+  { id: "sonnet", name: "Claude Sonnet", engine: "claude", model: "sonnet", strengths: ["Quick features", "Docs", "UI copy"], avatar: "sonnet" },
+  { id: "gemini", name: "Gemini", engine: "gemini", model: "", strengths: ["Research", "Second opinion", "Long files"], avatar: "gemini" },
+];
+/** per-message or per-room override of a persona's model/effort */
+export interface Tune {
+  model?: string;
+  effort?: Effort;
+}
 export type Template = "direct" | "build_review" | "triad" | "roundtable";
 export type RoomState =
   | "idle"
@@ -20,6 +53,8 @@ export interface Message {
   text: string;
   at: string;
   kind?: string;
+  /** what Walt read from @mention and /commands in this message */
+  meta?: { to?: Persona; keep?: boolean } & Tune;
 }
 export interface Artifact {
   revision: number;
@@ -44,6 +79,10 @@ export interface Room {
   artifacts: Artifact[];
   packet?: unknown;
   queue: string[];
+  /** personas in the room besides builder and reviewers (answer only when mentioned) */
+  members?: Persona[];
+  /** room defaults set with `/effort … keep` or `/model … keep`; key "*" = everyone */
+  tune?: Record<Persona, Tune>;
 }
 export interface Ask {
   id: string;
@@ -67,6 +106,7 @@ export interface State {
   rooms: Room[];
   asks: Ask[];
   engines: EngineReport[];
+  personas: PersonaDef[];
   /** live agent processes; added to messages for the UI, never stored */
   procs?: { room: string; persona: Persona; busy: boolean }[];
   settings: {

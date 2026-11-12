@@ -1,15 +1,18 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, delimiter, isAbsolute } from "node:path";
-import type { EngineReport, Persona } from "../domain/model";
+import type { EngineReport, PersonaDef, Tune } from "../domain/model";
 import { capture } from "./environment";
 import { ClaudeSession } from "./claude";
 export class Supervisor {
   sessions = new Map<string, ClaudeSession>();
+  /** last Claude session id per room:persona:readonly, to resume after a restart */
+  private resumeIds = new Map<string, string>();
   claude = join(homedir(), ".local", "bin", "claude.exe");
   find(name: string) {
-    const dirs = (process.env.PATH || "").split(delimiter).filter(isAbsolute);
-    return dirs.map((d) => join(d, name + ".exe")).find(existsSync);
+    // npm global installs (codex, gemini) are .cmd shims in %APPDATA%\npm, which is not always on Electron's PATH
+    const dirs = [...(process.env.PATH || "").split(delimiter), process.env.APPDATA ? join(process.env.APPDATA, "npm") : ""].filter(isAbsolute);
+    return dirs.flatMap((d) => [join(d, name + ".exe"), join(d, name + ".cmd")]).find(existsSync);
   }
   async doctor(): Promise<EngineReport[]> {
     return Promise.all(
@@ -37,6 +40,11 @@ export class Supervisor {
               status.loggedIn && status.authMethod === "claude.ai"
                 ? "ok"
                 : "required";
+          } else if (engine === "codex") {
+            auth = /logged in/i.test(await capture(exe, ["login", "status"]).catch(() => "")) ? "ok" : "required";
+          } else if (engine === "gemini") {
+            // gemini has no status command; its Google sign-in leaves this file
+            auth = existsSync(join(homedir(), ".gemini", "oauth_creds.json")) ? "ok" : "required";
           }
           return {
             engine,
@@ -62,33 +70,35 @@ export class Supervisor {
       }),
     );
   }
-  get(room: string, persona: Persona, root: string, readonly: boolean) {
-    if (persona !== "claude" && persona !== "sonnet")
-      throw new Error(
-        `${persona} adapter is not verified on this laptop. Select Claude Opus or Sonnet.`,
-      );
-    const key = room + ":" + persona + ":" + readonly;
+  async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}) {
+    if (p.engine !== "claude")
+      throw new Error(`${p.name} runs on ${p.engine}, and Walt's ${p.engine} adapter is not built yet.`);
+    const key = room + ":" + p.id + ":" + readonly;
+    const model = tune.model ?? p.model;
+    const effort = tune.effort ?? p.effort;
     let s = this.sessions.get(key);
+    if (s?.alive && (s.model !== model || s.effort !== effort)) {
+      if (s.busy) throw new Error(`${p.name} is busy; change model or effort after this turn.`);
+      await this.retire(key, s);
+    }
     if (!s?.alive) {
       if ([...this.sessions.values()].filter((s) => s.alive).length >= 6)
-        throw new Error(
-          "Maximum 6 warm processes reached. Wait for idle sessions to sleep.",
-        );
-      s = new ClaudeSession(
-        this.claude,
-        root,
-        persona === "sonnet" ? "sonnet" : "opus",
-        readonly,
-      );
+        throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
+      s = new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key));
       this.sessions.set(key, s);
     }
     return s;
+  }
+  private async retire(key: string, s: ClaudeSession) {
+    if (s.sessionId) this.resumeIds.set(key, s.sessionId);
+    await s.stop();
+    this.sessions.delete(key);
   }
   /** live agent processes, for the UI (not persisted) */
   list() {
     return [...this.sessions]
       .filter(([, s]) => s.alive)
-      .map(([key, s]) => ({ room: key.split(":")[0], persona: key.split(":")[1] as Persona, busy: s.busy }));
+      .map(([key, s]) => ({ room: key.split(":")[0], persona: key.split(":")[1], busy: s.busy }));
   }
   interrupt(room: string) {
     for (const [key, s] of this.sessions)
@@ -97,8 +107,7 @@ export class Supervisor {
   async sleep(minutes: number) {
     for (const [key, s] of this.sessions)
       if (!s.busy && Date.now() - s.lastActive > minutes * 60000) {
-        await s.stop();
-        this.sessions.delete(key);
+        await this.retire(key, s);
       }
   }
   async stop() {

@@ -17,11 +17,13 @@ export function capture(
   timeout = 12000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn(exe, args, {
-      env: cleanEnv(),
-      shell: false,
-      windowsHide: true,
-    });
+    // Node refuses to spawn .cmd shims without a shell. Probes only pass fixed words (--version, login status),
+    // never user text. shortcut: real Codex/Gemini runs must start the shim's native/JS entry instead of cmd.exe.
+    const shim = /\.cmd$/i.test(exe);
+    if (shim && args.some((a) => !/^[\w-]+$/.test(a))) throw new Error("Probe arguments must be plain words");
+    const p = shim
+      ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${exe}" ${args.join(" ")}`], { env: cleanEnv(), windowsHide: true, windowsVerbatimArguments: true })
+      : spawn(exe, args, { env: cleanEnv(), shell: false, windowsHide: true });
     let out = "";
     let err = "";
     const t = setTimeout(() => {
@@ -37,7 +39,7 @@ export function capture(
     p.on("close", (code) => {
       clearTimeout(t);
       code === 0
-        ? resolve(out.trim())
+        ? resolve(out.trim() || err.trim()) // codex prints `login status` on stderr
         : reject(new Error(err.trim() || out.trim() || "CLI failed"));
     });
   });

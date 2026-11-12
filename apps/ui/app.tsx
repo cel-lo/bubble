@@ -1,5 +1,6 @@
 import { Setup, type SetupStep, personaStatus } from "./onboarding";
 import { md, esc } from "./markdown";
+import { PersonaSettings, personaItem, personaMsg, metaChip, complete as completeFor, type Suggestion } from "./personas";
 import React, { useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type {
@@ -7,6 +8,7 @@ import type {
   Room,
   Persona,
   Template,
+  PersonaDef,
 } from "../../packages/domain/model";
 import {
   shell,
@@ -42,19 +44,18 @@ function deliverable(room: Room, a: Room["artifacts"][number]) {
   const reviews = room.reviewers.map((p) => {
     const v = a.reviews.find((x) => x.persona === p);
     const ok = v?.hash === a.hash;
-    return box("Source review", `${av(p, 20)}<span class="s13 b">${names[p]}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? `read r${a.revision} · same hash` : v ? "stale: files changed after review" : "no review");
+    return box("Source review", `${pav(p, 20)}<span class="s13 b">${nm(p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? `read r${a.revision} · same hash` : v ? "stale: files changed after review" : "no review");
   });
   const accept = a.accepted
     ? box("Your acceptance", '<span class="s13 b">Accepted</span>', "by you")
     : box("Your acceptance", '<span class="s13 b">Waiting for you</span>', "Not implied by reviews", true);
   return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · result</span><span class="chip mono">r${a.revision}</span>${pillHtml(a.accepted ? "Accepted" : "Ready", a.accepted ? T.green : T.blue)}</span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}Accept</button>`}<button class="btn" data-hot="control:continue" style="border:0">Continue with a new budget</button></div></div>`;
 }
-const names: Record<string, string> = {
-  codex: "Codex",
-  claude: "Claude Opus",
-  sonnet: "Claude Sonnet",
-  gemini: "Gemini",
-};
+// personas of the current state; set at the top of every render
+let PS: PersonaDef[] = [];
+const pd = (id: string) => PS.find((p) => p.id === id);
+const nm = (id: string) => esc(pd(id)?.name ?? id);
+const pav = (id: string, size: number) => av(pd(id)?.avatar ?? "claude", size);
 const copy = {
   en: {
     projects: "Projects",
@@ -171,6 +172,7 @@ function App() {
         Walt · {error || "Starting host…"}
       </div>
     );
+  PS = state.personas;
   const text = copy[state.settings.locale];
   const room = state.rooms.find((r) => r.id === selected);
   const project = state.projects.find(
@@ -187,9 +189,9 @@ function App() {
     rail = "chat";
     const procs = state.procs || [];
     const asking = state.asks.filter((a) => a.roomId === room.id);
-    const roleOf = (p: Persona) => (p === room.builder ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : "Free");
+    const roleOf = (p: Persona) => (p === room.builder ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : room.members?.includes(p) ? "Member" : "Free");
     const personaRow = (p: Persona) => {
-      const s = personaStatus(p, state.engines);
+      const s = personaStatus(pd(p)?.engine ?? "", state.engines);
       const live = procs.find((x) => x.room === room.id && x.persona === p);
       if (!s.ready) return [p, roleOf(p), "cold", s.label.toLowerCase()];
       if (asking.some((a) => a.persona === p)) return [p, roleOf(p), "wait", "needs your approval"];
@@ -199,17 +201,21 @@ function App() {
       if (live) return [p, roleOf(p), "warm", "process ready"];
       return [p, roleOf(p), "cold", roleOf(p) === "Free" ? "not in this room" : "wakes on its turn"];
     };
-    const ready = (Object.keys(names) as Persona[]).filter((p) => personaStatus(p, state.engines).ready).length;
+    const ready = PS.filter((p) => personaStatus(p.engine, state.engines).ready).length;
+    // room personas first, then the rest
+    const order = [...PS].sort((a, b) => Number(roleOf(a.id) === "Free") - Number(roleOf(b.id) === "Free"));
+    const items = order.map((p) => { const [, r, st, d] = personaRow(p.id); return personaItem(p, r, st, d); }).join("");
     side = sidebar({
       room: room.id,
       task: esc(room.title),
       rooms: state.rooms
         .filter((r) => r.projectId === room.projectId)
         .map((r) => [r.id, esc(r.title), [r.builder, ...r.reviewers], STATE[r.state] || esc(r.state), ""]),
-      personas: (Object.keys(names) as Persona[]).map(personaRow),
+      personas: [],
     })
       .replace(/Rooms · BIBI/g, "Rooms · " + esc(project?.name))
-      .replace(/4 personas · 3 engines signed in/g, `${ready} of 4 personas ready`);
+      .replace('<div style="flex:1"></div>', items + '<div style="flex:1"></div>')
+      .replace(/4 personas · 3 engines signed in/g, `${ready} of ${PS.length} personas ready`);
     const reviewing = room.template !== "roundtable" && room.template !== "direct";
     const last = room.artifacts.at(-1);
     const finished = room.step === "awaiting acceptance" || !!last?.accepted;
@@ -217,7 +223,7 @@ function App() {
       room.state === "awaiting_user"
         ? `<b style="color:${T.amber}">Waiting for you</b>`
         : room.step === "build"
-          ? `<b>${names[room.builder]}</b> is building`
+          ? `<b>${nm(room.builder)}</b> is building`
           : room.step === "review"
             ? `Reviewing · ${room.reviewers.length} reviewer${room.reviewers.length > 1 ? "s" : ""}`
             : finished
@@ -227,7 +233,7 @@ function App() {
       roomHeader({
         title: esc(room.title),
         sub: esc(project?.name + " · " + project?.root),
-        es: [room.builder, ...room.reviewers],
+        es: [room.builder, ...room.reviewers, ...(room.members || [])].map((p) => pd(p)?.avatar ?? "claude"),
       }) +
       workflow({
         mode: TEMPLATE[room.template],
@@ -241,15 +247,15 @@ function App() {
       `<div class="tl"><div class="tli">${room.messages
         .map((m) =>
           m.author === "cello"
-            ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text))
-            : names[m.author]
-              ? msg(m.author, roleOf(m.author as Persona), new Date(m.at).toLocaleTimeString(), md(m.text) || "…")
+            ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta ? metaChip(m.meta, nm, m.kind === "setting") : "")
+            : pd(m.author)
+              ? personaMsg(pd(m.author)!, roleOf(m.author), new Date(m.at).toLocaleTimeString(), md(m.text) || "…")
               : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
         )
         .join("")}${asking
         .map(
           (a) =>
-            `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${names[a.persona]} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(a.input, null, 2))}</pre><div class="row g8">${btn("Allow once", "allow:" + a.id, "g")}${btn("Deny", "deny:" + a.id)}</div></div>`,
+            `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${nm(a.persona)} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(a.input, null, 2))}</pre><div class="row g8">${btn("Allow once", "allow:" + a.id, "g")}${btn("Deny", "deny:" + a.id)}</div></div>`,
         )
         .join("")}${last && !["running", "awaiting_user"].includes(room.state) ? deliverable(room, last) : ""}</div></div>` +
       composer({ ph: text.send, route: TEMPLATE[room.template] });
@@ -270,7 +276,7 @@ function App() {
                   .filter((m) => m.author === "Walt")
                   .map((m) => `<p class="s12 dim">${esc(m.text)}</p>`)
                   .join("") || '<div class="s13 dim">Nothing yet.</div>'
-              : `<div class="lbl">Owner and reviewers</div>${[room.builder, ...room.reviewers].map((p) => `<div class="row g8 s13" style="margin:12px 0">${av(p, 24)}${names[p]}<span class="f1"></span><span class="s12 dim">${roleOf(p)}</span></div>`).join("")}<div class="lbl">Budget</div><div>${room.used} of ${room.budget} turns used</div><div class="col g8" style="margin-top:20px">${btn("Continue · +2 turns", "control:continue")}${btn("Resume", "control:resume")}${btn("End room", "control:end")}</div>`
+              : `<div class="lbl">Team</div>${order.map((p) => { const r = roleOf(p.id); const act = r === "Builder" ? "" : r === "Free" ? `<span class="chip" data-hot="member:${esc(p.id)}:Reviewer">+ Reviewer</span><span class="chip" data-hot="member:${esc(p.id)}:Member">+ Member</span>` : `<span class="chip" data-hot="member:${esc(p.id)}:Remove">Remove</span>`; return `<div class="row g8 s13" style="margin:10px 0">${pav(p.id, 24)}<span class="f1">${esc(p.name)}<span class="s12 dim"> · ${r}</span></span>${act}</div>`; }).join("")}<div class="s12 dim" style="margin-top:4px">Members answer only when you @mention them.${room.tune && Object.keys(room.tune).length ? " Room settings: " + Object.entries(room.tune).map(([k, t]) => `${k === "*" ? "everyone" : nm(k)} ${[t.effort && "effort " + t.effort, t.model && "model " + esc(t.model)].filter(Boolean).join(", ")}`).join("; ") + "." : ""}</div><div class="lbl">Budget</div><div>${room.used} of ${room.budget} turns used</div><div class="col g8" style="margin-top:20px">${btn("Continue · +2 turns", "control:continue")}${btn("Resume", "control:resume")}${btn("End room", "control:end")}</div>`
     }</div></div>`;
   } else if (page === "projects") {
     body = `<div style="padding:32px 40px"><div class="row sb">${wordmark(24)}${btn(text.newProject, "new-project", "g")}</div><h2 style="margin:32px 0 20px">${text.projects}</h2><div class="row g16" style="flex-wrap:wrap">${state.projects.map((p) => `<div class="card" style="padding:24px;width:300px" data-hot="project:${p.id}"><div class="s18 b">${esc(p.name)}</div><div class="s12 dim" style="margin:10px 0">${esc(p.root)}</div><div class="s13 sub">${esc(p.goal)}</div></div>`).join("") || `<div class="dim">${text.empty}</div>`}</div></div>`;
@@ -299,13 +305,7 @@ function App() {
     else if (page === "Permissions")
       body +=
         '<div class="card" style="padding:20px">Builder: writes and shell commands require approval.<br><br>Reviewer: Read, Glob and Grep only.<br><br>Approvals are available in the Walt window.</div>';
-    else if (page === "Personas & templates")
-      body += Object.keys(names)
-        .map(
-          (p) =>
-            `<div class="card row g12" style="padding:18px;margin-top:12px">${av(p, 32)}${names[p]}</div>`,
-        )
-        .join("");
+    else if (page === "Personas & templates") body += '<div id="personas-slot"></div>';
     else if (page === "About Walt")
       body +=
         '<div class="s24 b">Walt 0.1.0</div><p class="dim" style="margin-top:12px">One project. Your AI team. You lead.</p>';
@@ -384,6 +384,10 @@ function App() {
         allow: action.startsWith("allow:"),
       });
     else if (action === "accept") await invoke("accept", selected);
+    else if (action.startsWith("member:")) {
+      const [, persona, role] = action.split(":");
+      await invoke("member", { roomId: selected, persona, role });
+    }
     else if (action === "send") {
       const value =
         document.querySelector<HTMLTextAreaElement>("#message")?.value;
@@ -436,6 +440,7 @@ function App() {
         onClick={click}
         draft={draft}
         setDraft={setDraft}
+        complete={(before) => (page === "room" && room ? completeFor(before, state, room) : [])}
         onSend={async (value) => {
           if (value.trim()) {
             await invoke("send", { roomId: selected, text: value });
@@ -443,6 +448,11 @@ function App() {
           }
         }}
       />
+      {page === "Personas & templates" && (
+        <div style={{ position: "absolute", top: 110, left: 364, right: 40, bottom: 20, overflow: "auto" }}>
+          <PersonaSettings state={state} invoke={invoke} />
+        </div>
+      )}
       {page === "General" && (
         <div
           style={{ position: "absolute", top: 150, left: 365, width: 600 }}
@@ -518,14 +528,19 @@ function Design({
   draft,
   setDraft,
   onSend,
+  complete,
 }: {
   html: string;
   onClick: React.MouseEventHandler;
   draft: string;
   setDraft: (s: string) => void;
   onSend: (s: string) => void;
+  complete: (before: string) => Suggestion[];
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
+  // handlers live in DOM listeners made once per html; read the latest completer through a ref
+  const completeRef = React.useRef(complete);
+  completeRef.current = complete;
   const oldInput = document.activeElement as HTMLTextAreaElement | null;
   const hadFocus = oldInput?.id === 'message';
   const caret = hadFocus ? oldInput.selectionStart : 0;
@@ -538,8 +553,68 @@ function Design({
       input.placeholder = slot.textContent || "";
       input.value = draft;
       input.rows = 1;
-      input.oninput = () => setDraft(input.value);
+      // @persona and /command menu above the composer
+      let list: Suggestion[] = [];
+      let at = 0;
+      const box = document.createElement("div");
+      box.id = "suggest";
+      box.className = "card";
+      box.setAttribute("role", "listbox");
+      box.style.cssText = "position:fixed;z-index:20;padding:6px;background:#2A2A2C;min-width:340px;display:none";
+      document.body.append(box);
+      const paint = () => {
+        if (!list.length) {
+          box.style.display = "none";
+          return;
+        }
+        const r = (input.closest(".cbox") || input).getBoundingClientRect();
+        box.style.display = "block";
+        box.style.left = r.left + 16 + "px";
+        box.style.bottom = window.innerHeight - r.top + 8 + "px";
+        box.innerHTML = list
+          .map((x, i) => `<div class="item g12" data-i="${i}" role="option" aria-selected="${i === at}" style="padding:6px 10px;cursor:pointer;${i === at ? "background:#3A3A3C" : ""}"><span class="s13 b">${esc(x.label)}</span><span class="f1"></span><span class="s12 dim">${esc(x.hint)}</span></div>`)
+          .join("");
+      };
+      const show = () => {
+        list = completeRef.current(input.value.slice(0, input.selectionStart ?? input.value.length));
+        at = 0;
+        paint();
+      };
+      const pick = (i: number) => {
+        const x = list[i];
+        if (x?.insert) {
+          const pos = input.selectionStart ?? input.value.length;
+          const start = pos - x.replace;
+          input.value = input.value.slice(0, start) + x.insert + input.value.slice(pos);
+          input.setSelectionRange(start + x.insert.length, start + x.insert.length);
+          setDraft(input.value);
+          input.focus();
+          return show();
+        }
+        list = [];
+        paint();
+      };
+      box.onmousedown = (e) => {
+        const el = (e.target as HTMLElement).closest<HTMLElement>("[data-i]");
+        if (el) {
+          e.preventDefault();
+          pick(Number(el.dataset.i));
+        }
+      };
+      input.oninput = () => {
+        setDraft(input.value);
+        show();
+      };
+      input.onblur = () => setTimeout(() => { list = []; paint(); }, 150);
       input.onkeydown = (e) => {
+        if (list.length && ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(e.key) && !e.shiftKey) {
+          e.preventDefault();
+          if (e.key === "ArrowDown") at = (at + 1) % list.length;
+          else if (e.key === "ArrowUp") at = (at - 1 + list.length) % list.length;
+          else if (e.key === "Escape") list = [];
+          else return pick(at);
+          return paint();
+        }
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           onSend(input.value);
@@ -557,6 +632,7 @@ function Design({
         if (e.key === "Enter") el.click();
       };
     });
+    return () => document.getElementById("suggest")?.remove();
   }, [html]);
   return (
     <div

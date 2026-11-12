@@ -10,7 +10,13 @@ import {
   type Room,
   type Persona,
   type Template,
+  type PersonaDef,
+  type Message,
+  type Tune,
+  DEFAULT_PERSONAS,
+  EFFORTS,
 } from "../domain/model";
+import { parseMessage, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
 export class Host extends EventEmitter {
   state: State;
@@ -21,6 +27,7 @@ export class Host extends EventEmitter {
   constructor(readonly store: Store) {
     super();
     this.state = store.load();
+    if (!this.state.personas?.length) this.state.personas = structuredClone(DEFAULT_PERSONAS);
     for (const r of this.state.rooms)
       if (["running", "awaiting_user"].includes(r.state)) {
         r.state = "recovery_required";
@@ -50,6 +57,61 @@ export class Host extends EventEmitter {
   room(id: string) {
     const r = this.state.rooms.find((r) => r.id === id);
     if (!r) throw new Error("Room not found");
+    return r;
+  }
+  persona(id: string) {
+    const p = this.state.personas.find((p) => p.id === id);
+    if (!p) throw new Error(`Persona ${id} not found`);
+    return p;
+  }
+  private inRoom(r: Room) {
+    return [r.builder, ...r.reviewers, ...(r.members || [])];
+  }
+  /** effective model/effort: this message > room default for the persona > room default for everyone > persona */
+  private tune(r: Room, p: PersonaDef, msg: Tune): Tune {
+    const t = { ...r.tune?.["*"], ...r.tune?.[p.id] };
+    if (msg.effort) t.effort = msg.effort;
+    if (msg.model) t.model = msg.model;
+    if (t.effort && !EFFORTS[p.engine].includes(t.effort))
+      throw new Error(EFFORTS[p.engine].length ? `${p.name} accepts effort ${EFFORTS[p.engine].join(", ")}.` : `${p.name} runs on ${p.engine}, which has no effort setting.`);
+    return t;
+  }
+  savePersona(input: Omit<PersonaDef, "id"> & { id?: string }) {
+    const name = input.name.trim();
+    if (!name) throw new Error("Give the persona a name.");
+    if (this.state.personas.some((p) => p.id !== input.id && p.name.toLowerCase() === name.toLowerCase()))
+      throw new Error("Another persona already has that name.");
+    if (input.effort && !EFFORTS[input.engine].includes(input.effort))
+      throw new Error(`${input.engine} does not accept effort ${input.effort}.`);
+    const old = input.id ? this.persona(input.id) : undefined;
+    const id = old?.id ?? (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "persona") + "-" + randomUUID().slice(0, 4);
+    const p: PersonaDef = { ...input, name, id };
+    if (!p.effort) delete p.effort;
+    if (old) {
+      for (const k of Object.keys(old) as (keyof PersonaDef)[]) delete old[k];
+      Object.assign(old, p);
+    } else this.state.personas.push(p);
+    this.commit("persona.saved");
+    return p;
+  }
+  deletePersona(id: string) {
+    const used = this.state.rooms.filter((r) => r.state !== "ended" && this.inRoom(r).includes(id));
+    if (used.length) throw new Error(`Remove it from ${used.map((r) => r.title).join(", ")} first.`);
+    this.persona(id);
+    this.state.personas = this.state.personas.filter((p) => p.id !== id);
+    this.commit("persona.deleted");
+  }
+  /** add a persona to a room as reviewer or plain member (answers when mentioned), or take it out */
+  member(roomId: string, persona: string, role: "Reviewer" | "Member" | "Remove") {
+    const r = this.room(roomId);
+    if (this.active.has(roomId)) throw new Error("Change the team after this run.");
+    this.persona(persona);
+    if (persona === r.builder) throw new Error("Pick another builder before moving this persona.");
+    r.reviewers = r.reviewers.filter((p) => p !== persona);
+    r.members = (r.members || []).filter((p) => p !== persona);
+    if (role === "Reviewer") r.reviewers.push(persona);
+    if (role === "Member") r.members.push(persona);
+    this.commit("room.members");
     return r;
   }
   async doctor() {
@@ -82,6 +144,7 @@ export class Host extends EventEmitter {
   }) {
     if (!this.state.projects.some((p) => p.id === input.projectId))
       throw new Error("Project not found");
+    for (const p of [input.builder, ...input.reviewers]) this.persona(p);
     const r: Room = {
       ...input,
       id: randomUUID(),
@@ -99,7 +162,7 @@ export class Host extends EventEmitter {
     return r;
   }
   message(r: Room, author: string, text: string, kind?: string) {
-    const m = {
+    const m: Message = {
       id: randomUUID(),
       author,
       text,
@@ -114,26 +177,47 @@ export class Host extends EventEmitter {
     const r = this.room(id);
     if (r.state === "ended" || r.state === "recovery_required")
       throw new Error("Resolve recovery or create a new room first.");
+    const cmd = parseMessage(text, this.state.personas);
+    if (cmd.to && !this.inRoom(r).includes(cmd.to))
+      throw new Error(`${this.persona(cmd.to).name} is not in this room. Add it from the room header first.`);
+    // check the effort against every persona it could apply to, before anything is stored
+    for (const p of cmd.to ? [cmd.to] : this.inRoom(r)) this.tune(r, this.persona(p), { effort: cmd.effort, model: cmd.model });
+    const meta = cmd.to || cmd.effort || cmd.model ? { to: cmd.to, effort: cmd.effort, model: cmd.model, keep: cmd.keep } : undefined;
+    if (cmd.keep) {
+      r.tune ??= {};
+      const k = cmd.to ?? "*";
+      r.tune[k] = { ...r.tune[k], ...(cmd.effort && { effort: cmd.effort }), ...(cmd.model && { model: cmd.model }) };
+    }
+    if (!cmd.text) {
+      if (!meta) throw new Error("Write a task.");
+      this.message(r, "cello", text, "setting").meta = meta;
+      this.commit();
+      return;
+    }
     if (this.active.has(id)) {
       r.queue.push(text);
-      this.message(r, "cello", text, "queued");
+      this.message(r, "cello", text, "queued").meta = meta;
+      this.commit();
       return;
     }
     if (r.used >= r.budget)
       throw new Error("Budget exhausted. Add turns with Continue.");
-    this.message(r, "cello", text);
+    this.message(r, "cello", text).meta = meta;
+    this.commit();
     this.active.add(id);
-    void this.exchange(r, text).finally(() => this.active.delete(id));
+    void this.exchange(r, cmd).finally(() => this.active.delete(id));
   }
   private async turn(
     r: Room,
     persona: Persona,
     prompt: string,
     readonly: boolean,
+    msg: Tune = {},
   ) {
     if (r.pause) throw new Error("Paused before dispatch");
     const p = this.state.projects.find((p) => p.id === r.projectId)!;
-    const session = this.supervisor.get(r.id, persona, p.root, readonly);
+    const def = this.persona(persona);
+    const session = await this.supervisor.get(r.id, def, p.root, readonly, this.tune(r, def, msg));
     takeTurn(r);
     r.step = readonly ? "review" : "build";
     this.commit("run.started");
@@ -175,7 +259,9 @@ export class Host extends EventEmitter {
     this.commit("run.finished");
     return result;
   }
-  private async exchange(r: Room, goal: string) {
+  private async exchange(r: Room, cmd: Parsed) {
+    const goal = cmd.text;
+    const msg: Tune = { effort: cmd.effort, model: cmd.model };
     const p = this.state.projects.find((p) => p.id === r.projectId)!;
     try {
       if ([...this.leases.keys()].some((root) => overlaps(root, p.root)))
@@ -199,16 +285,14 @@ export class Host extends EventEmitter {
       };
       r.packet = packet;
       this.commit("handoff");
-      const mention = goal
-        .match(/@(codex|claude|sonnet|gemini)\b/i)?.[1]
-        ?.toLowerCase() as Persona | undefined;
+      const mention = cmd.to;
       if (r.template === "roundtable") {
         for (const persona of [r.builder, ...r.reviewers]) {
           if (r.pause) break;
-          await this.turn(r, persona, JSON.stringify(packet), true);
+          await this.turn(r, persona, JSON.stringify(packet), true, msg);
         }
       } else {
-        await this.turn(r, mention || r.builder, JSON.stringify(packet), false);
+        await this.turn(r, mention || r.builder, JSON.stringify(packet), false, msg);
         const after = await manifest(p.root);
         for (const a of r.artifacts) a.accepted = false;
         const artifact = {
@@ -242,7 +326,7 @@ export class Host extends EventEmitter {
           const results = await Promise.allSettled(
             reviewers.map(async (persona) => ({
               persona,
-              text: await this.turn(r, persona, reviewPacket, true),
+              text: await this.turn(r, persona, reviewPacket, true, msg),
               hash: artifact.hash,
             })),
           );

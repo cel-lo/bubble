@@ -1,7 +1,7 @@
 // Setup screens W01–W04 as real React views. They copy the layout and classes of the FigCraft frames
 // (design/screens.mjs `setup()`), but every value shown comes from Walt's state, never from design samples.
 import React, { useEffect, useState } from "react";
-import type { State, Persona, Template, EngineReport } from "../../packages/domain/model";
+import type { State, Persona, Template, EngineReport, PersonaDef } from "../../packages/domain/model";
 import { T, ENG, ic, av, wordmark, titlebar } from "./generated/kit.mjs";
 
 type Invoke = (method: string, input?: unknown) => Promise<any>;
@@ -12,11 +12,12 @@ const Html = ({ h }: { h: string }) => <span style={{ display: "contents" }} dan
 const pill = (t: string, c: string) => (
   <span className="pill" style={{ background: c + "29", color: c }}>{t}</span>
 );
-export const engineOf = (p: Persona) => (p === "sonnet" ? "claude" : p);
 // Only Claude has an adapter today; Codex and Gemini stay honest about it.
 export const ADAPTERS = new Set(["claude"]);
-export function personaStatus(p: Persona, engines: EngineReport[]) {
-  const e = engines.find((x) => x.engine === engineOf(p));
+export const ENGINE_LABEL: Record<string, string> = { codex: "Codex CLI", claude: "Claude Code", gemini: "Gemini CLI" };
+/** whether a persona on this engine can run here right now */
+export function personaStatus(engine: string, engines: EngineReport[]) {
+  const e = engines.find((x) => x.engine === engine);
   if (!e || !e.installed) return { ready: false, label: "Not installed", color: T.dim };
   if (!ADAPTERS.has(e.engine)) return { ready: false, label: "Adapter not built yet", color: T.dim };
   if (e.auth !== "ok") return { ready: false, label: "Login needed", color: T.amber };
@@ -106,7 +107,7 @@ function Engines({ state, invoke, back: goBack, go }: { state: State; invoke: In
   const [checking, setChecking] = useState(false);
   const check = async () => { setChecking(true); await invoke("doctor"); setChecking(false); };
   useEffect(() => { void check(); }, []);
-  const ready = (["claude"] as const).filter((e) => personaStatus(e, state.engines).ready).length;
+  const ready = (["codex", "claude", "gemini"] as const).filter((e) => personaStatus(e, state.engines).ready).length;
   return (
     <Frame step="engines" footer={<><Btn kind="o" onClick={goBack}>{back}Back</Btn><div className="row g12"><span className="s13 dim">{ready} of 3 ready · you can continue with at least one</span><Btn kind="g" disabled={!ready} onClick={go}>Continue{next}</Btn></div></>}>
       <div className="s24 b">Connect your engines</div>
@@ -172,13 +173,25 @@ const TEMPLATES: [Template, string, string, number, number][] = [
   ["triad", "Triad", "1 builder, 2 reviewers in parallel", 6, 2],
   ["roundtable", "Roundtable", "Everyone talks, no file edits", 4, 0],
 ];
-const PERSONAS: Persona[] = ["codex", "claude", "sonnet", "gemini"];
-const NAME: Record<Persona, string> = { codex: "Codex", claude: "Claude Opus", sonnet: "Claude Sonnet", gemini: "Gemini" };
+/** "Claude Code · sonnet · effort high" */
+export const personaLine = (p: PersonaDef) => [ENGINE_LABEL[p.engine], p.model || "CLI default model", p.effort && `effort ${p.effort}`].filter(Boolean).join(" · ");
 
 function Team({ state, invoke, projectId, back: goBack, done }: { state: State; invoke: Invoke; projectId: string; back: () => void; done: (id: string) => void }) {
   const [template, setTemplate] = useState<Template>("build_review");
-  const [roles, setRoles] = useState<Record<Persona, string>>({ codex: "Free", claude: "Reviewer", sonnet: "Builder", gemini: "Free" });
-  const role = (p: Persona) => (personaStatus(p, state.engines).ready ? roles[p] : "Free");
+  const PERSONAS = state.personas.map((p) => p.id);
+  const def = (id: Persona) => state.personas.find((p) => p.id === id)!;
+  const ok = (id: Persona) => personaStatus(def(id).engine, state.engines).ready;
+  // first ready persona named Sonnet builds, Opus reviews; everyone else starts free
+  const [roles, setRoles] = useState<Record<Persona, string>>(() => {
+    const out: Record<Persona, string> = {};
+    for (const p of state.personas) out[p.id] = "Free";
+    const b = state.personas.find((p) => /sonnet/i.test(p.name) && ok(p.id)) ?? state.personas.find((p) => ok(p.id));
+    const r = state.personas.find((p) => /opus/i.test(p.name) && ok(p.id) && p !== b);
+    if (b) out[b.id] = "Builder";
+    if (r) out[r.id] = "Reviewer";
+    return out;
+  });
+  const role = (p: Persona) => (ok(p) ? roles[p] ?? "Free" : "Free");
   const builder = PERSONAS.find((p) => role(p) === "Builder");
   const reviewers = PERSONAS.filter((p) => role(p) === "Reviewer");
   const need = TEMPLATES.find((t) => t[0] === template)![4];
@@ -215,16 +228,16 @@ function Team({ state, invoke, projectId, back: goBack, done }: { state: State; 
       <div className="card" style={{ overflow: "hidden" }}>
         <div className="row s12 dim" style={{ padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}><span style={{ width: 250 }}>Persona</span><span style={{ width: 200 }}>Role</span><span style={{ width: 200 }}>Engine · model</span><span className="f1">Status</span></div>
         {PERSONAS.map((p) => {
-          const s = personaStatus(p, state.engines);
+          const s = personaStatus(def(p).engine, state.engines);
           return (
             <div key={p} className="row" style={{ padding: "10px 16px", borderTop: `1px solid ${T.line2}`, opacity: s.ready ? 1 : 0.5 }}>
-              <span className="row g10" style={{ width: 250 }}><Html h={av(p, 30)} /><span className="s14 b">{NAME[p]}</span></span>
+              <span className="row g10" style={{ width: 250 }}><Html h={av(def(p).avatar, 30)} /><span className="s14 b">{def(p).name}</span></span>
               <span style={{ width: 200 }}>
-                <select aria-label={`Role for ${NAME[p]}`} disabled={!s.ready} value={s.ready ? roles[p] : "Free"} onChange={(e) => setRole(p, e.target.value)} style={{ fontSize: 13, padding: "4px 9px", width: 150 }}>
+                <select aria-label={`Role for ${def(p).name}`} disabled={!s.ready} value={role(p)} onChange={(e) => setRole(p, e.target.value)} style={{ fontSize: 13, padding: "4px 9px", width: 150 }}>
                   <option>Builder</option><option>Reviewer</option><option>Free</option>
                 </select>
               </span>
-              <span style={{ width: 200 }} className="s13 sub">{p === "claude" ? "Claude Code · Opus" : p === "sonnet" ? "Claude Code · Sonnet" : p === "codex" ? "Codex CLI" : "Gemini CLI"}</span>
+              <span style={{ width: 200 }} className="s13 sub">{personaLine(def(p))}</span>
               <span className="f1 row g6 s13"><span style={{ width: 7, height: 7, borderRadius: 7, background: s.color, display: "block" }} />{s.label}</span>
             </div>
           );

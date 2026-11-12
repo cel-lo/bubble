@@ -2,10 +2,12 @@ import { z } from "zod";
 import { Host } from "./service";
 import { Store } from "../storage/store";
 import { controlServer } from "../control-api/server";
+import { MODEL_ID } from "../domain/command";
 const parent = (process as any).parentPort;
 const dir = process.argv[2];
 const host = new Host(new Store(dir));
-const persona = z.enum(["codex", "claude", "sonnet", "gemini"]);
+const persona = z.string().min(1).max(80);
+const effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 const api = await controlServer(host, dir, () =>
   parent.postMessage({ type: "open" }),
 );
@@ -95,6 +97,30 @@ parent.on("message", async ({ data }: any) => {
           .parse(input);
         host.commit();
         break;
+      case "persona.save":
+        result = host.savePersona(
+          z
+            .object({
+              id: z.string().max(80).optional(),
+              name: z.string().min(1).max(40),
+              engine: z.enum(["codex", "claude", "gemini"]),
+              // model ids go straight to the CLI as one argv entry; keep them to plain id characters
+              model: z.string().regex(MODEL_ID, "Model id may only use letters, digits and . : / - _ (max 80)").or(z.literal("")),
+              effort: effort.optional(),
+              strengths: z.array(z.string().min(1).max(30)).max(6),
+              avatar: z.enum(["codex", "claude", "sonnet", "gemini"]),
+            })
+            .parse(input),
+        );
+        break;
+      case "persona.delete":
+        result = host.deletePersona(z.string().parse(input));
+        break;
+      case "member": {
+        const v = z.object({ roomId: z.string(), persona, role: z.enum(["Reviewer", "Member", "Remove"]) }).parse(input);
+        result = host.member(v.roomId, v.persona, v.role);
+        break;
+      }
       case "quit":
         clearInterval(timer);
         await api.close();

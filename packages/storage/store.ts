@@ -23,6 +23,7 @@ export class Store {
           rooms: [],
           asks: [],
           engines: [],
+          personas: [],
           settings: { locale: "en", theme: "dark", idleMinutes: 15 },
         };
   }
