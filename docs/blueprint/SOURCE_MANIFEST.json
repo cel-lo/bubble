@@ -1,0 +1,576 @@
+{
+  "research_date": "2026-11-07",
+  "method": "static source review and upstream screenshot inspection; no upstream runtime test",
+  "snapshots": [
+    {
+      "repo": "illianaa/semaphore",
+      "sha": "e0880c3d5edaddec1fa1b3898fe15759b49d9c2e"
+    },
+    {
+      "repo": "hamedgitty/bloks",
+      "sha": "27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7"
+    }
+  ],
+  "files": [
+    {
+      "repository": "semaphore",
+      "path": "README.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/README.md",
+      "bytes": 14146,
+      "sha256": "d79c9ca55429fdc76378890a81989700bd912421f535418bbd9e2be78a40f608"
+    },
+    {
+      "repository": "semaphore",
+      "path": "DESIGN.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/DESIGN.md",
+      "bytes": 3847,
+      "sha256": "5d9cbfe235c50b09b44631528abc194e512c1e8e73f0da6614068c358be9c9d5"
+    },
+    {
+      "repository": "semaphore",
+      "path": "LICENSE",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/LICENSE",
+      "bytes": 1079,
+      "sha256": "a8a1b7f44272d017b459cf653fb85c6e684cd88eab009f4b367b0fbf03819ff3"
+    },
+    {
+      "repository": "semaphore",
+      "path": "package.json",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/package.json",
+      "bytes": 809,
+      "sha256": "729494f4b5d73f192f95b9881629e7979215bd81e0873bbf2d6a894d04ecfa1c"
+    },
+    {
+      "repository": "semaphore",
+      "path": "server.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/server.mjs",
+      "bytes": 29666,
+      "sha256": "3c51bc09f345cce2dcb09465d981b2563b503b5d649380aeeee03b58890fbf2d"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/ACCEPTANCE.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/ACCEPTANCE.md",
+      "bytes": 3968,
+      "sha256": "a2ec4de2bb182525eebb6858c8ca7960e3dfd04a4ea6508deb968142ff175246"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/LIVE-CONTRACT.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/LIVE-CONTRACT.md",
+      "bytes": 7075,
+      "sha256": "3ad4a5fe6ffc886a1cbddc5834ce17a01e73797c46f33e8d78e7359ffe5db655"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/artifacts.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/artifacts.md",
+      "bytes": 10798,
+      "sha256": "b357ed6529755d3fb2889656060b4638a04fa4ad7b14a08e381b62f9ed16b81f"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/human-attention.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/human-attention.md",
+      "bytes": 28339,
+      "sha256": "3ebb27442e8f9df28e586ba03636672c566dca627853167f6733acdfae1b7fc2"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/instant-wake.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/instant-wake.md",
+      "bytes": 13876,
+      "sha256": "209ed256ad50db7f97053922c367844f0957608c19d02150ff4a5d492ba98b16"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/interjections.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/interjections.md",
+      "bytes": 11263,
+      "sha256": "d027d80f7d53ef892c7a712e5bb1a3567dac2d3ef5f965ed10a75fbcda53f7b9"
+    },
+    {
+      "repository": "semaphore",
+      "path": "docs/ux-implementation.md",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/docs/ux-implementation.md",
+      "bytes": 6661,
+      "sha256": "cbc6dda1e64d0335c67f10d291225130d70040e4c769cdf9f7dacb3088ee6ff9"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/core.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/core.mjs",
+      "bytes": 42116,
+      "sha256": "43676fa0effbc63fcb087b45e161497e4a39c84f678d628e4f509b25e9636488"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/live.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/live.mjs",
+      "bytes": 30097,
+      "sha256": "07268401319c3179c8a4b658d867ddc268ef26b2a12824a99a962d0808083496"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/inputs.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/inputs.mjs",
+      "bytes": 3873,
+      "sha256": "95de172dab90d0c076012a97ec45771665e4e0dabc9dbee9a924f9e490e54bb6"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/artifacts.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/artifacts.mjs",
+      "bytes": 11314,
+      "sha256": "1ecedc9fc75707c94ce88fdd67c3ca22e335b995842f9cbbe5bf220b4804dd26"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/asks.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/asks.mjs",
+      "bytes": 6101,
+      "sha256": "ff70287bc02ddffbf3f70c475338a018c12f00c7ccfebaea755a2c61365f34a5"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/preview.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/preview.mjs",
+      "bytes": 10262,
+      "sha256": "ded0b21e94278de11af5484f86dc386655b0dcecbfa390e2b13a2e4c33cc18e0"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/install.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/install.mjs",
+      "bytes": 11058,
+      "sha256": "d688574740cd6d964121fa37d5e059120e5f7a1aac33df399982b54e782890e5"
+    },
+    {
+      "repository": "semaphore",
+      "path": "lib/adapters.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/lib/adapters.mjs",
+      "bytes": 11799,
+      "sha256": "51416671293f0b5d79f2db89b1b553485ea11602f3a5f2658e24549c96ecac25"
+    },
+    {
+      "repository": "semaphore",
+      "path": "web/index.html",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/web/index.html",
+      "bytes": 20123,
+      "sha256": "8bec785dc698b90c5c01afc44e66e1afb04de93038017ab295d7315f5e348087"
+    },
+    {
+      "repository": "semaphore",
+      "path": "web/styles.css",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/web/styles.css",
+      "bytes": 90776,
+      "sha256": "6b563f2ba08c5e0fe667c3ed22a17567d8e7842cecaf9d66aa162cee87aa1267"
+    },
+    {
+      "repository": "semaphore",
+      "path": "web/app.js",
+      "status": "saved",
+      "source_url": "https://github.com/illianaa/semaphore/blob/e0880c3d5edaddec1fa1b3898fe15759b49d9c2e/web/app.js",
+      "bytes": 120919,
+      "sha256": "325753d4c8b48d588de3366ec005ccb88458a3f822727d6b0101ae346b11bcf6"
+    },
+    {
+      "repository": "bloks",
+      "path": "README.md",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/README.md",
+      "bytes": 58006,
+      "sha256": "16fc8222cea27fd7e4bb3d4bd4776343a73151d46d85f2c699941103f4d7b7a8"
+    },
+    {
+      "repository": "bloks",
+      "path": "LICENSE",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/LICENSE",
+      "bytes": 4212,
+      "sha256": "7bb2890092cb6f72249a10cfd1f2e61ac0bb3e0a4d09aea06b36683dd7b0fe52"
+    },
+    {
+      "repository": "bloks",
+      "path": "LICENSING.md",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/LICENSING.md",
+      "bytes": 2585,
+      "sha256": "ef1cf29497f03acae90f52fc0a693602c4367d5526d736315dc96b4e8aa6e764"
+    },
+    {
+      "repository": "bloks",
+      "path": "package.json",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/package.json",
+      "bytes": 3428,
+      "sha256": "f66a5d1d23e6c492cf2e33c92d282083f22c3d4fabc341924c3e2886db466e6d"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/ARCHITECTURE.md",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/ARCHITECTURE.md",
+      "bytes": 320554,
+      "sha256": "748f82c8b08989f1ed1525b3f31251686e6d8ad81a1a3a63baf1bf303c392e69"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/GENERATIVE_UI.md",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/GENERATIVE_UI.md",
+      "bytes": 13220,
+      "sha256": "8de593bdfe8b891e0e2579facfa665ab777317cac71f0b3065ce3c607e254968"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/SCRIPTING.md",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/SCRIPTING.md",
+      "bytes": 11616,
+      "sha256": "09ef113c459209244e749c230fe62959a193472af907ec845d0f113947d097f9"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/App.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/App.tsx",
+      "bytes": 17125,
+      "sha256": "ebdc091044746a4567a7c1fcb9cf0c43672753d57e47afdb6f4a672edd404662"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/styles.css",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/styles.css",
+      "bytes": 35993,
+      "sha256": "a65aa78a54ed03aea6725aef1d09da891d1df104e5279f5f43170fb7ca4674d4"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/room-route.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/room-route.ts",
+      "bytes": 12784,
+      "sha256": "7f331d06d4467a93272f3aa0c766ebcde39ce881e8aa1719f52f1afe083369db"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/agent-chain.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/agent-chain.ts",
+      "bytes": 10554,
+      "sha256": "e0be3256f62ed727cd4bb5026781b5481c37ff121738c865e0cb4cb4dd6b4658"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/branch.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/branch.ts",
+      "bytes": 9094,
+      "sha256": "5ced25841fae764dcf2b19ccd7e51e5024aa3ce7280890473721864267557748"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/session-import.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/session-import.ts",
+      "bytes": 49211,
+      "sha256": "8f14d8246f2e6eb26d05e1a4ada328b2e9b9fba8af55be86038c7b63fcda0f9c"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/context.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/context.ts",
+      "bytes": 36984,
+      "sha256": "cd40ec65dbe1ee983c4a001d471a051eff5e8bbbfe4d5b3d3395249da5749787"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/turn-context.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/turn-context.ts",
+      "bytes": 5059,
+      "sha256": "7a0fbf97e242828251402e08bca48a02f1699799b93f4fff04df761b88bff26a"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/store.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/store.ts",
+      "bytes": 85578,
+      "sha256": "76dc4bcbd4cda5d9e7cf9b648a1f4c8f8bad9341fe9153999d99f625e6ce994c"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/providers.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/providers.ts",
+      "bytes": 18826,
+      "sha256": "810602f4383436df86f208d4e83525cbd398ce16bf11e0841a30fc53a3cdd290"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/policy.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/policy.ts",
+      "bytes": 24751,
+      "sha256": "46312939a75dc1d6c2d650f9e70a04abebd4e421dd30706ec1379cdf0d59f7fd"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/checkpoints.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/checkpoints.ts",
+      "bytes": 41372,
+      "sha256": "41d84ece6a996e00492d9e76b398c8394d313160829b4068462f986667e95d3c"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/rehearsals.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/rehearsals.ts",
+      "bytes": 7614,
+      "sha256": "881292a042bc5c71d6ac1213a422f1c6a50cc07457b48662d07c9b42e986ae54"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/jobs.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/jobs.ts",
+      "bytes": 12657,
+      "sha256": "be43c6ae1679bd16d469c6beb7243752ebcfd7f2432039856f98e2552041cf61"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/goals.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/goals.ts",
+      "bytes": 18726,
+      "sha256": "58f206e9f8c47d3a0171b434e4802112e1519a8912b91d10e88df30e75d72b05"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/attention.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/attention.ts",
+      "bytes": 4501,
+      "sha256": "0393ee5dd6147db148a8320481cf716f4994f0234e6de20f4206a35c01fbbded"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/memory-journal.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/memory-journal.ts",
+      "bytes": 11642,
+      "sha256": "9ba215cd5e6f4f0b392ae1065e74b200e0cef13807de8b1e7ab91fd26cd3f337"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/workflows.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/workflows.ts",
+      "bytes": 27465,
+      "sha256": "e172222662a0c92a8b993cb6f8b41b38365c1ee26b8a8e84312be99301d40d2c"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/workspace.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/workspace.ts",
+      "bytes": 21674,
+      "sha256": "3d1790d4705e94642acb5da210b170bad5c5304b85d6dab511bf70d6e5af438d"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/access.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/access.ts",
+      "bytes": 16964,
+      "sha256": "cb6a1e6d02b19e6dbb39504436118911080f8b749e0a4a67b6d18746c328dcf9"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/failover.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/failover.ts",
+      "bytes": 20554,
+      "sha256": "91db19e9493f3627e663f7cfabcfcdf56ffdb854849f0bbef3420ed0ad1ff35c"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/delivery.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/delivery.ts",
+      "bytes": 10841,
+      "sha256": "c77567998a440bf96a59ef09b8455e068615ed3b24cad3192941428229393794"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/engine-readiness.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/engine-readiness.ts",
+      "bytes": 3714,
+      "sha256": "ca39ccdfa9297db1fbc12d27da6999822c91a870acefb6a922d9e29f88b6fd34"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/engine-setup.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/engine-setup.ts",
+      "bytes": 11792,
+      "sha256": "ebc9631889aab819ba01b75153f9e0b60c0d843907458551dc548d663c268a17"
+    },
+    {
+      "repository": "bloks",
+      "path": "electron/main.mjs",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/electron/main.mjs",
+      "bytes": 178724,
+      "sha256": "0aa9060440b99a82600365f48700c42ef9af940c145e345d8fcd362dbd4302a2"
+    },
+    {
+      "repository": "bloks",
+      "path": "electron/preload.cjs",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/electron/preload.cjs",
+      "bytes": 10621,
+      "sha256": "d7511ca017b8679366347761f5a1145b5fc367e2e63c7b1aa5517d3f0904e368"
+    },
+    {
+      "repository": "bloks",
+      "path": "electron-builder.yml",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/electron-builder.yml",
+      "bytes": 8094,
+      "sha256": "060b59deaf93b689dfcab180c0d959ef765772e7780a38286f3fb80f4c32cc47"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/contracts.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/contracts.ts",
+      "bytes": 34721,
+      "sha256": "d4480957b60f5d3a84cf9ff07eec12518fca7b12546fce9a1550200c2d56e1c7"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/drivers/claude.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/drivers/claude.ts",
+      "bytes": 94253,
+      "sha256": "ca6e96f38b512627347188bcaebc91708cbf792b86df10141a28f31fb45a8ce2"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/drivers/codex.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/drivers/codex.ts",
+      "bytes": 108352,
+      "sha256": "6ed82fb77644e427ffd37bf2e3a16efd44e513101e8c8a876851b4e170c2eb4b"
+    },
+    {
+      "repository": "bloks",
+      "path": "server/harness/jsonrpc-stdio.ts",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/server/harness/jsonrpc-stdio.ts",
+      "bytes": 4958,
+      "sha256": "3fee8d67a707583eab5998e3f896afb1c8084ef1d92688f00fd8b10e305e2957"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/AppRail.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/AppRail.tsx",
+      "bytes": 7476,
+      "sha256": "3deadce3e86c476f83e32f83c5f02dd6a028a1f6e2b69091a529e5a6edd72c63"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/RoomView.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/RoomView.tsx",
+      "bytes": 69785,
+      "sha256": "2bd82c2ec9d5ec39f841e3022d178d20bcc4bc22e491352fe6b8e744d3a5b435"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/Sidebar.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/Sidebar.tsx",
+      "bytes": 55920,
+      "sha256": "9d2f2db7ecfd2fe726528e1fa1338ab818d4b305c4ab533506155d19c14daace"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/Artifacts.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/Artifacts.tsx",
+      "bytes": 35999,
+      "sha256": "2c9cc96d6a229f688205fd2cc77187fe2c23573107b890f7fa203cd35508c153"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/WaitingStrip.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/WaitingStrip.tsx",
+      "bytes": 36023,
+      "sha256": "c10ba7097b21edc1f3b14057642e93f62372be681c6579d817daed6eec4381c0"
+    },
+    {
+      "repository": "bloks",
+      "path": "src/components/Composer.tsx",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/src/components/Composer.tsx",
+      "bytes": 55449,
+      "sha256": "60429b16c577eac87abe43da721e763d22f9c5fda562af94d20d97af5152ed10"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/screenshots/hero.png",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/screenshots/hero.png",
+      "bytes": 402252,
+      "sha256": "274d539b6317408a9a79522ef91baac97d766ed4cf5c102237104181b66a6e10"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/screenshots/hero-dark.png",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/screenshots/hero-dark.png",
+      "bytes": 400368,
+      "sha256": "66a32a51e8c40c9c8045be57d222a33a35fad16b5c838a8a6d672823ae6d048d"
+    },
+    {
+      "repository": "bloks",
+      "path": "docs/screenshots/memory.png",
+      "status": "saved",
+      "source_url": "https://github.com/hamedgitty/bloks/blob/27494d1e3947ef5efe1ea8bbfdf64e2ba37d71a7/docs/screenshots/memory.png",
+      "bytes": 238736,
+      "sha256": "9836965711158025f2316dbcfc849bddf3bae44824b738bc923af27f0bfc4665"
+    }
+  ]
+}

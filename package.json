@@ -1,0 +1,55 @@
+{
+  "name": "walt-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/desktop/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "test": "node scripts/test.mjs",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run build && electron-builder --win dir",
+    "package:portable": "npm run build && electron-builder --win portable",
+    "typecheck:core": "tsc --project tsconfig.core.json",
+    "smoke:claude": "node scripts/smoke-claude.mjs",
+    "smoke:provider": "node scripts/smoke-provider.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "0.23.1",
+    "typescript": "6.0.3",
+    "vitest": "^3.2.0",
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prettier": "3.8.3"
+  },
+  "build": {
+    "appId": "local.cello.walt",
+    "productName": "Walt",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Walt.exe"
+    }
+  }
+}

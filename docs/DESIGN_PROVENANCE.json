@@ -1,0 +1,22 @@
+[
+  {
+    "file": "kit.mjs",
+    "sha256": "1d2e78409d8247fb6aece7ea09d4994435cc21b6994732f6ebb304d946a3dbec",
+    "identicalToOriginal": true
+  },
+  {
+    "file": "screens.mjs",
+    "sha256": "d7421b847c56016081b2ba6a63a08e3469d1671f1e0dcaa65d0648b9217218c8",
+    "identicalToOriginal": true
+  },
+  {
+    "file": "screens2.mjs",
+    "sha256": "835114fddcb67a125adbb848139de336209092f11bb50179520b4b93cf397fa3",
+    "identicalToOriginal": true
+  },
+  {
+    "file": "screens-all.mjs",
+    "sha256": "a57082704184fe2af10467a6b93eec297d71a9986c2e5c8870484f506708c1e1",
+    "identicalToOriginal": true
+  }
+]

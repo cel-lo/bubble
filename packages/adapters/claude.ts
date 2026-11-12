@@ -1,0 +1,222 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
+import { cleanEnv } from "./environment";
+export type Approval = (tool: string, input: unknown) => Promise<boolean>;
+export class ClaudeSession {
+  private child: ChildProcessWithoutNullStreams;
+  private pending?: {
+    resolve: (text: string) => void;
+    reject: (e: Error) => void;
+    delta: (text: string) => void;
+    approve: Approval;
+    text: string;
+  };
+  private ready: Promise<void>;
+  private closed = false;
+  private stderr = "";
+  lastActive = Date.now();
+  sessionId = "";
+  constructor(
+    executable: string,
+    cwd: string,
+    model: string,
+    readonly: boolean,
+  ) {
+    const args = [
+      "--print",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+      "--permission-prompt-tool",
+      "stdio",
+      "--permission-mode",
+      "manual",
+      "--restricted",
+      "--strict-mcp-config",
+      "--mcp-config",
+      '{"mcpServers":{}}',
+      "--setting-sources=",
+      "--disable-slash-commands",
+      "--tools",
+      readonly ? "Read,Glob,Grep" : "Read,Glob,Grep,Write,Edit",
+      "--model",
+      model,
+    ];
+    this.child = spawn(executable, args, {
+      cwd,
+      env: cleanEnv(),
+      shell: false,
+      windowsHide: true,
+    });
+    this.child.stderr.on("data", (b) => {
+      this.stderr = (this.stderr + b).slice(-4000);
+    });
+    let readyResolve: () => void, readyReject: (e: Error) => void;
+    this.ready = new Promise((resolve, reject) => {
+      readyResolve = resolve;
+      readyReject = reject;
+    });
+    const timer = setTimeout(
+      () => readyReject(new Error("Claude handshake timed out")),
+      30000,
+    );
+    this.ready.finally(() => clearTimeout(timer)).catch(() => {});
+    this.child.on("error", (e) => {
+      readyReject(e);
+      this.fail(e);
+    });
+    this.child.on("close", (code) => {
+      this.closed = true;
+      const error = new Error(
+        this.stderr || `Claude closed (${code}); outcome may be uncertain`,
+      );
+      readyReject(error);
+      this.fail(error);
+    });
+    createInterface({ input: this.child.stdout }).on("line", (line) => {
+      if (!line.trim().startsWith("{")) return;
+      try {
+        const e = JSON.parse(line);
+        if (
+          e.type === "control_response" &&
+          e.response?.request_id === "init"
+        ) {
+          if (e.response.subtype === "error")
+            readyReject(new Error(e.response.error));
+          else readyResolve();
+        }
+        if (e.type === "system" && e.session_id) this.sessionId = e.session_id;
+        if (e.type === "control_request") {
+          void this.permission(e, readonly);
+          return;
+        }
+        const p = this.pending;
+        if (!p) return;
+        if (
+          e.type === "stream_event" &&
+          e.event?.delta?.type === "text_delta"
+        ) {
+          p.text += e.event.delta.text;
+          p.delta(e.event.delta.text);
+        }
+        if (e.type === "result") {
+          this.lastActive = Date.now();
+          this.pending = undefined;
+          if (e.is_error)
+            p.reject(new Error(e.result || e.errors?.join("\n") || e.subtype));
+          else p.resolve(e.result || p.text);
+        }
+      } catch (err) {
+        this.fail(new Error("Invalid Claude stream: " + String(err)));
+      }
+    });
+    this.write({
+      type: "control_request",
+      request_id: "init",
+      request: { subtype: "initialize", hooks: {} },
+    });
+  }
+  private write(value: unknown) {
+    if (!this.closed) this.child.stdin.write(JSON.stringify(value) + "\n");
+  }
+  private fail(error: Error) {
+    this.pending?.reject(error);
+    this.pending = undefined;
+  }
+  private async permission(e: any, readonly: boolean) {
+    const r = e.request;
+    let result: unknown = {
+      behavior: "deny",
+      message: "Unsupported control request",
+    };
+    if (r?.subtype === "can_use_tool") {
+      const read = ["Read", "Glob", "Grep"].includes(r.tool_name);
+      const allowed =
+        read ||
+        (!readonly &&
+          !!this.pending &&
+          (await this.pending.approve(r.tool_name, r.input)));
+      result = allowed
+        ? { behavior: "allow", updatedInput: r.input }
+        : {
+            behavior: "deny",
+            message: "Denied by Walt permission policy or user",
+          };
+    }
+    this.write({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: e.request_id,
+        response: result,
+      },
+    });
+  }
+  async warm() {
+    await this.ready;
+  }
+  async run(prompt: string, delta: (text: string) => void, approve: Approval) {
+    await this.ready;
+    if (this.closed) throw new Error("Claude process is closed");
+    if (this.pending) throw new Error("Session already busy");
+    return new Promise<string>((resolve, reject) => {
+      this.pending = { resolve, reject, delta, approve, text: "" };
+      this.write({
+        type: "user",
+        message: { role: "user", content: prompt },
+        parent_tool_use_id: null,
+        session_id: this.sessionId || "",
+      });
+    });
+  }
+  interrupt() {
+    this.write({
+      type: "control_request",
+      request_id: randomUUID(),
+      request: { subtype: "interrupt" },
+    });
+  }
+  get alive() {
+    return !this.closed;
+  }
+  get busy() {
+    return !!this.pending;
+  }
+  async stop() {
+    if (this.closed) return;
+    this.interrupt();
+    this.child.stdin.end();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.child.pid) {
+          const killer = spawn(
+            "taskkill.exe",
+            ["/PID", String(this.child.pid), "/T", "/F"],
+            {
+              windowsHide: true,
+              shell: false,
+            },
+          );
+          killer.once("error", reject);
+          killer.once("close", (code) => {
+            if (code === 0 || this.closed) resolve();
+            else
+              reject(
+                new Error(
+                  "Process shutdown could not be verified. Restart Walt and inspect recovery.",
+                ),
+              );
+          });
+        } else resolve();
+      }, 3000);
+      this.child.once("close", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+}
