@@ -1,22 +1,29 @@
-# Compatibility evidence — 2026-11-12
+# Compatibility evidence — 2026-11-13
+
+Measured on cello's laptop (normal Windows user session), not in a sandbox.
 
 | Component | Observed | Evidence / limitation |
 |---|---|---|
-| Node | 26.13.0 | Local build and SQLite tests |
-| npm | 11.20.0 | Registry request fails with ENOTFOUND in sandbox |
-| Claude Code | 2.1.322 | `claude --version`, local CLI help |
-| Claude auth | CLI reports claude.ai login | No credentials copied or stored by Walt |
-| Claude transport | stream-json stdin/stdout | Real initialization handshake passed |
-| Claude model output | Unverified | 45-second bounded smoke blocked by EPERM creating the CLI OAuth refresh lock |
-| Claude permission callback | Implemented, unverified end to end | Native `--permission-prompt-tool stdio`; never bypass permissions |
-| Claude warm turns / resume | Unverified / incomplete | Process retained between runs; session persistence/resume not implemented |
-| Codex | Not found on PATH | Adapter pending |
-| Gemini | Not found on PATH | ACP adapter pending |
-| Electron | Not installed | Source bundles; executable and runtime SQLite ABI unverified |
-| Ce:L API | In-process request tests pass | Actual loopback socket requests fail EACCES in sandbox |
+| Node | 26.13.0 | Build, tests, smoke scripts |
+| npm | 11.20.0 | Registry reachable. npm 11 blocks install scripts by default: `allowScripts` in package.json approves electron, esbuild, electron-winstaller |
+| Electron | 39.8.10 | Runs Walt. Its own `install.js` extracted only `locales/` under Node 26 although the cached zip tests clean; workaround below |
+| node:sqlite in Electron utility process | Works | `walt.sqlite` + `-wal`/`-shm` created on first launch |
+| Claude Code | 2.1.322 at `%USERPROFILE%\.local\bin\claude.exe` | Flags used by the adapter all exist in `claude --help` |
+| Claude auth | claude.ai subscription login from the CLI | No credentials copied or stored by Walt |
+| Claude model output | Verified | `smoke:provider` → `WALT_OK` |
+| Claude permission callback | Verified, allow and deny | `smoke:tools`: Write routed through Walt's broker; allowed write lands, denied write does not |
+| Claude warm turns | Verified | Second turn on the same PID, 3.3 s including the model |
+| Claude read-only reviewer | Verified | Write tools not offered; nothing written, nothing asked |
+| Claude resume after sleep | Not implemented | Session id is captured but `--resume` is not passed after eviction |
+| Process exit with Walt | Verified for a forced kill | Both Walt Claude processes exited when Electron was killed (stdin closed). Job Objects still needed for tool child processes |
+| Ce:L control API | Verified over real loopback | hello/state/feed 200, no token 401, browser Origin 403 |
+| Codex | Not installed | Adapter pending |
+| Gemini | Not installed | ACP adapter pending |
 
-The local Claude help verifies `--input-format stream-json`, `--output-format stream-json`, `--include-partial-messages`, `--restricted`, `--permission-mode manual`, `--tools`, `--setting-sources`, and `--strict-mcp-config`. The initialization test verifies acceptance of the stdio permission prompt configuration. It does not prove a real tool permission round trip.
+Electron binary workaround (only when `node_modules/electron/dist/electron.exe` is missing after install):
 
-Builder tools currently expose Read/Glob/Grep/Write/Edit only. Shell execution remains disabled until permission callbacks and Windows process-tree containment are proven. Reviewer tools expose only Read/Glob/Grep. Do not silently enable Bash or bypass flags.
+```bash
+cd node_modules/electron && rm -rf dist && unzip -q "$LOCALAPPDATA/electron/Cache/<hash>/electron-v39.8.10-win32-x64.zip" -d dist && printf electron.exe > path.txt
+```
 
-Reference checked: official Anthropic Python SDK subprocess transport, https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/_internal/transport/subprocess_cli.py. No provider version/model capability was inferred from design placeholder labels.
+Builder tools expose Read/Glob/Grep/Write/Edit only. Shell execution stays disabled until Windows process-tree containment is proven. Reviewer tools expose only Read/Glob/Grep. Do not silently enable Bash or bypass flags.

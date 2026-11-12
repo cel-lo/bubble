@@ -14,7 +14,8 @@
     "package:portable": "npm run build && electron-builder --win portable",
     "typecheck:core": "tsc --project tsconfig.core.json",
     "smoke:claude": "node scripts/smoke-claude.mjs",
-    "smoke:provider": "node scripts/smoke-provider.mjs"
+    "smoke:provider": "node scripts/smoke-provider.mjs",
+    "smoke:tools": "node scripts/smoke-tools.mjs"
   },
   "dependencies": {
     "react": "19.2.5",
@@ -51,5 +52,10 @@
     "portable": {
       "artifactName": "Walt.exe"
     }
+  },
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "esbuild": true,
+    "electron-winstaller@5.4.0": true
   }
 }

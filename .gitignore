@@ -6,3 +6,5 @@ test-results/
 *.log
 .build-deps/
 apps/ui/generated/
+tests/fixtures/provider-smoke/
+tests/fixtures/tools-smoke/

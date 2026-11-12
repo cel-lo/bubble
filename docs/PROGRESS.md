@@ -1,29 +1,22 @@
-# Progress checkpoint — 2026-11-12
+# Progress checkpoint — 2026-11-13
 
-## Completed work
+## P0 status: passed for Claude (Opus + Sonnet); open for Codex and Gemini
 
-- Read PRD and blueprint architecture, flows, Ce:L contract, roadmap and model handoff instructions.
-- Copied blueprint v1.1 and original FigCraft generation sources into D:\WALT.
-- Built desktop/main/preload, isolated host, React UI and live setup bindings without editing FigCraft.
-- Implemented local persistence, project/room operations, manifests, budgeting, basic collaboration sequencing, a Claude transport and a restricted island API.
-- Formatted source and separated transport, storage, domain, host and UI concerns.
+Done on the real laptop session:
 
-## Verification
+- Git repository created; baseline commit of Astra's scaffold.
+- `npm install` with Electron 39.8.10 (see COMPATIBILITY.md for the npm 11 / extraction notes).
+- `npm run smoke:provider`: Claude answered `WALT_OK`.
+- `npm run smoke:tools`: permission broker allow + deny, warm second turn on the same process, read-only reviewer.
+- Walt launched in Electron: host + node:sqlite up, control API answers over loopback.
+- End-to-end from the UI composer (fixture project in `test-results/fixture-bibi`): Sonnet builder asked for Edit, the approval card showed the full input, Allow once → file edited → artifact r1 registered → Opus reviewed the same hash read-only. Screenshots `test-results/p0-0*.png` (git-ignored).
+- `node scripts/cdp.mjs` drives the window over DevTools when Walt runs with `--remote-debugging-port=9555`.
 
-- `node scripts/build.mjs`: passed.
-- `node scripts/test.mjs`: 6 tests passed (root overlap, budgets, environment credentials, Unicode manifests, restart recovery, island authentication/revisions/deduplication/approval denial).
-- `tsc --project tsconfig.core.json`: passed.
-- `node scripts/smoke-claude.mjs`: real Claude initialization handshake passed. No model prompt sent.
-- `node scripts/smoke-provider.mjs`: failed after bounded 45 seconds. Sandbox denied creation of Claude's OAuth refresh lock. No successful generation claimed.
-- Original design source hashes match all four original source modules.
+## Found while testing (next work, in order)
 
-## Blockers and next work
-
-1. Electron install failed because registry.npmjs.org DNS is unavailable in the execution sandbox. Existing local React/Zod/esbuild/TypeScript packages were copied solely to enable build and core checks. A clean normal npm install and lockfile are still required.
-2. Loopback requests are denied EACCES by this sandbox. API routing tests dispatch directly to the real HTTP request handler. Socket connectivity is unverified.
-3. Claude login refresh cannot write outside the workspace in this sandbox. Run real-provider tests from the normal Windows user session.
-4. Codex and Gemini are missing. Install/login and implement adapters before declaring P0 complete.
-5. Complete every pending row in PARITY.md. In particular, do not enable shell tools before permissions and process containment have passed tests.
-6. Run Electron and verify all implemented screens visually against FigCraft. No full UI parity or usable v1 claim yet.
-
-No executable has been produced or app launched. `Install-Walt.cmd` and `Start-Walt.cmd` are prepared for the normal Windows environment. The user's requested complete application is unfinished.
+1. Setup screens rebind design HTML imperatively; after Back the New project screen re-renders the design's sample data (BIBI, D:\Projects\BIBI, "Git repository found"). Fake data in the real UI — fix first.
+2. First launch goes straight to Projects; W01 Welcome and W02 Doctor are not shown. Doctor is never run, so the sidebar says "0 engines signed in".
+3. Room view vs W06–W09: template shown as raw id (`build_review`), workflow strip stays on Build after review, persona status reads "Asleep · …" while a process is warm or busy, agent Markdown is not rendered, no deliverable card / Accept, Codex and Gemini listed although not installed.
+4. Whole state (all messages) is rewritten as one JSON row every 200 ms while streaming. Move messages to their own table before histories grow.
+5. Resume after idle eviction (`--resume <session id>`), fix + re-review loop, decision asks, roles per task, Job Objects for tool child processes.
+6. Codex (`npm install -g @openai/codex`, then `codex login`) and Gemini (`npm install -g @google/gemini-cli`, then `gemini`) must be installed and signed in by cello; then build their adapters to finish P0.
