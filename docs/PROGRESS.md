@@ -23,6 +23,6 @@ Done on the real laptop session:
 ## Found while testing (next work, in order)
 
 1. Settings pages, Projects home (W27) and Tasks still use the old placeholder layouts; light theme and Indonesian copy not checked.
-4. Whole state (all messages) is rewritten as one JSON row every 200 ms while streaming. Move messages to their own table before histories grow.
-5. Resume after idle eviction (`--resume <session id>`), fix + re-review loop, decision asks, roles per task, Job Objects for tool child processes.
-6. Codex (`npm install -g @openai/codex`, then `codex login`) and Gemini (`npm install -g @google/gemini-cli`, then `gemini`) must be installed and signed in by cello; then build their adapters to finish P0.
+2. Whole state (all messages) is rewritten as one JSON row every 200 ms while streaming. Move messages to their own table before histories grow.
+3. Resume after idle eviction (`--resume <session id>`), fix + re-review loop, decision asks, roles per task, Job Objects for tool child processes.
+4. Codex (`npm install -g @openai/codex`, then `codex login`) and Gemini (`npm install -g @google/gemini-cli`, then `gemini`) must be installed and signed in by cello; then build their adapters to finish P0.
