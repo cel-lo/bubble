@@ -84,6 +84,12 @@ export class Supervisor {
     }
     return s;
   }
+  /** live agent processes, for the UI (not persisted) */
+  list() {
+    return [...this.sessions]
+      .filter(([, s]) => s.alive)
+      .map(([key, s]) => ({ room: key.split(":")[0], persona: key.split(":")[1] as Persona, busy: s.busy }));
+  }
   interrupt(room: string) {
     for (const [key, s] of this.sessions)
       if (key.startsWith(room + ":")) s.interrupt();

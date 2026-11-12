@@ -173,3 +173,12 @@ test("island rejects browser origins, bad auth and approvals; supports revisions
     await rm(dir, { recursive: true });
   }
 });
+import { md } from "../apps/ui/markdown";
+test("agent markdown is escaped before formatting", () => {
+  const out = md('## Verdict\nUse `a<b` and **bold** <img src=x onerror=alert(1)>\n```js\nif (a < b) return "x";\n```\ndone');
+  assert.ok(!out.includes("<img"), "raw HTML must not survive");
+  assert.match(out, /<div class="b"[^>]*>Verdict<\/div>/);
+  assert.match(out, /<span class="mono"[^>]*>a&lt;b<\/span>/);
+  assert.match(out, /<b>bold<\/b>/);
+  assert.match(out, /<pre class="mono"[^>]*>if \(a &lt; b\) return &quot;x&quot;;<\/pre>done$/);
+});

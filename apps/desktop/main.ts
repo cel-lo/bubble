@@ -29,7 +29,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
   app.whenReady().then(async () => {
-    app.setPath("userData", join(app.getPath("appData"), "Walt"));
+    // WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Walt
+    app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Walt"));
     child = utilityProcess.fork(
       join(__dirname, "../host/index.cjs"),
       [app.getPath("userData")],

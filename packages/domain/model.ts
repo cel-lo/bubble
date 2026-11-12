@@ -67,6 +67,8 @@ export interface State {
   rooms: Room[];
   asks: Ask[];
   engines: EngineReport[];
+  /** live agent processes; added to messages for the UI, never stored */
+  procs?: { room: string; persona: Persona; busy: boolean }[];
   settings: {
     locale: "en" | "id";
     theme: "dark" | "light";

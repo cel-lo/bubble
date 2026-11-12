@@ -9,9 +9,14 @@ const persona = z.enum(["codex", "claude", "sonnet", "gemini"]);
 const api = await controlServer(host, dir, () =>
   parent.postMessage({ type: "open" }),
 );
-host.on("state", (state) => parent.postMessage({ type: "state", state }));
+const view = () => ({ ...host.state, procs: host.supervisor.list() });
+host.on("state", () => parent.postMessage({ type: "state", state: view() }));
 const timer = setInterval(
-  () => void host.supervisor.sleep(host.state.settings.idleMinutes),
+  async () => {
+    const before = host.supervisor.list().length;
+    await host.supervisor.sleep(host.state.settings.idleMinutes);
+    if (host.supervisor.list().length !== before) parent.postMessage({ type: "state", state: view() });
+  },
   60000,
 );
 parent.on("message", async ({ data }: any) => {
@@ -20,7 +25,7 @@ parent.on("message", async ({ data }: any) => {
     let result: unknown;
     switch (method) {
       case "snapshot":
-        result = host.state;
+        result = view();
         break;
       case "doctor":
         result = await host.doctor();

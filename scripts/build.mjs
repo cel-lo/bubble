@@ -12,8 +12,6 @@ for (const key of ["codex", "gemini"])
     `const ${key}Png=${JSON.stringify("data:image/png;base64," + fs.readFileSync(`design/assets/${key}.png`).toString("base64"))};\n` +
     kit;
 fs.writeFileSync("apps/ui/generated/kit.mjs", kit);
-const { SCREENS } = await import("../design/screens-all.mjs");
-fs.writeFileSync("apps/ui/generated/screens.json", JSON.stringify(SCREENS));
 const { CSS } = await import("../design/kit.mjs");
 fs.writeFileSync(
   "dist/ui/design.css",

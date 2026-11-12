@@ -6,8 +6,8 @@
 |---|---|
 | Electron source, separate host, React build | Runs on Electron 39.8.10; node:sqlite works in the utility process |
 | Original FigCraft sources | Preserved byte-for-byte; hashes in DESIGN_PROVENANCE.json |
-| New-project / team setup | Original screen markup bound to live controls; visual QA pending |
-| Room layout | Reuses original shell/rail/sidebar/header/workflow/composer; full parity pending |
+| Onboarding W01–W04 | React views copying the frame layout; real data only (doctor, folder, roles); verified 2026-11-13 in Electron |
+| Room layout | Template/state labels, Build→Review steps, live persona status, Markdown, W09 result card + Accept; verified 2026-11-13. No test-evidence box until tests are tracked |
 | All 51 screens | Preserved as reference; not all are functional views |
 | Project roots / overlap checks | Implemented; junction identity uses realpath |
 | SQLite WAL / history / events | Implemented |
@@ -20,7 +20,7 @@
 | Fix and re-review | Pending structured findings and scheduler loop |
 | Handoff packets / manifests | Generated and stored; provider acknowledgement protocol pending |
 | Immutable artifact blobs / diff / conditional restore | Pending; only SHA-256 manifest stored |
-| Tool approval | Window broker implemented; live callback not yet proven |
+| Tool approval | Window broker verified live (ask.opened → ask.resolved, Claude transcript shows a once-grant) |
 | Decision/info asks and dependencies | Pending |
 | Budget / pause / interrupt | Implemented; native cancellation completion unverified |
 | Queue next / steer | Queue stored; dispatch and steer pending |
