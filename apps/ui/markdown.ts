@@ -3,9 +3,10 @@
 export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** pictures Walt saved (generated or attached): walt-img links become images; also used in your own bubbles */
+export const pics = (s: string) => s.replace(/!\[([^\]\n]*)\]\(walt-img:\/\/img\/([\w.-]+\.(?:png|jpe?g|webp|gif))\)/g, '<img class="gen" src="walt-img://img/$2" alt="$1" title="$1" data-hot="img:$2" style="display:block;max-width:min(100%,420px);border-radius:12px;margin:8px 0;cursor:zoom-in">');
 const inline = (s: string) =>
-  s
-    .replace(/!\[([^\]\n]*)\]\(walt-img:\/\/img\/([\w.-]+\.png)\)/g, '<img class="gen" src="walt-img://img/$2" alt="$1" title="$1" data-hot="img:$2" style="display:block;max-width:min(100%,420px);border-radius:12px;margin:8px 0;cursor:zoom-in">')
+  pics(s)
     .replace(/`([^`\n]+)`/g, '<span class="mono" style="font-size:.9em;background:#ffffff14;border-radius:5px;padding:1px 5px">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     // links show their text only (target in the tooltip): nothing in a message opens a browser or a file

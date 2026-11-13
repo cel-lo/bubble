@@ -1,6 +1,6 @@
 // What each AI may use besides the project files: built-in tools (images, web, apps), the user's own plugins and
 // MCP servers, found where Claude Code and Codex keep them. Walt only reads these configs; it never writes them.
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolSettings } from "../domain/model";
@@ -68,9 +68,20 @@ export function resolveTools(s: ToolSettings | undefined, mcp: string[]): ToolKi
 
 /** where generated images go (the host points this at <data>/images; the window serves them as walt-img://img/<name>) */
 export const media = { dir: join(tmpdir(), "walt-images") };
-/** save a generated PNG; returns the Markdown that shows it in the chat */
-export function saveImage(name: string, base64: string, alt = "image") {
-  const safe = name.replace(/[^\w.-]/g, "_").slice(0, 120) + ".png";
+export const IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "gif"];
+/** walt-img references in a message: the files, and the text with each picture named instead */
+export function attachments(text: string) {
+  const files: string[] = [];
+  const clean = text.replace(/!\[[^\]\n]*\]\(walt-img:\/\/img\/([\w.-]+\.(?:png|jpe?g|webp|gif))\)/g, (_, name: string) => {
+    const file = join(media.dir, name);
+    if (existsSync(file)) files.push(file);
+    return `[image attached: ${name}]`;
+  });
+  return { text: clean, files };
+}
+/** save a picture (generated or attached); returns the Markdown that shows it in the chat */
+export function saveImage(name: string, base64: string, alt = "image", ext = "png") {
+  const safe = name.replace(/[^\w.-]/g, "_").slice(0, 120) + "." + (IMAGE_EXT.includes(ext) ? ext : "png");
   mkdirSync(media.dir, { recursive: true });
   writeFileSync(join(media.dir, safe), Buffer.from(base64, "base64"));
   return `![${alt.replace(/[[\]\n]/g, " ").slice(0, 200)}](walt-img://img/${safe})`;

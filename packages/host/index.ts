@@ -161,6 +161,12 @@ parent.on("message", async ({ data }: any) => {
             .parse(input),
         );
         break;
+      case "image.save": {
+        // base64 of at most ~15 MB of picture
+        const v = z.object({ data: z.string().max(20_000_000).regex(/^[A-Za-z0-9+/=]+$/), ext: z.enum(["png", "jpg", "jpeg", "webp", "gif"]) }).parse(input);
+        result = host.saveAttachment(v.data, v.ext);
+        break;
+      }
       case "tools.list":
         result = host.tools();
         break;

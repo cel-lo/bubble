@@ -198,7 +198,7 @@ export class CodexSession {
   async warm() {
     await this.ready;
   }
-  async run(prompt: string, delta: (t: string) => void, approve: Approval) {
+  async run(prompt: string, delta: (t: string) => void, approve: Approval, images: string[] = []) {
     await this.ready;
     if (this.closed) throw new Error("Codex process is closed");
     if (this.pending) throw new Error("Session already busy");
@@ -207,7 +207,7 @@ export class CodexSession {
       this.pending = { resolve, reject, delta, approve, text: "", last: "", images: [] };
       this.call("turn/start", {
         threadId: this.sessionId,
-        input: [{ type: "text", text: prompt, text_elements: [] }],
+        input: [{ type: "text", text: prompt, text_elements: [] }, ...images.map((path) => ({ type: "localImage", path }))],
         ...(this.effort ? { effort: this.effort } : {}),
       })
         .then((r) => (this.turnId = r.turn.id))

@@ -7,7 +7,7 @@ import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../pac
 import { ENGINES_ON } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
-import { md, esc } from "./markdown";
+import { md, esc, pics } from "./markdown";
 import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html } from "./onboarding";
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
@@ -596,7 +596,24 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
   const [list, setList] = useState<Suggestion[]>([]);
   const [act, setAct] = useState(0);
   const [sending, setSending] = useState(false);
+  const [pics, setPics] = useState<{ name: string; markdown: string }[]>([]);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent
+  const addFiles = async (files: Iterable<File>) => {
+    for (const f of files) {
+      const ext = (f.type.split("/")[1] || "").replace("jpeg", "jpg");
+      if (!f.type.startsWith("image/") || !["png", "jpg", "webp", "gif"].includes(ext)) continue;
+      if (f.size > 15_000_000) continue;
+      const data = await new Promise<string>((ok) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result).split(",")[1] ?? "");
+        r.readAsDataURL(f);
+      });
+      const saved = await window.walt.call("image.save", { data, ext }).catch(() => null);
+      if (saved) setPics((p) => [...p, saved]);
+    }
+  };
   useLayoutEffect(() => {
     const t = ref.current!;
     t.style.height = "auto";
@@ -620,18 +637,20 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
     });
   };
   const send = async () => {
-    if (!text.trim() || sending) return;
+    if ((!text.trim() && !pics.length) || sending) return;
     setSending(true);
     try {
-      if (await onSend(text)) {
+      const body = [text.trim() || (pics.length ? t("(picture)") : ""), ...pics.map((p) => p.markdown)].join("\n\n");
+      if (await onSend(body)) {
         setText("");
         setList([]);
+        setPics([]);
       }
     } finally {
       setSending(false);
     }
   };
-  const can = !!text.trim() && !sending;
+  const can = (!!text.trim() || !!pics.length) && !sending;
   return (
     <div className="comp" style={{ position: "relative" }}>
       {!!list.length && (
@@ -643,8 +662,35 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
           ))}
         </div>
       )}
-      <div className="cbox" style={{ maxWidth: 760 }}>
+      {!!pics.length && (
+        <div className="row g8" style={{ maxWidth: 760, margin: "0 auto 8px", width: "100%", flexWrap: "wrap" }}>
+          {pics.map((p) => (
+            <div key={p.name} style={{ position: "relative" }}>
+              <img src={`walt-img://img/${p.name}`} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, display: "block" }} />
+              <span role="button" aria-label={t("Remove picture")} onClick={() => setPics((x) => x.filter((y) => y !== p))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, background: T.card, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Icon n="x" s={11} w={2.4} /></span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div
+        className="cbox"
+        style={{ maxWidth: 760 }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          void addFiles(e.dataTransfer.files);
+        }}
+      >
+        <span className="tbb" role="button" aria-label={t("Attach a picture")} title={t("Attach a picture")} onClick={() => fileRef.current?.click()} style={{ alignSelf: "center" }}><Icon n="clip" s={17} /></span>
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} />
         <textarea
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+            if (files.length) {
+              e.preventDefault();
+              void addFiles(files);
+            }
+          }}
           ref={ref}
           rows={1}
           value={text}
@@ -838,7 +884,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     room.messages
       .map((m) =>
         m.author === "cello"
-          ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
+          ? mine(new Date(m.at).toLocaleTimeString(), pics(esc(m.text))) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
           : pd(m.author)
             ? personaMsg(pd(m.author)!, t(roleOf(m.author)), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta)) + (m === lastAi ? choices : "")
             : m.kind === "limit"

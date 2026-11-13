@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
-import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, type ToolKit } from "../adapters/tools";
+import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
 
 const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
 
@@ -136,6 +136,12 @@ export class Host extends EventEmitter {
       engines: [claude.includes(name) && "claude", codex.includes(name) && "codex"].filter(Boolean) as Engine[],
       on: !off.has("mcp:" + name),
     }));
+  }
+  /** a picture you pasted, dropped or picked in the composer: saved with the others, named for the message */
+  saveAttachment(base64: string, ext: string) {
+    if (!IMAGE_EXT.includes(ext)) throw new Error("Attach a PNG, JPEG, WebP or GIF picture.");
+    const md = saveImage(`att-${Date.now()}-${randomUUID().slice(0, 8)}`, base64, "attached image", ext);
+    return { markdown: md, name: md.match(/img\/([^)]+)\)/)![1] };
   }
   /** Settings · Plugins & tools: the switches, and every plugin and MCP server Walt found */
   tools() {
@@ -457,6 +463,8 @@ export class Host extends EventEmitter {
     readonly: boolean,
     msg: Tune = {},
     step = readonly ? "review" : "build",
+    /** pictures attached to your message */
+    images: string[] = [],
   ) {
     if (r.pause) throw new Error("Paused before dispatch");
     const def = this.persona(persona);
@@ -505,6 +513,7 @@ export class Host extends EventEmitter {
             this.answers.set(ask.id, resolve),
           );
         },
+        images,
       );
     } catch (error) {
       await session.stop();
@@ -583,7 +592,8 @@ export class Host extends EventEmitter {
       const missed = this.unseen(r, who);
       const recap = missed ? `Earlier in this chat another model was answering; you did not see these messages:\n${missed}\n\nNow the user writes:\n` : "";
       const before = p ? await manifest(p.root) : undefined;
-      await this.turn(r, who, brief + recap + cmd.text, !p, { effort: cmd.effort, model: cmd.model });
+      const att = attachments(cmd.text);
+      await this.turn(r, who, brief + recap + att.text, !p, { effort: cmd.effort, model: cmd.model }, undefined, att.files);
       if (p && before) {
         const after = await manifest(p.root);
         if (after.hash !== before.hash) {
@@ -605,7 +615,8 @@ export class Host extends EventEmitter {
   }
   private async exchange(r: Room, cmd: Parsed) {
     if (r.template === "direct" || !this.projectOf(r)) return this.chat(r, cmd);
-    const goal = cmd.text;
+    const att = attachments(cmd.text);
+    const goal = att.text;
     const msg: Tune = { effort: cmd.effort, model: cmd.model };
     const p = this.state.projects.find((p) => p.id === r.projectId)!;
     try {
@@ -637,11 +648,11 @@ export class Host extends EventEmitter {
       if (r.template === "roundtable") {
         for (const persona of [r.builder, ...r.reviewers]) {
           if (r.pause) break;
-          await this.turn(r, persona, JSON.stringify(packet), true, msg);
+          await this.turn(r, persona, JSON.stringify(packet), true, msg, undefined, att.files);
         }
       } else if (mention && mention !== r.builder) {
         // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
-        await this.turn(r, mention, JSON.stringify(packet), true, msg);
+        await this.turn(r, mention, JSON.stringify(packet), true, msg, undefined, att.files);
       } else {
         if (r.auto) {
           const team = [r.builder, ...r.reviewers].map((id) => ({ id, strengths: ((p) => (p?.strengths.length ? p.strengths : p ? defaultStrengths(p.engine, p.model) : []))(this.state.personas.find((p) => p.id === id)) }));
@@ -666,7 +677,7 @@ export class Host extends EventEmitter {
                   "Reviewers asked for changes on your last revision. Fix the findings that are correct; if you disagree with one, say why instead of changing it. The same reviewers check the new revision.",
               })
             : JSON.stringify(packet);
-          const said = await this.turn(r, r.builder, prompt, false, msg, round ? "fix" : "build");
+          const said = await this.turn(r, r.builder, prompt, false, msg, round ? "fix" : "build", round ? [] : att.files);
           const after = await manifest(p.root);
           for (const a of r.artifacts) a.accepted = false;
           const artifact = {

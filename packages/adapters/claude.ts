@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
@@ -185,15 +186,20 @@ export class ClaudeSession {
   async warm() {
     await this.ready;
   }
-  async run(prompt: string, delta: (text: string) => void, approve: Approval) {
+  async run(prompt: string, delta: (text: string) => void, approve: Approval, images: string[] = []) {
     await this.ready;
     if (this.closed) throw new Error("Claude process is closed");
     if (this.pending) throw new Error("Session already busy");
+    // pictures you attached go along as image blocks
+    const type = (f: string) => ({ jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" })[f.split(".").pop()!.toLowerCase()] ?? "image/png";
+    const content = images.length
+      ? [{ type: "text", text: prompt }, ...images.map((f) => ({ type: "image", source: { type: "base64", media_type: type(f), data: readFileSync(f).toString("base64") } }))]
+      : prompt;
     return new Promise<string>((resolve, reject) => {
       this.pending = { resolve, reject, delta, approve, text: "" };
       this.write({
         type: "user",
-        message: { role: "user", content: prompt },
+        message: { role: "user", content },
         parent_tool_use_id: null,
         session_id: this.sessionId || "",
       });

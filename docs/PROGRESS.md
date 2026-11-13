@@ -137,6 +137,13 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Settings · General: Start with Windows (Windows' own startup list, starts Walt in the tray with --background; checked on → off, nothing left behind) and Close button (Hide to the tray, default, or Quit Walt; checked that Quit ends Walt).
 - Usage limits: a CLI error that says the subscription limit was hit (Claude Code and Codex wordings, usageLimit() in domain/command) becomes a card: who hit it, when it resets, and buttons to carry on: a plain chat continues with the other engine, a team chat hands the builder's job to another member (or drops a limited reviewer from the reviews); your last message is sent again. Unit test with fake sessions; card checked in the app (seeded message). Not seen with a real limit.
 
+## Plugins & tools, pictures — 2026-11-13
+
+- Plugins & tools (Customize): Walt now connects what cello already set up instead of switching it off. On by default: ChatGPT image generation, web search (Codex web_search=live; Claude WebSearch/WebFetch), ChatGPT apps & connectors, Codex plugins and skills, Claude Code plugins (each installed + enabled plugin with --plugin-dir, skills through the Skill tool), every MCP server from ~/.claude.json and ~/.codex/config.toml, in every chat. Off until switched on: Codex browser and computer use. Every item can be switched off on its own. Reviewers keep read-only project tools only. Codex commands that only read files run without asking (skills read their SKILL.md that way).
+- Pictures from GPT: imageGeneration items are saved to <data>/images and shown in the reply (walt-img://, served only from that folder); click opens the viewer. Checked: an orange-cat illustration from GPT-6-Luna in a plain chat.
+- Attach pictures: paste, drop or the 📎 button in the composer (PNG/JPEG/WebP/GIF up to 15 MB), thumbnails before sending, shown in your bubble; Claude gets them as image blocks, Codex as localImage. Checked: GPT-6-Luna and Haiku both described the attached logo.
+- 28 unit tests.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

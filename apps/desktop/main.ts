@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 import { basename } from "node:path";
 // walt-img://img/<name>.png: pictures the AI made, served from <data>/images only
 protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-const imageFile = (name: string) => (/^[\w.-]+\.png$/.test(name) ? join(app.getPath("userData"), "images", basename(name)) : undefined);
+const imageFile = (name: string) => (/^[\w.-]+\.(png|jpe?g|webp|gif)$/.test(name) ? join(app.getPath("userData"), "images", basename(name)) : undefined);
 import { randomUUID } from "node:crypto";
 let win: BrowserWindow;
 let child: ReturnType<typeof utilityProcess.fork>;

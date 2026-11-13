@@ -700,3 +700,26 @@ test("a usage limit becomes a card, and another model takes the message again", 
   await host.close();
   await rm(dir, { recursive: true });
 });
+import { attachments, media } from "../packages/adapters/tools";
+test("pictures: Walt's own show in the chat, attached ones go to the AI with your message", async () => {
+  assert.match(md("look ![cat](walt-img://img/a-1.png)"), /<img class="gen" src="walt-img:\/\/img\/a-1.png"/);
+  assert.doesNotMatch(md("![x](https://evil.example/p.png)"), /<img/, "no remote images");
+  assert.doesNotMatch(md("![x](walt-img://img/../../secret.png)"), /<img/, "no paths");
+  const dir = await mkdtemp(join(tmpdir(), "walt-pics-"));
+  const host = new Host(new Store(join(dir, "data")));
+  assert.equal(media.dir, join(dir, "data", "images"));
+  const saved = host.saveAttachment(Buffer.from("png").toString("base64"), "png");
+  assert.throws(() => host.saveAttachment("AAAA", "exe"), /PNG/);
+  const parsed = attachments(`what is this?\n\n${saved.markdown}\n\n![gone](walt-img://img/missing.png)`);
+  assert.deepEqual(parsed.files, [join(media.dir, saved.name)], "only files that exist");
+  assert.match(parsed.text, /\[image attached: /);
+  const r = host.newChat("");
+  const seen: { prompt: string; images: string[] }[] = [];
+  (host.supervisor as any).get = async () => ({ run: async (prompt: string, _d: unknown, _a: unknown, images: string[]) => (seen.push({ prompt, images }), "a cat"), stop: async () => {} });
+  await host.send(r.id, `what is this?\n\n${saved.markdown}`);
+  for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.deepEqual(seen[0].images, [join(media.dir, saved.name)]);
+  assert.ok(!seen[0].prompt.includes("walt-img://"), "the prompt names the picture instead of linking it");
+  await host.close();
+  await rm(dir, { recursive: true });
+});

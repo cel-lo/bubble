@@ -350,4 +350,7 @@ export const ID: Record<string, string> = {
   "No plugins switched on in Codex.": "Belum ada plugin aktif di Codex.",
   "Claude + ChatGPT": "Claude + ChatGPT",
   "Claude asks you before each MCP tool and web page. Codex runs MCP and app tools without asking: switch off a server you do not want it to use on its own.": "Claude minta izin sebelum setiap tool MCP dan halaman web. Codex menjalankan tool MCP dan aplikasi tanpa bertanya: matikan server yang tidak boleh dipakai sendiri.",
+  "(picture)": "(gambar)",
+  "Remove picture": "Hapus gambar",
+  "Attach a picture": "Lampirkan gambar",
 };
