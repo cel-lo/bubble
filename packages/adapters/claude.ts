@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { cleanEnv, gone } from "./environment";
+import { LEVELS, type ModelInfo } from "../domain/model";
 export type Approval = (tool: string, input: unknown) => Promise<boolean>;
 export class ClaudeSession {
   private child: ChildProcessWithoutNullStreams;
@@ -224,4 +225,32 @@ export class ClaudeSession {
       });
     });
   }
+}
+
+/** models this Claude account can use, from the CLI's initialize response (same list as the Claude app's picker) */
+export function claudeModels(executable: string, cwd: string): Promise<ModelInfo[]> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(executable, ["--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--setting-sources=", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'], { cwd, env: cleanEnv(), shell: false, windowsHide: true });
+    const timer = setTimeout(() => { p.kill(); reject(new Error("Claude model list timed out")); }, 30000);
+    p.on("error", (e) => { clearTimeout(timer); reject(e); });
+    createInterface({ input: p.stdout }).on("line", (line) => {
+      let m: any;
+      try { m = JSON.parse(line); } catch { return; }
+      if (m.type !== "control_response" || m.response?.request_id !== "models") return;
+      clearTimeout(timer);
+      p.kill();
+      const list: any[] = m.response.response?.models || [];
+      resolve(
+        list.map((x) => ({
+          id: x.value,
+          label: x.value === "default" ? "Default" : x.displayName,
+          efforts: (x.supportedEffortLevels || []).filter((e: string) => (LEVELS as string[]).includes(e)),
+          isDefault: x.value === "default",
+          // aliases (opus, sonnet, …) are the current models; full ids are older ones
+          more: /^claude-/.test(x.value),
+        })),
+      );
+    });
+    p.stdin.write(JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize", hooks: {} } }) + "\n");
+  });
 }

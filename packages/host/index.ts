@@ -48,7 +48,7 @@ parent.on("message", async ({ data }: any) => {
         result = host.createRoom(
           z
             .object({
-              projectId: z.string(),
+              projectId: z.string().max(80), // "" = a chat without a project
               title: z.string().min(1).max(100),
               template: z.enum([
                 "direct",
@@ -88,14 +88,40 @@ parent.on("message", async ({ data }: any) => {
         result = await host.accept(z.string().parse(input));
         break;
       case "settings":
-        host.state.settings = z
-          .object({
-            locale: z.enum(["en", "id"]),
-            theme: z.enum(["dark", "light"]),
-            idleMinutes: z.number().int().min(5).max(60),
-          })
-          .parse(input);
+        // merge, so fields the form does not send (last model, onboarding) survive
+        host.state.settings = {
+          ...host.state.settings,
+          ...z
+            .object({
+              locale: z.enum(["en", "id"]),
+              theme: z.enum(["dark", "light"]),
+              idleMinutes: z.number().int().min(5).max(60),
+              onboarded: z.boolean(),
+              // default model for new chats (also set by picking a model in a chat)
+              lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),
+            })
+            .partial()
+            .parse(input),
+        };
         host.commit();
+        break;
+      case "chat.new":
+        result = host.newChat(z.string().max(80).parse(input ?? ""));
+        break;
+      case "chat.target": {
+        const v = z
+          .object({ roomId: z.string(), engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() })
+          .parse(input);
+        result = host.setTarget(v.roomId, v);
+        break;
+      }
+      case "chat.rename": {
+        const v = z.object({ roomId: z.string(), title: z.string().max(200) }).parse(input);
+        result = host.rename(v.roomId, v.title);
+        break;
+      }
+      case "chat.delete":
+        result = host.deleteRoom(z.string().parse(input));
         break;
       case "persona.save":
         result = host.savePersona(
@@ -116,6 +142,12 @@ parent.on("message", async ({ data }: any) => {
       case "persona.delete":
         result = host.deletePersona(z.string().parse(input));
         break;
+      case "persona.for": {
+        // a model picked from a list (Add model, new project): reuse or make its persona
+        const v = z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID).or(z.literal("")), effort: effort.optional() }).parse(input);
+        result = host.personaFor(v);
+        break;
+      }
       case "member": {
         const v = z.object({ roomId: z.string(), persona, role: z.enum(["Reviewer", "Member", "Remove"]) }).parse(input);
         result = host.member(v.roomId, v.persona, v.role);

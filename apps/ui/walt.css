@@ -1,0 +1,67 @@
+/* Walt app shell (Claude-style sidebar, menus). Colours follow the design kit tokens. */
+.nav{width:268px;background:#151517;border-right:1px solid #232325;display:flex;flex-direction:column;padding:10px 8px;gap:2px;flex:none;min-height:0}
+.nav .scroll{flex:1;overflow:auto;min-height:0;padding-bottom:8px}
+.navi{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;font-size:14px;color:#E5E5EA;cursor:pointer;user-select:none;position:relative}
+.navi:hover{background:#202024}
+.navi.on{background:#2A2A2E}
+.navi .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navi .x{opacity:0;display:flex;padding:2px;border-radius:6px}
+.navi:hover .x,.navi .x.open{opacity:1}
+.navi .x:hover{background:#3A3A3C}
+.navi.sub{padding-left:34px;font-size:13.5px;color:#C7C7CC}
+.navi.sub.on{color:#F5F5F7}
+.nhead{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#909097;padding:14px 10px 6px}
+.nhead .add{display:flex;padding:3px;border-radius:6px;cursor:pointer}
+.nhead .add:hover{background:#2A2A2E}
+.menu{position:fixed;z-index:60;min-width:210px;max-height:70vh;overflow:auto;padding:5px;background:#252527;border:1px solid #38383B;border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.mi{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px;color:#F5F5F7;cursor:pointer;white-space:nowrap;user-select:none}
+.mi:hover,.mi.act{background:#36363A}
+.mi .h{margin-left:auto;padding-left:18px;color:#909097;font-size:12.5px}
+.mi .ck{width:16px;display:flex;justify-content:center;flex:none}
+.mi.dis{opacity:.45;cursor:default}
+.mi.dis:hover{background:transparent}
+.msep{height:1px;background:#38383B;margin:5px 4px}
+.mlabel{font-size:11px;color:#909097;padding:7px 10px 4px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.dd{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;height:34px;padding:0 10px 0 12px;border-radius:9px;background:#232325;border:1px solid #3A3A3C;color:#F5F5F7;font-size:13.5px;cursor:pointer;min-width:120px;font:inherit}
+.dd:hover{border-color:#4A4A4E}
+.dd:focus-visible,.mi:focus-visible{outline:2px solid #30C759;outline-offset:1px}
+.dd[disabled]{opacity:.45;cursor:default}
+.mchip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:999px;background:transparent;border:0;color:#C7C7CC;font-size:13.5px;cursor:pointer;font:inherit;white-space:nowrap}
+.mchip:hover{background:#2C2C2E;color:#F5F5F7}
+.cbox textarea{flex:1;min-width:0;resize:none;border:0;background:transparent;padding:16px 0;max-height:220px;line-height:1.5;font-size:15px;outline:none;color:#F5F5F7}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#909097;padding:40px}
+.panel{flex:1;overflow:auto;padding:32px 40px}
+.panel h2{font-size:22px;margin-bottom:6px}
+.seg span{cursor:pointer}
+.light .nav{background:#F7F7FA;border-color:#E3E3E8}
+.light .navi{color:#1C1C1E}
+.light .navi:hover{background:#EDEDF2}
+.light .navi.on{background:#E4E4EA}
+.light .menu{background:#FFFFFF;border-color:#E3E3E8}
+.light .mi{color:#1C1C1E}
+.light .mi:hover,.light .mi.act{background:#EFEFF4}
+.light .dd{background:#F7F7FA;border-color:#E3E3E8;color:#1C1C1E}
+.light .cbox textarea{color:#1C1C1E}
+/* v2 shell: title-bar toggles, panel grips, rich sidebar rows */
+.tbb{width:32px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-app-region:no-drag;flex:none}
+.tbb:hover{background:#26262A}.tbb.on{background:#26262A}
+.grip{width:7px;margin:0 -3px;position:relative;z-index:5;cursor:col-resize;flex:none;outline:none}
+.grip::after{content:"";position:absolute;left:2px;top:0;bottom:0;width:3px;border-radius:2px;background:transparent;transition:background .12s}
+.grip:hover::after,.grip.on::after,.grip:focus-visible::after{background:#30C759}
+.nav{width:auto}
+.navi.rich{align-items:center;padding:6px 8px 6px 10px;gap:9px}
+.navi.rich .pv{font-size:12.5px;color:#909097;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.navi .when{margin-left:auto;flex:none}
+.navi:hover .when{display:none}
+.navi.rich .t{flex:0 1 auto}
+.light .tbb:hover,.light .tbb.on{background:#E4E4EA}
+/* light theme: the shared kit and message HTML hard-code dark values; map them here */
+.light svg[stroke="#F5F5F7"],.light svg [stroke="#F5F5F7"]{stroke:#1C1C1E}
+.light svg[fill="#F5F5F7"],.light svg [fill="#F5F5F7"]{fill:#1C1C1E}
+.light [style*="box-shadow:0 0 0 2px #1C1C1E"]{box-shadow:0 0 0 2px #FFFFFF!important}
+.light [style*="background:#1F1F21"]{background:#F2F2F7!important}
+.light pre[style*="background:#141416"]{background:#F2F2F7!important;color:#1C1C1E}
+.light .mono[style*="background:#ffffff14"]{background:#0000000F!important}
+.light .bub table th,.light .bub table td{border-color:#E3E3E8!important}
+.light input,.light textarea,.light select{background:#FFFFFF;border-color:#D8D8DC;color:#1C1C1E}
+.light .cbox textarea{background:transparent}

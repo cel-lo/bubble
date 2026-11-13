@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { State } from "../domain/model";
 export class Store {
   readonly db: DatabaseSync;
-  constructor(dir: string) {
+  constructor(readonly dir: string) {
     mkdirSync(dir, { recursive: true });
     this.db = new DatabaseSync(join(dir, "walt.sqlite"));
     this.db.exec(

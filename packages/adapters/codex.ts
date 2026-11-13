@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
+import { LEVELS, type ModelInfo } from "../domain/model";
 
 /** Features that give the agent tools outside the project folder or outside Walt's approval broker. */
 const OFF = ["apps", "plugins", "browser_use", "in_app_browser", "computer_use", "image_generation", "hooks", "multi_agent"];
@@ -200,5 +201,47 @@ export class CodexSession {
         resolve();
       });
     });
+  }
+}
+
+/** models this ChatGPT account can use in Codex (`model/list`, same list as the Codex app's picker) */
+export async function codexModels(executable: string, cwd: string): Promise<ModelInfo[]> {
+  const p = spawn(executable, codexArgs(), { cwd, env: cleanEnv(), shell: false, windowsHide: true });
+  let id = 0;
+  const calls = new Map<number, (m: any) => void>();
+  createInterface({ input: p.stdout }).on("line", (line) => {
+    try {
+      const m = JSON.parse(line);
+      if (m.id != null && !m.method) calls.get(m.id)?.(m);
+    } catch {}
+  });
+  const call = (method: string, params: unknown) =>
+    new Promise<any>((resolve, reject) => {
+      const i = ++id;
+      calls.set(i, (m) => (m.error ? reject(new Error(m.error.message)) : resolve(m.result)));
+      p.stdin.write(JSON.stringify({ id: i, method, params }) + "\n");
+    });
+  const timer = setTimeout(() => p.kill(), 30000);
+  try {
+    await call("initialize", { clientInfo: { name: "walt", title: "Walt", version: "0.1.0" }, capabilities: { experimentalApi: false, requestAttestation: false } });
+    const out: any[] = [];
+    let cursor: string | null = null;
+    do {
+      const r = await call("model/list", { cursor });
+      out.push(...r.data);
+      cursor = r.nextCursor ?? null;
+    } while (cursor);
+    return out
+      .filter((m) => !m.hidden)
+      .map((m) => ({
+        id: m.model || m.id,
+        label: m.displayName,
+        efforts: m.supportedReasoningEfforts.map((e: any) => e.reasoningEffort).filter((e: string) => (LEVELS as string[]).includes(e)),
+        defaultEffort: m.defaultReasoningEffort,
+        isDefault: m.isDefault,
+      }));
+  } finally {
+    clearTimeout(timer);
+    p.kill();
   }
 }

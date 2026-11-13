@@ -15,9 +15,13 @@ import {
   type Tune,
   DEFAULT_PERSONAS,
   EFFORTS,
+  type Engine,
+  type Effort,
 } from "../domain/model";
 import { parseMessage, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 export class Host extends EventEmitter {
   state: State;
   readonly supervisor = new Supervisor();
@@ -94,6 +98,18 @@ export class Host extends EventEmitter {
     this.commit("persona.saved");
     return p;
   }
+  /** the persona for an engine + model (+ effort), made on first use and named after the model, e.g. "Haiku 5.5" */
+  personaFor(t: { engine: Engine; model: string; effort?: Effort }) {
+    const same = (p: PersonaDef) => p.engine === t.engine && (p.model || "default") === (t.model || "default") && p.effort === t.effort;
+    const hit = this.state.personas.find(same);
+    if (hit) return hit;
+    const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
+    if (this.state.catalog?.[t.engine] && !info) throw new Error(`${t.model} is not available for this account.`);
+    const base = (info && info.label !== "Default" ? info.label : `${t.engine === "codex" ? "Codex" : "Claude"} default`) + (t.effort ? ` ${t.effort}` : "");
+    let name = base;
+    for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
+    return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: [], avatar: t.engine === "codex" ? "codex" : "claude" });
+  }
   deletePersona(id: string) {
     const used = this.state.rooms.filter((r) => r.state !== "ended" && this.inRoom(r).includes(id));
     if (used.length) throw new Error(`Remove it from ${used.map((r) => r.title).join(", ")} first.`);
@@ -117,7 +133,64 @@ export class Host extends EventEmitter {
   async doctor() {
     this.state.engines = await this.supervisor.doctor();
     this.commit("engine.auth");
+    const ok = this.state.engines.filter((e) => e.auth === "ok").map((e) => e.engine);
+    this.state.catalog = { ...this.state.catalog, ...(await this.supervisor.catalog(ok)) };
+    this.commit("engine.catalog");
     return this.state.engines;
+  }
+  projectOf(r: Room) {
+    return r.projectId ? this.state.projects.find((p) => p.id === r.projectId) : undefined;
+  }
+  /** a chat without a project runs in its own empty folder under Walt's data, read-only */
+  rootOf(r: Room) {
+    const p = this.projectOf(r);
+    if (p) return p.root;
+    const dir = join(this.store.dir, "chats", r.id);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  /** the persona slot a chat uses for an engine: the current one if it matches, else the first of that engine */
+  private slot(r: Room, engine: Engine) {
+    if (this.persona(r.builder).engine === engine) return r.builder;
+    const p = this.state.personas.find((p) => p.engine === engine);
+    if (!p) throw new Error(`No persona runs on ${engine}.`);
+    return p.id;
+  }
+  /** pick the model (and effort) a plain chat talks to, like the model menu in the Claude or ChatGPT app */
+  setTarget(roomId: string, t: { engine: Engine; model: string; effort?: Effort }) {
+    const r = this.room(roomId);
+    if (r.template !== "direct") throw new Error("Team chats pick models per member in the Team panel.");
+    if (this.active.has(roomId)) throw new Error("Change the model after this reply.");
+    const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
+    if (this.state.catalog?.[t.engine] && !info) throw new Error(`${t.model} is not available for this account.`);
+    if (t.effort && info && !info.efforts.includes(t.effort)) throw new Error(`${info.label} accepts effort ${info.efforts.join(", ") || "none"}.`);
+    const p = this.slot(r, t.engine);
+    r.builder = p;
+    r.tune = { ...r.tune, [p]: { model: t.model, ...(t.effort && { effort: t.effort }) } };
+    this.state.settings.lastTarget = t;
+    this.commit("room.target");
+    return r;
+  }
+  /** a new plain chat, in a project or on its own, talking to the last model you picked */
+  newChat(projectId: string) {
+    if (projectId && !this.state.projects.some((p) => p.id === projectId)) throw new Error("Project not found");
+    const t = this.state.settings.lastTarget ?? { engine: "claude" as Engine, model: "default" };
+    const builder = this.state.personas.find((p) => p.engine === t.engine)?.id ?? this.state.personas[0].id;
+    const r = this.createRoom({ projectId, title: "New chat", template: "direct", builder, reviewers: [] });
+    r.tune = { [builder]: { model: t.model, ...(t.effort && { effort: t.effort }) } };
+    this.commit();
+    return r;
+  }
+  rename(roomId: string, title: string) {
+    this.room(roomId).title = title.trim().slice(0, 80) || "New chat";
+    this.commit();
+  }
+  deleteRoom(roomId: string) {
+    if (this.active.has(roomId)) throw new Error("Stop the reply before deleting this chat.");
+    this.room(roomId);
+    this.state.rooms = this.state.rooms.filter((r) => r.id !== roomId);
+    this.state.asks = this.state.asks.filter((a) => a.roomId !== roomId);
+    this.commit("room.deleted");
   }
   async project(input: {
     name: string;
@@ -142,8 +215,10 @@ export class Host extends EventEmitter {
     builder: Persona;
     reviewers: Persona[];
   }) {
-    if (!this.state.projects.some((p) => p.id === input.projectId))
+    if (input.projectId && !this.state.projects.some((p) => p.id === input.projectId))
       throw new Error("Project not found");
+    if (!input.projectId && !["direct", "roundtable"].includes(input.template))
+      throw new Error("A chat without a project can only talk; pick a project folder to build and review.");
     for (const p of [input.builder, ...input.reviewers]) this.persona(p);
     const r: Room = {
       ...input,
@@ -200,8 +275,11 @@ export class Host extends EventEmitter {
       this.commit();
       return;
     }
+    // each message in a plain chat is its own exchange; the turn budget guards the autonomous team loops
+    if (r.template === "direct" || r.template === "roundtable") r.used = 0;
     if (r.used >= r.budget)
       throw new Error("Budget exhausted. Add turns with Continue.");
+    if (r.title === "New chat") r.title = cmd.text.replace(/\s+/g, " ").slice(0, 48);
     this.message(r, "cello", text).meta = meta;
     this.commit();
     this.active.add(id);
@@ -215,13 +293,15 @@ export class Host extends EventEmitter {
     msg: Tune = {},
   ) {
     if (r.pause) throw new Error("Paused before dispatch");
-    const p = this.state.projects.find((p) => p.id === r.projectId)!;
     const def = this.persona(persona);
-    const session = await this.supervisor.get(r.id, def, p.root, readonly, this.tune(r, def, msg));
+    const tune = this.tune(r, def, msg);
+    const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune);
     takeTurn(r);
     r.step = readonly ? "review" : "build";
     this.commit("run.started");
     const m = this.message(r, persona, "");
+    // remember which model answered, so switching models later does not relabel old replies
+    m.meta = { model: tune.model ?? def.model, effort: tune.effort ?? def.effort };
     let flush = 0;
     let result: string;
     try {
@@ -259,7 +339,64 @@ export class Host extends EventEmitter {
     this.commit("run.finished");
     return result;
   }
+  /** a plain chat: the message goes as written; the CLI session remembers the conversation */
+  /** messages `who` has not seen: everything after its last reply, minus the message being sent now; newest kept, about 12k chars */
+  unseen(r: Room, who: Persona) {
+    const msgs = r.messages.slice(0, -1);
+    const from = msgs.map((m) => m.author).lastIndexOf(who) + 1;
+    const name = (m: Message) => {
+      if (m.author === "cello") return "User";
+      const p = this.state.personas.find((x) => x.id === m.author);
+      return (p && this.state.catalog?.[p.engine]?.find((x) => x.id === m.meta?.model)?.label) ?? p?.name ?? m.author;
+    };
+    const lines = msgs
+      .slice(from)
+      .filter((m) => m.text.trim() && m.author !== "Walt" && m.kind !== "setting" && m.kind !== "error")
+      .map((m) => `[${name(m)}] ${m.text.trim().slice(0, 2000)}`);
+    let out = "";
+    for (const l of lines.reverse()) {
+      if (out.length + l.length > 12000) break;
+      out = l + "\n" + out;
+    }
+    return out.trim();
+  }
+  private async chat(r: Room, cmd: Parsed) {
+    const p = this.projectOf(r);
+    try {
+      if (p && [...this.leases.keys()].some((root) => overlaps(root, p.root)))
+        throw new Error("Another chat is changing this project. Wait for it to finish.");
+      if (p) this.leases.set(p.root, r.id);
+      r.state = "running";
+      r.pause = false;
+      const who = cmd.to || r.builder;
+      const first = !r.messages.some((m) => m.author === who);
+      const brief = p && first ? `Project ${p.name} (${p.root}). Goal: ${p.goal || "-"}. Constraints: ${p.constraints || "-"}. Reply in the language the user writes in.\n\n` : "";
+      // each CLI keeps its own session, so a model switched in mid-chat gets what it missed as a recap
+      const missed = this.unseen(r, who);
+      const recap = missed ? `Earlier in this chat another model was answering; you did not see these messages:\n${missed}\n\nNow the user writes:\n` : "";
+      const before = p ? await manifest(p.root) : undefined;
+      await this.turn(r, who, brief + recap + cmd.text, !p, { effort: cmd.effort, model: cmd.model });
+      if (p && before) {
+        const after = await manifest(p.root);
+        if (after.hash !== before.hash) {
+          for (const a of r.artifacts) a.accepted = false;
+          r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+          this.commit("artifact.registered");
+        }
+      }
+      r.step = "ready";
+      r.state = r.pause ? "paused" : "idle";
+    } catch (e) {
+      r.state = r.pause ? "paused" : "idle";
+      r.step = "needs attention";
+      this.message(r, "Walt", String(e), "error");
+    } finally {
+      if (p && this.leases.get(p.root) === r.id) this.leases.delete(p.root);
+      this.commit();
+    }
+  }
   private async exchange(r: Room, cmd: Parsed) {
+    if (r.template === "direct" || !this.projectOf(r)) return this.chat(r, cmd);
     const goal = cmd.text;
     const msg: Tune = { effort: cmd.effort, model: cmd.model };
     const p = this.state.projects.find((p) => p.id === r.projectId)!;
@@ -291,8 +428,11 @@ export class Host extends EventEmitter {
           if (r.pause) break;
           await this.turn(r, persona, JSON.stringify(packet), true, msg);
         }
+      } else if (mention && mention !== r.builder) {
+        // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
+        await this.turn(r, mention, JSON.stringify(packet), true, msg);
       } else {
-        await this.turn(r, mention || r.builder, JSON.stringify(packet), false, msg);
+        await this.turn(r, r.builder, JSON.stringify(packet), false, msg);
         const after = await manifest(p.root);
         for (const a of r.artifacts) a.accepted = false;
         const artifact = {
@@ -303,13 +443,10 @@ export class Host extends EventEmitter {
         };
         r.artifacts.push(artifact);
         this.commit("artifact.registered");
-        if (!mention && r.template !== "direct" && !r.pause) {
-          const reviewers = r.reviewers.slice(
-            0,
-            r.template === "triad" ? 2 : 1,
-          );
-          if (reviewers.length !== (r.template === "triad" ? 2 : 1))
-            throw new Error("Assign the required reviewers.");
+        if (!mention && !r.pause) {
+          // every reviewer in the team reviews (members added later included); the template only set the first team
+          const reviewers = r.reviewers;
+          if (!reviewers.length) throw new Error("Add a reviewer to this chat.");
           if (r.budget - r.used < reviewers.length)
             throw new Error("Budget insufficient for review round. Add turns.");
           const reviewPacket = JSON.stringify({

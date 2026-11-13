@@ -1,5 +1,5 @@
 // Dev helper: drive the running Walt window over the DevTools protocol (start Walt with --remote-debugging-port=9555).
-// usage: node scripts/cdp.mjs shot out.png | eval "<js>" | click "<css selector>" | type "<css selector>" "<text>"
+// usage: node scripts/cdp.mjs shot out.png | reload | drag "x1,y1" "x2,y2" | eval "<js>" | click "<css selector>" | type "<css selector>" "<text>"
 import fs from "node:fs";
 const [cmd, a, b] = process.argv.slice(2);
 const list = await (await fetch("http://127.0.0.1:9555/json/list")).json();
@@ -20,6 +20,18 @@ if (cmd === "shot") {
   const r = await send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(a, Buffer.from(r.result.data, "base64"));
   console.log("saved", a);
+} else if (cmd === "reload") {
+  await send("Page.reload", { ignoreCache: true });
+  console.log("reloaded");
+} else if (cmd === "drag") {
+  // real mouse events: drag "x1,y1" "x2,y2" (CSS pixels)
+  const [x1, y1] = a.split(",").map(Number), [x2, y2] = b.split(",").map(Number);
+  const m = (type, x, y, buttons) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons, clickCount: 1 });
+  await m("mouseMoved", x1, y1, 0);
+  await m("mousePressed", x1, y1, 1);
+  for (let i = 1; i <= 8; i++) await m("mouseMoved", x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8, 1);
+  await m("mouseReleased", x2, y2, 0);
+  console.log("dragged");
 } else if (cmd === "eval") console.log(JSON.stringify(await ev(a), null, 1));
 else if (cmd === "click") console.log(await ev(`(()=>{const e=document.querySelector(${JSON.stringify(a)});if(!e)return 'not found';e.click();return 'clicked'})()`));
 else if (cmd === "type")

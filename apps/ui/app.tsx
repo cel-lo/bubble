@@ -1,28 +1,16 @@
-import { Setup, type SetupStep, personaStatus } from "./onboarding";
-import { md, esc } from "./markdown";
-import { PersonaSettings, personaItem, personaMsg, metaChip, complete as completeFor, type Suggestion } from "./personas";
-import React, { useEffect, useState, useRef } from "react";
+// Walt main window: Claude-style sidebar (New chat, Search, Customize, Projects with their chats, Chats), the chat view
+// with a model picker like the Claude / ChatGPT apps, and the Customize pages. Message bodies, approval and result
+// cards still use the design-kit HTML helpers; everything interactive is React.
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type {
-  State,
-  Room,
-  Persona,
-  Template,
-  PersonaDef,
-} from "../../packages/domain/model";
-import {
-  shell,
-  sidebar,
-  roomHeader,
-  workflow,
-  composer,
-  mine,
-  msg,
-  av,
-  ic,
-  T,
-  wordmark,
-} from "./generated/kit.mjs";
+import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
+import { ENGINES_ON } from "../../packages/domain/model";
+import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
+import { md, esc } from "./markdown";
+import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html } from "./onboarding";
+import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
+import { Menu, Dropdown, type Item } from "./menu";
+
 declare global {
   interface Window {
     walt: {
@@ -33,614 +21,1071 @@ declare global {
     };
   }
 }
-const TEMPLATE: Record<string, string> = { direct: "Direct", build_review: "Build & Review", triad: "Triad", roundtable: "Roundtable" };
-const STATE: Record<string, string> = { idle: "Idle", running: "Running", paused: "Paused", awaiting_user: "Waiting for you", ended: "Ended", recovery_required: "Needs checking" };
-const STEP: Record<string, string> = { ready: "Nothing running", paused: "Paused", "needs attention": "Needs attention" };
-const pillHtml = (t: string, c: string) => `<span class="pill" style="background:${c}29;color:${c}">${t}</span>`;
-// W09 deliverable card: only facts Walt holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
-function deliverable(room: Room, a: Room["artifacts"][number]) {
-  const box = (k: string, inner: string, sub: string, dashed = false) =>
-    `<div class="f1" style="background:#1F1F21;border-radius:12px;padding:12px;${dashed ? "border:1px dashed #48484A" : ""}"><div class="s12 dim">${k}</div><div class="row g8" style="margin-top:6px">${inner}</div><div class="s12 dim" style="margin-top:4px">${sub}</div></div>`;
-  const reviews = room.reviewers.map((p) => {
-    const v = a.reviews.find((x) => x.persona === p);
-    const ok = v?.hash === a.hash;
-    return box("Source review", `${pav(p, 20)}<span class="s13 b">${nm(p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? `read r${a.revision} · same hash` : v ? "stale: files changed after review" : "no review");
-  });
-  const accept = a.accepted
-    ? box("Your acceptance", '<span class="s13 b">Accepted</span>', "by you")
-    : box("Your acceptance", '<span class="s13 b">Waiting for you</span>', "Not implied by reviews", true);
-  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · result</span><span class="chip mono">r${a.revision}</span>${pillHtml(a.accepted ? "Accepted" : "Ready", a.accepted ? T.green : T.blue)}</span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}Accept</button>`}<button class="btn" data-hot="control:continue" style="border:0">Continue with a new budget</button></div></div>`;
+type Invoke = (method: string, input?: unknown) => Promise<any>;
+type View =
+  | { kind: "home" }
+  | { kind: "chat"; id: string }
+  | { kind: "customize"; tab: string }
+  | { kind: "settings"; tab: string }
+  | { kind: "project-new" }
+  | { kind: "join"; projectId: string; first: boolean }
+  | { kind: "search" };
+type Panels = { left: boolean; right: boolean; lw: number; rw: number };
+const PANELS: Panels = { left: true, right: true, lw: 288, rw: 320 };
+type Target = { engine: Engine; model: string; effort?: Effort };
+
+const Icon = ({ n, s = 16, c = T.dim, w = 1.8 }: { n: string; s?: number; c?: string; w?: number }) => <span style={{ display: "flex", flex: "none" }} dangerouslySetInnerHTML={{ __html: ic(n, s, c, w) }} />;
+const TEMPLATE: Record<string, string> = { direct: "Chat", build_review: "Build & Review", triad: "Triad", roundtable: "Roundtable" };
+const STATE: Record<string, string> = { idle: "Idle", running: "Working", paused: "Paused", awaiting_user: "Waiting for you", ended: "Ended", recovery_required: "Needs checking" };
+const cap = (s?: string) => (s ? s[0].toUpperCase() + s.slice(1) : "");
+const lastAt = (r: Room) => r.messages.at(-1)?.at ?? "";
+const busy = (r: Room) => r.state === "running" || r.state === "awaiting_user";
+
+/** model label for an engine + model id, using the account's catalog ("" or "default" = the CLI default) */
+function label(state: State, engine: Engine, id?: string) {
+  const list = state.catalog?.[engine] ?? [];
+  const plain = !id || id === "default";
+  const m = plain ? list.find((x) => x.isDefault) ?? list.find((x) => x.id === "default") : list.find((x) => x.id === id);
+  if (m?.label && m.label !== "Default") return m.label;
+  return plain ? `${ENGINE_NAME[engine]} default` : id!;
 }
-// personas of the current state; set at the top of every render
-let PS: PersonaDef[] = [];
-const pd = (id: string) => PS.find((p) => p.id === id);
-const nm = (id: string) => esc(pd(id)?.name ?? id);
-const pav = (id: string, size: number) => av(pd(id)?.avatar ?? "claude", size);
-const copy = {
-  en: {
-    projects: "Projects",
-    newProject: "New project",
-    name: "Name",
-    folder: "Project folder",
-    goal: "Goal",
-    constraints: "Constraints",
-    create: "Create project",
-    browse: "Browse",
-    room: "New room",
-    send: "Message Main, or @mention someone",
-    ready: "Ready",
-    save: "Save",
-    general: "General",
-    engines: "Engines",
-    empty: "Create a project from a local folder to begin.",
-    settings: "Settings",
-  },
-  id: {
-    projects: "Proyek",
-    newProject: "Proyek baru",
-    name: "Nama",
-    folder: "Folder proyek",
-    goal: "Tujuan",
-    constraints: "Batasan",
-    create: "Buat proyek",
-    browse: "Pilih folder",
-    room: "Room baru",
-    send: "Kirim pesan, atau @mention persona",
-    ready: "Siap",
-    save: "Simpan",
-    general: "Umum",
-    engines: "Engine",
-    empty: "Buat proyek dari folder lokal untuk mulai.",
-    settings: "Pengaturan",
-  },
-};
+/** what a plain chat talks to right now: its builder persona plus the chat's overrides */
+function target(state: State, r: Room): Target {
+  const p = state.personas.find((x) => x.id === r.builder);
+  const t = { ...r.tune?.["*"], ...(p ? r.tune?.[p.id] : {}) };
+  return { engine: p?.engine ?? "claude", model: t.model ?? (p?.model || "default"), effort: t.effort ?? p?.effort };
+}
+
 function App() {
   const [state, setState] = useState<State>();
-  const [page, setPage] = useState("projects");
-  const [selected, setSelected] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [view, setView] = useState<View>({ kind: "home" });
+  const [step, setStep] = useState<"welcome" | "engines">("welcome");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("Task");
-  const [step, setStep] = useState<SetupStep>("welcome");
-  const setup = (s: SetupStep) => {
-    setStep(s);
-    setPage("setup");
-  };
-  const draftRef = useRef("");
-  const draft = draftRef.current;
-  const setDraft = (v: string) => {
-    draftRef.current = v;
-    const input = document.querySelector("#message");
-    if (input && (input as HTMLTextAreaElement).value !== v)
-      (input as HTMLTextAreaElement).value = v;
-  };
-  const [form, setForm] = useState({
-    name: "",
-    root: "",
-    goal: "",
-    constraints: "",
-  });
-  const [team, setTeam] = useState({
-    title: "Main",
-    template: "build_review" as Template,
-    builder: "sonnet" as Persona,
-    reviewers: ["claude"] as Persona[],
-  });
-  const invoke = async (method: string, input?: unknown) => {
+  // panel open/closed and widths: a per-window convenience, so browser storage is enough (try/catch: it can be unavailable)
+  const [panels, setPanels] = useState<Panels>(() => {
     try {
-      setError("");
-      return await window.walt.call(method, input);
-    } catch (e) {
-      setError(String(e));
-      return null;
+      return { ...PANELS, ...JSON.parse(localStorage.getItem("walt.panels") || "{}") };
+    } catch {
+      return PANELS;
     }
-  };
+  });
+  const setP = (p: Partial<Panels>) =>
+    setPanels((o) => {
+      const n = { ...o, ...p };
+      try {
+        localStorage.setItem("walt.panels", JSON.stringify(n));
+      } catch {}
+      return n;
+    });
+  useEffect(() => {
+    // Ctrl+B toggles the sidebar, Ctrl+Alt+B the side panel (like an editor)
+    const key = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.key.toLowerCase() !== "b") return;
+      e.preventDefault();
+      setPanels((o) => {
+        const n = e.altKey ? { ...o, right: !o.right } : { ...o, left: !o.left };
+        try {
+          localStorage.setItem("walt.panels", JSON.stringify(n));
+        } catch {}
+        return n;
+      });
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  // theme class on <html>, so menus and popovers drawn in portals (outside the app div) follow it too
+  const theme = state?.settings.theme;
+  useEffect(() => void document.documentElement.classList.toggle("light", theme === "light"), [theme]);
   useEffect(() => {
     window.walt
       .call("snapshot")
       .then((s: State) => {
         setState(s);
-        if (!s.projects.length) setPage("setup");
-        // the sidebar and Team screen need real engine status; doctor takes a few seconds
         void window.walt.call("doctor").catch(() => {});
       })
       .catch((e) => setError(String(e)));
-    const unsub = window.walt.subscribe(setState);
-    const key = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "k") {
-        e.preventDefault();
-        setPage("projects");
-      }
-      if (e.key === "Escape") setError("");
-    };
-    window.addEventListener("keydown", key);
-    return () => {
-      unsub();
-      window.removeEventListener("keydown", key);
-    };
+    return window.walt.subscribe(setState);
   }, []);
-  if (!state)
-    return (
-      <div
-        style={{
-          padding: 40,
-          color: "#F5F5F7",
-          background: "#1C1C1E",
-          height: "100%",
-        }}
-      >
-        Walt · {error || "Starting host…"}
-      </div>
-    );
-  PS = state.personas;
-  const text = copy[state.settings.locale];
-  const room = state.rooms.find((r) => r.id === selected);
-  const project = state.projects.find(
-    (p) => p.id === (room?.projectId || projectId),
-  );
-  const btn = (label: string, action: string, cls = "") =>
-    `<button class="btn ${cls}" data-hot="${action}" style="border:0">${label}</button>`;
-  const settingsSide = `<div class="side"><div class="sect">${text.settings}</div>${["General", "Engines", "Personas & templates", "Permissions", "Usage & limits", "Island (Ce:L)", "Data & backup", "About Walt"].map((t) => `<div class="item ${page === t ? "on" : ""}" data-hot="set:${t}">${t}</div>`).join("")}</div>`;
-  let body = "";
-  let side = "";
-  let inspector = "";
-  let rail = "projects";
-  if (page === "room" && room) {
-    rail = "chat";
-    const procs = state.procs || [];
-    const asking = state.asks.filter((a) => a.roomId === room.id);
-    const roleOf = (p: Persona) => (p === room.builder ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : room.members?.includes(p) ? "Member" : "Free");
-    const personaRow = (p: Persona) => {
-      const s = personaStatus(pd(p)?.engine ?? "", state.engines);
-      const live = procs.find((x) => x.room === room.id && x.persona === p);
-      if (!s.ready) return [p, roleOf(p), "cold", s.label.toLowerCase()];
-      if (asking.some((a) => a.persona === p)) return [p, roleOf(p), "wait", "needs your approval"];
-      // the room step says who works; the process list alone lags while the model is still thinking
-      const working = room.state === "running" && ((room.step === "build" && p === room.builder) || (room.step === "review" && room.reviewers.includes(p)));
-      if (working || live?.busy) return [p, roleOf(p), "busy", room.step === "review" ? "reviewing" : "building"];
-      if (live) return [p, roleOf(p), "warm", "process ready"];
-      return [p, roleOf(p), "cold", roleOf(p) === "Free" ? "not in this room" : "wakes on its turn"];
-    };
-    const ready = PS.filter((p) => personaStatus(p.engine, state.engines).ready).length;
-    // room personas first, then the rest
-    const order = [...PS].sort((a, b) => Number(roleOf(a.id) === "Free") - Number(roleOf(b.id) === "Free"));
-    const items = order.map((p) => { const [, r, st, d] = personaRow(p.id); return personaItem(p, r, st, d); }).join("");
-    side = sidebar({
-      room: room.id,
-      task: esc(room.title),
-      rooms: state.rooms
-        .filter((r) => r.projectId === room.projectId)
-        .map((r) => [r.id, esc(r.title), [r.builder, ...r.reviewers], STATE[r.state] || esc(r.state), ""]),
-      personas: [],
-    })
-      .replace(/Rooms · BIBI/g, "Rooms · " + esc(project?.name))
-      .replace('<div style="flex:1"></div>', items + '<div style="flex:1"></div>')
-      .replace(/4 personas · 3 engines signed in/g, `${ready} of ${PS.length} personas ready`);
-    const reviewing = room.template !== "roundtable" && room.template !== "direct";
-    const last = room.artifacts.at(-1);
-    const finished = room.step === "awaiting acceptance" || !!last?.accepted;
-    const status =
-      room.state === "awaiting_user"
-        ? `<b style="color:${T.amber}">Waiting for you</b>`
-        : room.step === "build"
-          ? `<b>${nm(room.builder)}</b> is building`
-          : room.step === "review"
-            ? `Reviewing · ${room.reviewers.length} reviewer${room.reviewers.length > 1 ? "s" : ""}`
-            : finished
-              ? `<b style="color:${T.green}">${last?.accepted ? "Accepted" : "Finished"}</b>${last?.accepted ? "" : " · ready for your acceptance"}`
-              : STEP[room.step] || esc(room.step);
-    body =
-      roomHeader({
-        title: esc(room.title),
-        sub: esc(project?.name + " · " + project?.root),
-        es: [room.builder, ...room.reviewers, ...(room.members || [])].map((p) => pd(p)?.avatar ?? "claude"),
-      }) +
-      workflow({
-        mode: TEMPLATE[room.template],
-        steps: reviewing ? ["Build", "Review"] : room.template === "roundtable" ? ["Answer"] : ["Build"],
-        stepIdx: room.step === "review" ? 1 : room.step === "build" ? 0 : -1,
-        done: finished,
-        status,
-        turn: `${room.used} of ${room.budget}`,
-        controls: ["running", "awaiting_user"].includes(room.state),
-      } as any) +
-      `<div class="tl"><div class="tli">${room.messages
-        .map((m) =>
-          m.author === "cello"
-            ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta ? metaChip(m.meta, nm, m.kind === "setting") : "")
-            : pd(m.author)
-              ? personaMsg(pd(m.author)!, roleOf(m.author), new Date(m.at).toLocaleTimeString(), md(m.text) || "…")
-              : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
-        )
-        .join("")}${asking
-        .map(
-          (a) =>
-            `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${nm(a.persona)} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(a.input, null, 2))}</pre><div class="row g8">${btn("Allow once", "allow:" + a.id, "g")}${btn("Deny", "deny:" + a.id)}</div></div>`,
-        )
-        .join("")}${last && !["running", "awaiting_user"].includes(room.state) ? deliverable(room, last) : ""}</div></div>` +
-      composer({ ph: text.send.replace("Main", esc(room.title)), route: TEMPLATE[room.template] });
-    inspector = `<div class="insp"><div class="tabs">${["Task", "Files", "Context", "Decisions", "Activity"].map((t) => `<span class="tab ${tab === t ? "on" : ""}" data-hot="tab:${t}">${t}</span>`).join("")}</div><div style="padding:18px;overflow:auto"><div class="s16 b">${esc(room.title)}</div><div class="lbl">${STATE[room.state] || esc(room.state)}</div>${
-      tab === "Context"
-        ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || "No packet yet")}</pre>`
-        : tab === "Files"
-          ? room.artifacts
-              .map(
-                (a) =>
-                  `<div class="card" style="padding:12px;margin:10px 0">r${a.revision} · ${a.accepted ? "Accepted" : "Awaiting acceptance"}<div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${a.reviews.length} reviews</div></div>`,
-              )
-              .join("") || '<div class="s13 dim">No artifact yet.</div>'
-          : tab === "Decisions"
-            ? '<div class="s13 dim">No confirmed decisions.</div>'
-            : tab === "Activity"
-              ? room.messages
-                  .filter((m) => m.author === "Walt")
-                  .map((m) => `<p class="s12 dim">${esc(m.text)}</p>`)
-                  .join("") || '<div class="s13 dim">Nothing yet.</div>'
-              : `<div class="lbl">Team</div>${order.map((p) => { const r = roleOf(p.id); const act = r === "Builder" ? "" : r === "Free" ? `<span class="chip" data-hot="member:${esc(p.id)}:Reviewer">+ Reviewer</span><span class="chip" data-hot="member:${esc(p.id)}:Member">+ Member</span>` : `<span class="chip" data-hot="member:${esc(p.id)}:Remove">Remove</span>`; return `<div class="row g8 s13" style="margin:10px 0">${pav(p.id, 24)}<span class="f1">${esc(p.name)}<span class="s12 dim"> · ${r}</span></span>${act}</div>`; }).join("")}<div class="s12 dim" style="margin-top:4px">Members answer only when you @mention them.${room.tune && Object.keys(room.tune).length ? " Room settings: " + Object.entries(room.tune).map(([k, t]) => `${k === "*" ? "everyone" : nm(k)} ${[t.effort && "effort " + t.effort, t.model && "model " + esc(t.model)].filter(Boolean).join(", ")}`).join("; ") + "." : ""}</div><div class="lbl">Budget</div><div>${room.used} of ${room.budget} turns used</div><div class="col g8" style="margin-top:20px">${btn("Continue · +2 turns", "control:continue")}${btn("Resume", "control:resume")}${btn("End room", "control:end")}</div>`
-    }</div></div>`;
-  } else if (page === "projects") {
-    body = `<div style="padding:32px 40px"><div class="row sb">${wordmark(24)}${btn(text.newProject, "new-project", "g")}</div><h2 style="margin:32px 0 20px">${text.projects}</h2><div class="row g16" style="flex-wrap:wrap">${state.projects.map((p) => `<div class="card" style="padding:24px;width:300px" data-hot="project:${p.id}"><div class="s18 b">${esc(p.name)}</div><div class="s12 dim" style="margin:10px 0">${esc(p.root)}</div><div class="s13 sub">${esc(p.goal)}</div></div>`).join("") || `<div class="dim">${text.empty}</div>`}</div></div>`;
-  } else if (page === "tasks") {
-    body = `<div style="padding:32px"><h2>Tasks</h2>${state.rooms.map((r) => `<div class="card row sb" data-hot="open:${r.id}" style="padding:18px;margin-top:16px"><span>${esc(r.title)}</span><span class="dim">${esc(r.step)}</span></div>`).join("")}</div>`;
-  } else {
-    rail = "settings";
-    side = settingsSide;
-    body = `<div style="padding:32px 40px;overflow:auto"><h2 style="margin-bottom:26px">${esc(page)}</h2>`;
-    if (page === "Engines") {
-      body +=
-        btn("Refresh doctor", "doctor", "g") +
-        state.engines
-          .map(
-            (e) =>
-              `<div class="card" style="padding:20px;margin-top:16px"><div class="row g12">${av(e.engine, 32)}<span class="s16 b">${esc(e.engine)}</span><span class="chip">${e.installed ? (e.auth === "ok" ? "Ready" : e.auth === "required" ? "Login needed" : "Unknown") : "Not installed"}</span></div><div class="dim s13" style="margin-top:10px">${esc(e.version)} · ${esc(e.detail)}</div></div>`,
-          )
-          .join("");
-    } else if (page === "General") body += '<div id="settings-slot"></div>';
-    else if (page === "Island (Ce:L)")
-      body +=
-        '<div class="lbl">Connection</div><div class="card" style="padding:20px"><div class="s15 b">Local control service</div><p class="dim s13" style="margin-top:8px">127.0.0.1 · walt-control/1 · token rotated on launch</p><p class="dim s13" style="margin-top:8px">Ce:L reads %APPDATA%\\Walt\\control.json. Tool approvals open in Walt.</p></div>';
-    else if (page === "Usage & limits")
-      body +=
-        '<div class="card" style="padding:20px">Usage and quota: unknown<p class="dim s13" style="margin-top:8px">No provider usage report has been received.</p></div>';
-    else if (page === "Permissions")
-      body +=
-        '<div class="card" style="padding:20px">Builder: writes and shell commands require approval.<br><br>Reviewer: Read, Glob and Grep only.<br><br>Approvals are available in the Walt window.</div>';
-    else if (page === "Personas & templates") body += '<div id="personas-slot"></div>';
-    else if (page === "About Walt")
-      body +=
-        '<div class="s24 b">Walt 0.1.0</div><p class="dim" style="margin-top:12px">One project. Your AI team. You lead.</p>';
-    else
-      body +=
-        '<div class="dim">SQLite history is stored locally. Backup and restore are pending implementation.</div>';
-    body += "</div>";
-  }
-  const html = shell({
-    rail,
-    side,
-    main: body,
-    insp: inspector,
-    project: esc(project?.name || "Walt"),
-    light: state.settings.theme === "light",
-  });
-  const click = async (e: React.MouseEvent) => {
-    const target = (e.target as HTMLElement).closest<HTMLElement>(
-      "[data-hot],.btn,.wctl span",
-    );
-    if (!target) return;
-    let action = target.dataset.hot || "";
-    if (target.closest(".wctl")) {
-      window.walt.window(
-        ["minimize", "maximize", "close"][
-          Array.from(target.parentElement!.children).indexOf(target)
-        ],
-      );
-      return;
-    }
-    if (!action && target.textContent?.includes("Pause"))
-      action = "control:pause";
-    if (!action && target.textContent?.trim() === "Stop")
-      action = "control:interrupt";
-    if (action.startsWith("rail:")) {
-      const p = action.slice(5);
-      setPage(
-        (
-          {
-            chat: "room",
-            settings: "General",
-            usage: "Usage & limits",
-            memory: "room",
-          } as any
-        )[p] || p,
-      );
-    } else if (action.startsWith("set:")) {
-      setPage(action.slice(4));
-      if (action === "set:Engines") await invoke("doctor");
-    } else if (action === "new-project") setup("project");
-    else if (action === "project switcher") setPage("projects");
-    else if (action.startsWith("project:")) {
-      const id = action.slice(8);
-      setProjectId(id);
-      const r = state.rooms.find((r) => r.projectId === id);
-      if (r) {
-        setSelected(r.id);
-        setPage("room");
-      } else setup("team");
-    } else if (action.startsWith("room:")) {
-      const r = state.rooms.find(
-        (r) =>
-          r.title === target.textContent?.trim() || r.title === action.slice(5),
-      );
-      if (r) setSelected(r.id);
-    } else if (action.startsWith("open:")) {
-      setSelected(action.slice(5));
-      setPage("room");
-    } else if (action.startsWith("tab:")) setTab(action.slice(4));
-    else if (action === "doctor") await invoke("doctor");
-    else if (action.startsWith("control:"))
-      await invoke("control", { roomId: selected, action: action.slice(8) });
-    else if (action.startsWith("allow:") || action.startsWith("deny:"))
-      await invoke("approval", {
-        id: action.split(":")[1],
-        allow: action.startsWith("allow:"),
-      });
-    else if (action === "accept") await invoke("accept", selected);
-    else if (action.startsWith("member:")) {
-      const [, persona, role] = action.split(":");
-      await invoke("member", { roomId: selected, persona, role });
-    }
-    else if (action === "send") {
-      const value =
-        document.querySelector<HTMLTextAreaElement>("#message")?.value;
-      if (value?.trim()) {
-        const result = await invoke("send", { roomId: selected, text: value });
-        if (result !== null) setDraft("");
-      }
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(""), 9000);
+    return () => clearTimeout(t);
+  }, [error]);
+  const invoke: Invoke = async (method, input) => {
+    try {
+      setError("");
+      return await window.walt.call(method, input);
+    } catch (e) {
+      setError(String(e).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )*/, ""));
+      return null;
     }
   };
-  if (page === "setup")
-    return (
-      <>
-        <Setup
-          state={state}
-          step={step}
-          setStep={setStep}
-          projectId={projectId}
-          invoke={invoke}
-          onProject={(id) => {
-            setProjectId(id);
-            setStep("team");
-          }}
-          onRoom={(id) => {
-            setSelected(id);
-            setPage("room");
-          }}
-          onCancel={() => setPage("projects")}
-        />
-        {error && (
-          <div
-            role="alert"
-            className="card"
-            style={{
-              position: "absolute",
-              bottom: 20,
-              left: 30,
-              padding: 16,
-              color: T.red,
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </>
-    );
+  if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Walt · {error || "Starting…"}</div>;
+  // data from before the onboarded flag already has projects: do not walk that user through setup again
+  if (!state.settings.onboarded && !state.projects.length) {
+    if (step === "welcome") return <Welcome state={state} invoke={invoke} go={() => setStep("engines")} />;
+    return <Engines state={state} invoke={invoke} back={() => setStep("welcome")} go={() => invoke("settings", { onboarded: true })} />;
+  }
+  const newChat = async (projectId = "") => {
+    const r = await invoke("chat.new", projectId);
+    if (r) setView({ kind: "chat", id: r.id });
+  };
+  const room = view.kind === "chat" ? state.rooms.find((r) => r.id === view.id) : undefined;
+  const open = (id: string) => setView({ kind: "chat", id });
+  let main: React.ReactNode;
+  let crumb = "";
+  if (view.kind === "chat" && room) {
+    crumb = `${room.projectId ? state.projects.find((p) => p.id === room.projectId)?.name ?? "" : "Chats"}  ›  ${room.title}`;
+    main = <ChatView key={room.id} state={state} room={room} invoke={invoke} panel={panels.right ? panels.rw : 0} setRw={(rw) => setP({ rw })} />;
+  } else if (view.kind === "customize") (crumb = "Customize"), (main = <Customize state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "customize", tab })} />);
+  else if (view.kind === "settings") (crumb = "Settings"), (main = <Settings state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "settings", tab })} />);
+  else if (view.kind === "project-new") (crumb = "New project"), (main = <NewProject invoke={invoke} back={() => setView({ kind: "home" })} done={(id) => setView({ kind: "join", projectId: id, first: true })} />);
+  else if (view.kind === "join") (crumb = view.first ? "New project" : "New team chat"), (main = <Joins key={view.projectId} state={state} invoke={invoke} projectId={view.projectId} first={view.first} back={() => (view.first ? newChat(view.projectId) : setView({ kind: "home" }))} done={open} />);
+  else if (view.kind === "search") (crumb = "Search"), (main = <Search state={state} open={open} />);
+  else (crumb = "New chat"), (main = <Home state={state} invoke={invoke} opened={open} />);
   return (
-    <>
-      <Design
-        html={html}
-        onClick={click}
-        draft={draft}
-        setDraft={setDraft}
-        complete={(before) => (page === "room" && room ? completeFor(before, state, room) : [])}
-        onSend={async (value) => {
-          if (value.trim()) {
-            await invoke("send", { roomId: selected, text: value });
-            setDraft("");
-          }
-        }}
-      />
-      {page === "Personas & templates" && (
-        <div style={{ position: "absolute", top: 110, left: 364, right: 40, bottom: 20, overflow: "auto" }}>
-          <PersonaSettings state={state} invoke={invoke} />
+    <div style={{ width: "100%", height: "100%" }}>
+      <div className="win">
+        <Bar crumb={crumb} panels={panels} right={view.kind === "chat"} toggle={(side) => setP(side === "left" ? { left: !panels.left } : { right: !panels.right })} />
+        <div className="bd">
+          {panels.left && (
+            <>
+              <Sidebar state={state} view={view} go={setView} invoke={invoke} newChat={newChat} width={panels.lw} />
+              <Grip side="left" width={panels.lw} min={220} max={420} def={PANELS.lw} set={(lw) => setP({ lw })} />
+            </>
+          )}
+          <div className="main" style={{ position: "relative" }}>{main}</div>
         </div>
-      )}
-      {page === "General" && (
-        <div
-          style={{ position: "absolute", top: 150, left: 365, width: 600 }}
-          className="col g20"
-        >
-          <label className="row sb">
-            Language
-            <select
-              value={state.settings.locale}
-              onChange={(e) =>
-                invoke("settings", {
-                  ...state.settings,
-                  locale: e.target.value,
-                })
-              }
-            >
-              <option value="en">English</option>
-              <option value="id">Indonesia</option>
-            </select>
-          </label>
-          <label className="row sb">
-            Appearance
-            <select
-              value={state.settings.theme}
-              onChange={(e) =>
-                invoke("settings", { ...state.settings, theme: e.target.value })
-              }
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </label>
-          <label className="row sb">
-            Idle timeout (minutes)
-            <input
-              type="number"
-              min={5}
-              max={60}
-              defaultValue={state.settings.idleMinutes}
-              onBlur={(e) =>
-                invoke("settings", {
-                  ...state.settings,
-                  idleMinutes: Number(e.target.value),
-                })
-              }
-            />
-          </label>
-        </div>
-      )}
+      </div>
       {error && (
-        <div
-          role="alert"
-          className="card"
-          style={{
-            position: "absolute",
-            bottom: 24,
-            left: 350,
-            right: 40,
-            padding: 16,
-            color: T.red,
-          }}
-          onClick={() => setError("")}
-        >
+        <div role="alert" className="card" onClick={() => setError("")} style={{ position: "fixed", bottom: 24, left: 300, right: 40, padding: "12px 16px", color: "#FF6961", zIndex: 70, cursor: "pointer" }}>
           {error}
         </div>
       )}
-    </>
+    </div>
   );
 }
-function Design({
-  html,
-  onClick,
-  draft,
-  setDraft,
-  onSend,
-  complete,
-}: {
-  html: string;
-  onClick: React.MouseEventHandler;
-  draft: string;
-  setDraft: (s: string) => void;
-  onSend: (s: string) => void;
-  complete: (before: string) => Suggestion[];
-}) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  // handlers live in DOM listeners made once per html; read the latest completer through a ref
-  const completeRef = React.useRef(complete);
-  completeRef.current = complete;
-  const oldInput = document.activeElement as HTMLTextAreaElement | null;
-  const hadFocus = oldInput?.id === 'message';
-  const caret = hadFocus ? oldInput.selectionStart : 0;
-  useEffect(() => {
-    const root = ref.current!;
-    const slot = root.querySelector('[data-hot="composer"]');
-    if (slot) {
-      const input = document.createElement("textarea");
-      input.id = "message";
-      input.placeholder = slot.textContent || "";
-      input.value = draft;
-      input.rows = 1;
-      // @persona and /command menu above the composer
-      let list: Suggestion[] = [];
-      let at = 0;
-      const box = document.createElement("div");
-      box.id = "suggest";
-      box.className = "card";
-      box.setAttribute("role", "listbox");
-      box.style.cssText = "position:fixed;z-index:20;padding:6px;background:#2A2A2C;min-width:340px;display:none";
-      document.body.append(box);
-      const paint = () => {
-        if (!list.length) {
-          box.style.display = "none";
-          return;
-        }
-        const r = (input.closest(".cbox") || input).getBoundingClientRect();
-        box.style.display = "block";
-        box.style.left = r.left + 16 + "px";
-        box.style.bottom = window.innerHeight - r.top + 8 + "px";
-        box.innerHTML = list
-          .map((x, i) => `<div class="item g12" data-i="${i}" role="option" aria-selected="${i === at}" style="padding:6px 10px;cursor:pointer;${i === at ? "background:#3A3A3C" : ""}"><span class="s13 b">${esc(x.label)}</span><span class="f1"></span><span class="s12 dim">${esc(x.hint)}</span></div>`)
-          .join("");
-      };
-      const show = () => {
-        list = completeRef.current(input.value.slice(0, input.selectionStart ?? input.value.length));
-        at = 0;
-        paint();
-      };
-      const pick = (i: number) => {
-        const x = list[i];
-        if (x?.insert) {
-          const pos = input.selectionStart ?? input.value.length;
-          const start = pos - x.replace;
-          input.value = input.value.slice(0, start) + x.insert + input.value.slice(pos);
-          input.setSelectionRange(start + x.insert.length, start + x.insert.length);
-          setDraft(input.value);
-          input.focus();
-          return show();
-        }
-        list = [];
-        paint();
-      };
-      box.onmousedown = (e) => {
-        const el = (e.target as HTMLElement).closest<HTMLElement>("[data-i]");
-        if (el) {
-          e.preventDefault();
-          pick(Number(el.dataset.i));
-        }
-      };
-      input.oninput = () => {
-        setDraft(input.value);
-        show();
-      };
-      input.onblur = () => setTimeout(() => { list = []; paint(); }, 150);
-      input.onkeydown = (e) => {
-        if (list.length && ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(e.key) && !e.shiftKey) {
-          e.preventDefault();
-          if (e.key === "ArrowDown") at = (at + 1) % list.length;
-          else if (e.key === "ArrowUp") at = (at - 1 + list.length) % list.length;
-          else if (e.key === "Escape") list = [];
-          else return pick(at);
-          return paint();
-        }
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          onSend(input.value);
-        }
-      };
-      slot.replaceWith(input);
-      if (hadFocus) {
-        input.focus();
-        input.setSelectionRange(caret, caret);
-      }
-    }
-    root.querySelectorAll<HTMLElement>("[data-hot]").forEach((el) => {
-      el.tabIndex = 0;
-      el.onkeydown = (e) => {
-        if (e.key === "Enter") el.click();
-      };
-    });
-    return () => document.getElementById("suggest")?.remove();
-  }, [html]);
+
+/** title bar: sidebar toggle, where you are, side-panel toggle (chats only), window buttons */
+function Bar({ crumb, panels, right, toggle }: { crumb: string; panels: Panels; right: boolean; toggle: (side: "left" | "right") => void }) {
+  return (
+    <div className="tb" style={{ height: 40, gap: 6, paddingLeft: 8 }}>
+      <span className={`tbb ${panels.left ? "on" : ""}`} role="button" aria-label="Show or hide the sidebar (Ctrl+B)" title="Sidebar (Ctrl+B)" aria-pressed={panels.left} onClick={() => toggle("left")}>
+        <Icon n="sidebar" s={17} c={panels.left ? T.text : T.dim} />
+      </span>
+      <span className="s13 dim" style={{ marginLeft: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{crumb}</span>
+      <span style={{ flex: 1 }} />
+      {right && (
+        <span className={`tbb ${panels.right ? "on" : ""}`} role="button" aria-label="Show or hide the side panel (Ctrl+Alt+B)" title="Side panel (Ctrl+Alt+B)" aria-pressed={panels.right} onClick={() => toggle("right")}>
+          <Icon n="panel" s={17} c={panels.right ? T.text : T.dim} />
+        </span>
+      )}
+      <div className="wctl">
+        {(["min", "max", "x"] as const).map((n, i) => (
+          <span key={n} role="button" aria-label={["Minimize", "Maximize", "Close"][i]} style={{ height: 40 }} onClick={() => window.walt.window(["minimize", "maximize", "close"][i])}>
+            <Icon n={n} s={14} w={1.4} />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** drag handle on a panel edge; double-click resets the width */
+function Grip({ side, width, min, max, def, set }: { side: "left" | "right"; width: number; min: number; max: number; def: number; set: (w: number) => void }) {
   return (
     <div
-      ref={ref}
-      style={{ height: "100%" }}
-      onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }}
+      className="grip"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={side === "left" ? "Resize sidebar" : "Resize side panel"}
+      aria-valuenow={width}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      onDoubleClick={() => set(def)}
+      onKeyDown={(e) => {
+        const d = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
+        if (d) set(Math.min(max, Math.max(min, width + (side === "left" ? d : -d))));
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const el = e.currentTarget;
+        const x0 = e.clientX;
+        el.setPointerCapture(e.pointerId);
+        el.classList.add("on");
+        // end the drag on release, on lost capture, or when a move arrives with no button held (a release we never saw)
+        const move = (ev: PointerEvent) => (ev.buttons & 1 ? set(Math.round(Math.min(max, Math.max(min, width + (side === "left" ? ev.clientX - x0 : x0 - ev.clientX))))) : up());
+        const up = () => {
+          for (const t of ["pointermove", "pointerup", "pointercancel", "lostpointercapture"]) el.removeEventListener(t, t === "pointermove" ? (move as EventListener) : up);
+          el.classList.remove("on");
+        };
+        el.addEventListener("pointermove", move);
+        for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) el.addEventListener(t, up);
+      }}
     />
   );
 }
+
+const when = (iso: string) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { weekday: "short" });
+};
+/** everyone in a chat, builder first */
+const team = (r: Room) => [r.builder, ...r.reviewers, ...(r.members || [])];
+const roleIn = (r: Room, p: Persona) => (p === r.builder ? (r.template === "roundtable" ? "Talks" : "Builder") : r.reviewers.includes(p) ? (r.template === "roundtable" ? "Talks" : "Reviewer") : "Member");
+
+function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; view: View; go: (v: View) => void; invoke: Invoke; newChat: (projectId?: string) => void; width: number }) {
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const [menu, setMenu] = useState<{ at: DOMRect; items: Item[] } | null>(null);
+  const [adding, setAdding] = useState<DOMRect | null>(null);
+  const [renaming, setRenaming] = useState("");
+  const sel = view.kind === "chat" ? view.id : "";
+  const room = state.rooms.find((r) => r.id === sel);
+  const pd = (id: string) => state.personas.find((p) => p.id === id);
+  const sorted = [...state.rooms].sort((a, b) => lastAt(b).localeCompare(lastAt(a)));
+  const more = (e: React.MouseEvent, items: Item[]) => {
+    e.stopPropagation();
+    setMenu({ at: (e.currentTarget as HTMLElement).getBoundingClientRect(), items });
+  };
+  const preview = (r: Room) => {
+    const m = [...r.messages].reverse().find((m) => m.text.trim());
+    if (!m) return "No messages yet";
+    const who = m.author === "cello" ? "You" : m.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, pd(m.author)?.engine ?? "claude", m.meta?.model) : pd(m.author)?.name ?? m.author;
+    return `${who}: ${m.text.replace(/\s+/g, " ").slice(0, 90)}`;
+  };
+  const actions = (r: Room): Item[] => [
+    { label: "Rename", onSelect: () => setRenaming(r.id) },
+    {
+      label: "Delete",
+      danger: true,
+      disabled: busy(r),
+      onSelect: () => {
+        if (!confirm(`Delete "${r.title}"? Its messages are removed from Walt. Project files are not touched.`)) return;
+        void invoke("chat.delete", r.id).then(() => sel === r.id && go({ kind: "home" }));
+      },
+    },
+  ];
+  const rename = (r: Room) => (
+    <div key={r.id} className="navi on">
+      <input
+        autoFocus
+        aria-label="Chat name"
+        defaultValue={r.title}
+        style={{ width: "100%", padding: "2px 6px", fontSize: 13.5 }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void invoke("chat.rename", { roomId: r.id, title: e.currentTarget.value }).then(() => setRenaming(""));
+          if (e.key === "Escape") setRenaming("");
+        }}
+        onBlur={() => setRenaming("")}
+      />
+    </div>
+  );
+  // project chats: avatars of who is in it, last message, time (the W06 room list)
+  const richRow = (r: Room) =>
+    renaming === r.id ? (
+      rename(r)
+    ) : (
+      <div key={r.id} className={`navi rich ${sel === r.id ? "on" : ""}`} onClick={() => go({ kind: "chat", id: r.id })} title={r.title}>
+        <Html h={stack((r.template === "direct" ? [r.builder] : team(r)).map((p) => pd(p)?.avatar ?? "claude"), 20)} />
+        <div className="f1" style={{ minWidth: 0 }}>
+          <div className="row g6">
+            <span className="t b">{r.title}</span>
+            {busy(r) && <span style={{ width: 7, height: 7, borderRadius: 7, background: r.state === "awaiting_user" ? T.amber : T.green, flex: "none" }} />}
+            <span className="s12 dim when">{when(lastAt(r))}</span>
+          </div>
+          <div className="pv">{preview(r)}</div>
+        </div>
+        <span className="x" role="button" aria-label="Chat actions" onClick={(e) => more(e, actions(r))}>
+          <Icon n="more" s={15} />
+        </span>
+      </div>
+    );
+  const plainRow = (r: Room) =>
+    renaming === r.id ? (
+      rename(r)
+    ) : (
+      <div key={r.id} className={`navi ${sel === r.id ? "on" : ""}`} onClick={() => go({ kind: "chat", id: r.id })} title={r.title}>
+        <Html h={av(pd(r.builder)?.avatar ?? "claude", 20)} />
+        <span className="t">{r.title}</span>
+        {busy(r) && <span style={{ width: 7, height: 7, borderRadius: 7, background: r.state === "awaiting_user" ? T.amber : T.green, flex: "none" }} />}
+        <span className="s12 dim when">{when(lastAt(r))}</span>
+        <span className="x" role="button" aria-label="Chat actions" onClick={(e) => more(e, actions(r))}>
+          <Icon n="more" s={15} />
+        </span>
+      </div>
+    );
+  const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready);
+  const loose = sorted.filter((r) => !r.projectId);
+  const proc = (p: Persona) => state.procs?.find((x) => x.room === sel && x.persona === p);
+  return (
+    <nav className="nav" aria-label="Walt" style={{ width }}>
+      <div style={{ padding: "4px 10px 12px" }}><Html h={wordmark(19)} /></div>
+      <div className={`navi ${view.kind === "home" ? "on" : ""}`} role="button" onClick={() => newChat("")}><Icon n="plus" /><span className="t">New chat</span></div>
+      <div className={`navi ${view.kind === "search" ? "on" : ""}`} role="button" onClick={() => go({ kind: "search" })}><Icon n="search" /><span className="t">Search</span></div>
+      <div className={`navi ${view.kind === "customize" ? "on" : ""}`} role="button" onClick={() => go({ kind: "customize", tab: "ai" })}><Icon n="sparkle" /><span className="t">Customize</span></div>
+      <div className="scroll">
+        <div className="nhead">
+          Projects
+          <span className="add" role="button" aria-label="New project" title="New project" onClick={() => go({ kind: "project-new" })}><Icon n="plus" s={15} /></span>
+        </div>
+        {!state.projects.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }} onClick={() => go({ kind: "project-new" })}>Add a project folder</div>}
+        {state.projects.map((p) => {
+          const chats = sorted.filter((r) => r.projectId === p.id);
+          const open = !closed[p.id];
+          return (
+            <React.Fragment key={p.id}>
+              <div className="navi" role="button" aria-expanded={open} onClick={() => setClosed({ ...closed, [p.id]: open })} title={p.root}>
+                <Icon n={open ? "chevd" : "chevr"} s={14} />
+                <span className="t b">{p.name}</span>
+                {!open && <span className="s12 dim">{chats.length}</span>}
+                <span className="x" role="button" aria-label="New chat in project" title="New chat" onClick={(e) => { e.stopPropagation(); newChat(p.id); }}>
+                  <Icon n="plus" s={15} />
+                </span>
+                <span className="x" role="button" aria-label="Project actions" onClick={(e) => more(e, [
+                  { label: "New chat", onSelect: () => newChat(p.id) },
+                  { label: "New team chat", hint: "pick the models", onSelect: () => go({ kind: "join", projectId: p.id, first: false }) },
+                ])}>
+                  <Icon n="more" s={15} />
+                </span>
+              </div>
+              {open && chats.map(richRow)}
+              {open && !chats.length && <div className="navi sub" style={{ color: T.dim }} onClick={() => newChat(p.id)}>No chats yet</div>}
+            </React.Fragment>
+          );
+        })}
+        <div className="nhead">Chats</div>
+        {loose.map(plainRow)}
+        {!loose.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }}>No chats yet</div>}
+        {room && room.template !== "direct" && (
+          <>
+            <div className="nhead" style={{ marginTop: 6 }}>
+              Team · {room.title}
+              <span className="add row g4" role="button" aria-label="Add a model to this chat" style={{ color: T.green, fontSize: 12 }} onClick={(e) => setAdding(e.currentTarget.getBoundingClientRect())}>
+                <Icon n="plus" s={14} c={T.green} w={2} />Add
+              </span>
+            </div>
+            {team(room).map((id) => {
+              const p = pd(id);
+              if (!p) return null;
+              const pr = proc(id);
+              const [st, c] = pr ? (pr.busy ? ["Working", T.green] : ["Ready", T.blue]) : ["Asleep", T.faint];
+              const r = roleIn(room, id);
+              return (
+                <div key={id} className="navi rich" title={`${p.name} · ${label(state, p.engine, p.model)}`}>
+                  <Html h={av(p.avatar, 30)} />
+                  <div className="f1" style={{ minWidth: 0 }}>
+                    <div className="row g6"><span className="t b">{p.name}</span><Html h={roleTag(p.avatar, r)} /></div>
+                    <div className="pv row g6"><span style={{ width: 7, height: 7, borderRadius: 7, background: c, flex: "none" }} />{st} · {label(state, p.engine, room.tune?.[id]?.model ?? p.model)}</div>
+                  </div>
+                  {r !== "Builder" && r !== "Talks" && (
+                    <span className="x" role="button" aria-label={`${p.name} actions`} onClick={(e) => more(e, [
+                      { label: r === "Reviewer" ? "Make member" : "Make reviewer", onSelect: () => invoke("member", { roomId: room.id, persona: id, role: r === "Reviewer" ? "Member" : "Reviewer" }) },
+                      { label: "Remove from chat", danger: true, onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Remove" }) },
+                    ])}>
+                      <Icon n="more" s={15} />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+      <div className="row g8 s12 dim" style={{ padding: "8px 4px 0 10px", borderTop: `1px solid ${T.line2}` }}>
+        <Icon n="shield" s={14} c={ready.length ? T.green : T.amber} />
+        <span className="f1">{ready.length ? `${ready.map((e) => ENGINE_NAME[e]).join(" + ")} ready` : "No AI ready · open Customize"}</span>
+        <span className={`tbb ${view.kind === "settings" ? "on" : ""}`} role="button" aria-label="Settings" title="Settings" onClick={() => go({ kind: "settings", tab: "general" })}>
+          <Icon n="gear" s={17} c={view.kind === "settings" ? T.text : T.dim} />
+        </span>
+      </div>
+      {menu && <Menu at={menu.at} items={menu.items} onClose={() => setMenu(null)} />}
+      {adding && room && <AddModel state={state} room={room} invoke={invoke} at={adding} onClose={() => setAdding(null)} />}
+    </nav>
+  );
+}
+
+/** pick a model from the account's list and add it to a team chat (the "Add model" button) */
+function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Room; invoke: Invoke; at: DOMRect; onClose: () => void }) {
+  const [pick, setPick] = useState<{ engine: Engine; model: string } | null>(null);
+  const [as, setAs] = useState<"Reviewer" | "Member">("Member");
+  const [effort, setEffort] = useState("");
+  const [older, setOlder] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  const ids = team(room);
+  const inTeam = (e: Engine, id: string) => ids.some((pid) => {
+    const p = state.personas.find((x) => x.id === pid);
+    const m = room.tune?.[pid]?.model ?? (p?.model || "default");
+    // "default" means the CLI's default model, so it matches the catalog's default entry
+    return p?.engine === e && (m === id || (m === "default" && !!state.catalog?.[e]?.find((x) => x.id === id)?.isDefault));
+  });
+  const info = pick && state.catalog?.[pick.engine]?.find((m) => m.id === pick.model);
+  const add = async () => {
+    if (!pick) return;
+    const p = await invoke("persona.for", { ...pick, ...(effort && { effort }) });
+    if (p && (await invoke("member", { roomId: room.id, persona: p.id, role: as }))) onClose();
+  };
+  const W = 360;
+  const left = Math.min(Math.max(8, at.left), window.innerWidth - W - 8);
+  const top = Math.min(at.bottom + 6, window.innerHeight - 560);
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 59 }} onMouseDown={onClose} />
+      <div ref={ref} className="menu col" role="dialog" aria-label={`Add a model to ${room.title}`} style={{ position: "fixed", left, top: Math.max(8, top), width: W, zIndex: 60, padding: 10, maxHeight: "min(640px, calc(100vh - 16px))" }}>
+        <div className="row sb" style={{ padding: "2px 4px 8px" }}><span className="s15 b">Add a model to {room.title}</span><span role="button" aria-label="Close" onClick={onClose}><Icon n="x" s={15} /></span></div>
+        <input autoFocus aria-label="Search models" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", padding: "7px 10px", fontSize: 13.5 }} />
+        <div style={{ overflow: "auto", minHeight: 0, flex: 1, marginTop: 6 }}>
+          {ENGINES_ON.map((e) => {
+            const all = (state.catalog?.[e] ?? []).filter((m) => m.id !== "default" && (!q || m.label.toLowerCase().includes(q.toLowerCase())));
+            const list = q || older ? all : all.filter((m) => !m.more);
+            return (
+              <React.Fragment key={e}>
+                <div className="mlabel">{ENGINE_NAME[e]}</div>
+                {!all.length && <div className="mi" style={{ opacity: 0.5 }}>{personaStatus(e, state.engines).ready ? (q ? "No match" : "Loading models…") : personaStatus(e, state.engines).label}</div>}
+                {list.map((m) => {
+                  const has = inTeam(e, m.id);
+                  const on = pick?.engine === e && pick.model === m.id;
+                  return (
+                    <div key={m.id} className={`mi ${on ? "act" : ""}`} role="option" aria-selected={on} aria-disabled={has} style={{ opacity: has ? 0.45 : 1, gap: 10 }} onClick={() => !has && (setPick({ engine: e, model: m.id }), setEffort(""))}>
+                      <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 22)} />
+                      <span className="b f1">{m.label}</span>
+                      {has ? <span className="h">In this chat</span> : on && <Icon n="checkc" s={16} c={T.green} />}
+                    </div>
+                  );
+                })}
+                {!q && !older && all.some((m) => m.more) && <div className="mi" style={{ color: T.dim }} onClick={() => setOlder(true)}>More models ({all.filter((m) => m.more).length})</div>}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        <div className="msep" />
+        <div className="row g10" style={{ padding: "4px 4px" }}>
+          <span className="s13 dim f1">Joins as</span>
+          <div className="seg">{(["Reviewer", "Member"] as const).map((r) => <span key={r} className={as === r ? "on" : ""} onClick={() => setAs(r)}>{r}</span>)}</div>
+        </div>
+        <div className="row g10" style={{ padding: "6px 4px" }}>
+          <span className="s13 dim f1">Effort</span>
+          <Dropdown label="Effort" value={effort} width={140} disabled={!info?.efforts.length} onChange={setEffort} options={[{ value: "", label: "Default" }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
+        </div>
+        <div className="s12 dim" style={{ padding: "4px 4px 0", lineHeight: 1.5 }}>{as === "Member" ? "Members answer only when you @mention them." : "Reviewers read every new revision, read-only."} The builder stays the only one who edits files.</div>
+        <div className="row g8" style={{ padding: "10px 4px 2px", justifyContent: "flex-end" }}>
+          <button type="button" className="btn" style={{ border: 0 }} onClick={onClose}>Cancel</button>
+          <button type="button" className="btn g" style={{ border: 0, opacity: pick ? 1 : 0.4 }} disabled={!pick} onClick={add}>{info ? `Add ${info.label}` : "Add"}</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** chip in the composer, like the model menu in the Claude and ChatGPT apps */
+function ModelChip({ state, value, pick }: { state: State; value: Target; pick: (t: Target) => void }) {
+  const [at, setAt] = useState<DOMRect | null>(null);
+  const list0 = state.catalog?.[value.engine] ?? [];
+  const info = list0.find((m) => m.id === value.model) ?? (value.model === "default" || !value.model ? list0.find((m) => m.isDefault) : undefined);
+  const items: Item[] = [];
+  for (const e of ENGINES_ON) {
+    const list = state.catalog?.[e] ?? [];
+    items.push({ kind: "label", label: ENGINE_NAME[e] });
+    if (!list.length) {
+      const s = personaStatus(e, state.engines);
+      items.push({ label: s.ready ? "Loading models…" : s.label, disabled: true });
+      continue;
+    }
+    const opt = (m: (typeof list)[number]): Item => ({
+      label: m.label,
+      checked: value.engine === e && value.model === m.id,
+      onSelect: () => pick({ engine: e, model: m.id, effort: value.effort && m.efforts.includes(value.effort) ? value.effort : undefined }),
+    });
+    items.push(...list.filter((m) => !m.more).map(opt));
+    const older = list.filter((m) => m.more);
+    if (older.length) items.push({ label: "More models", submenu: older.map(opt) });
+  }
+  const levels = info?.efforts ?? [];
+  items.push({ kind: "sep" }, {
+    label: "Effort",
+    hint: value.effort ? cap(value.effort) : "Default",
+    disabled: !levels.length,
+    submenu: [{ label: "Default", checked: !value.effort, onSelect: () => pick({ ...value, effort: undefined }) }, ...levels.map((l) => ({ label: cap(l), checked: value.effort === l, onSelect: () => pick({ ...value, effort: l }) }))],
+  });
+  return (
+    <>
+      <button type="button" className="mchip" aria-label="Model and effort" aria-haspopup="menu" onClick={(e) => setAt(at ? null : e.currentTarget.getBoundingClientRect())}>
+        <span>{label(state, value.engine, value.model)}</span>
+        {value.effort && <span style={{ color: T.dim }}>{cap(value.effort)}</span>}
+        <Icon n="chevd" s={14} />
+      </button>
+      {at && <Menu at={at} side="above" width={260} items={items} onClose={() => setAt(null)} />}
+    </>
+  );
+}
+
+/** message box: Enter sends, Shift+Enter breaks the line, @ and / open the shortcut menu */
+function Composer({ state, room, placeholder, chip, footer, onSend, onStop, working }: {
+  state: State; room?: Room; placeholder: string; chip?: React.ReactNode; footer?: React.ReactNode; onSend: (text: string) => Promise<boolean>; onStop?: () => void; working?: boolean;
+}) {
+  const [text, setText] = useState("");
+  const [list, setList] = useState<Suggestion[]>([]);
+  const [act, setAct] = useState(0);
+  const [sending, setSending] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const t = ref.current!;
+    t.style.height = "auto";
+    t.style.height = Math.min(t.scrollHeight, 220) + "px";
+  }, [text]);
+  useEffect(() => ref.current?.focus(), [room?.id]);
+  const refresh = (v: string, caret: number) => {
+    setList(room ? complete(v.slice(0, caret), state, room) : []);
+    setAct(0);
+  };
+  const pick = (s: Suggestion) => {
+    const t = ref.current!;
+    const pos = t.selectionStart;
+    const start = pos - s.replace;
+    const v = text.slice(0, start) + s.insert + text.slice(pos);
+    setText(v);
+    requestAnimationFrame(() => {
+      t.focus();
+      t.setSelectionRange(start + s.insert.length, start + s.insert.length);
+      refresh(v, start + s.insert.length);
+    });
+  };
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try {
+      if (await onSend(text)) {
+        setText("");
+        setList([]);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+  const can = !!text.trim() && !sending;
+  return (
+    <div className="comp" style={{ position: "relative" }}>
+      {!!list.length && (
+        <div className="menu" role="listbox" style={{ position: "absolute", bottom: "100%", left: "max(24px, calc(50% - 380px))", marginBottom: 6, width: 360 }}>
+          {list.map((s, i) => (
+            <div key={s.label + i} className={`mi ${i === act ? "act" : ""}`} role="option" aria-selected={i === act} onMouseDown={(e) => { e.preventDefault(); if (s.insert) pick(s); else setList([]); }}>
+              <span className="b">{s.label}</span><span className="h">{s.hint}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="cbox" style={{ maxWidth: 760 }}>
+        <textarea
+          ref={ref}
+          rows={1}
+          value={text}
+          placeholder={placeholder}
+          aria-label="Message"
+          onChange={(e) => {
+            setText(e.target.value);
+            refresh(e.target.value, e.target.selectionStart);
+          }}
+          onBlur={() => setTimeout(() => setList([]), 120)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            const nav = ["ArrowDown", "ArrowUp", "Tab", "Escape"].includes(e.key) || (e.key === "Enter" && !e.shiftKey);
+            if (list.length && nav) {
+              e.preventDefault();
+              if (e.key === "ArrowDown") setAct((act + 1) % list.length);
+              else if (e.key === "ArrowUp") setAct((act - 1 + list.length) % list.length);
+              else if (e.key === "Escape" || !list[act].insert) setList([]);
+              else pick(list[act]);
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+        />
+        {chip}
+        {working && onStop ? (
+          <button type="button" className="send" aria-label="Stop" style={{ border: 0, background: "#FF453A33", cursor: "pointer" }} onClick={onStop}><Icon n="stop" s={16} c="#FF6961" w={2.2} /></button>
+        ) : (
+          <button type="button" className="send" aria-label="Send" disabled={!can} style={{ border: 0, cursor: can ? "pointer" : "default", opacity: can ? 1 : 0.4 }} onClick={send}><Icon n="up" s={18} c="#04170B" w={2.2} /></button>
+        )}
+      </div>
+      {footer && <div className="route" style={{ maxWidth: 760 }}>{footer}</div>}
+    </div>
+  );
+}
+
+/** start screen: type and pick a model; the chat is created on send (like the Claude app) */
+function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened: (id: string) => void }) {
+  const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready);
+  const [t, setT] = useState<Target>(state.settings.lastTarget ?? { engine: ready[0] ?? "claude", model: "default" });
+  const hour = new Date().getHours();
+  return (
+    <div className="col" style={{ flex: 1, minHeight: 0 }}>
+      <div className="empty">
+        <Html h={wordmark(34)} />
+        <div className="s24 b" style={{ color: T.text, marginTop: 12 }}>{hour < 11 ? "Good morning" : hour < 15 ? "Good afternoon" : hour < 19 ? "Good evening" : "Good night"}</div>
+        <div className="s14">{ready.length ? "Ask anything, or open a project on the left to work on its files." : "No AI is ready yet. Open Customize · AI & models."}</div>
+      </div>
+      <Composer
+        state={state}
+        placeholder="How can Walt help today?"
+        chip={<ModelChip state={state} value={t} pick={setT} />}
+        footer={<span className="dim">A chat without a project can read and talk, not edit files.</span>}
+        onSend={async (text) => {
+          const r = await invoke("chat.new", "");
+          if (!r) return false;
+          if ((await invoke("chat.target", { roomId: r.id, ...t })) === null) return false;
+          opened(r.id);
+          await invoke("send", { roomId: r.id, text });
+          return true;
+        }}
+      />
+    </div>
+  );
+}
+
+function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: Room; invoke: Invoke; panel: number; setRw: (w: number) => void }) {
+  const direct = room.template === "direct";
+  const [adding, setAdding] = useState<DOMRect | null>(null);
+  const [tab, setTab] = useState(direct ? "Files" : "Task");
+  const tl = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const project = room.projectId ? state.projects.find((p) => p.id === room.projectId) : undefined;
+  const pd = (id: string) => state.personas.find((p) => p.id === id);
+  const asks = state.asks.filter((a) => a.roomId === room.id);
+  const last = room.messages.at(-1);
+  const t = target(state, room);
+  useLayoutEffect(() => {
+    if (stick.current && tl.current) tl.current.scrollTop = tl.current.scrollHeight;
+  }, [room.messages.length, last?.text.length, asks.length]);
+  const roleOf = (p: Persona) => (direct ? "" : p === room.builder ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : room.members?.includes(p) ? "Member" : "");
+  // plain chats name replies by the model that answered (stored on the message), team chats by persona
+  const nameOf = (id: string, meta?: { model?: string }) => {
+    const p = pd(id);
+    if (!p) return id;
+    return direct ? label(state, p.engine, meta?.model ?? t.model) : p.name;
+  };
+  const html =
+    room.messages
+      .map((m) =>
+        m.author === "cello"
+          ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
+          : pd(m.author)
+            ? personaMsg(pd(m.author)!, roleOf(m.author), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta))
+            : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
+      )
+      .join("") +
+    asks
+      .map(
+        (a) =>
+          `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${esc(nameOf(a.persona))} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto">${esc(askBody(a.input))}</pre><div class="row g8"><button class="btn g" data-hot="allow:${a.id}" style="border:0">Allow once</button><button class="btn" data-hot="deny:${a.id}" style="border:0">Deny</button></div></div>`,
+      )
+      .join("") +
+    (room.artifacts.length && !busy(room) ? (direct ? changed(room) : deliverable(state, room, room.artifacts.at(-1)!)) : "");
+  const act = async (e: React.MouseEvent) => {
+    const h = (e.target as HTMLElement).closest<HTMLElement>("[data-hot]")?.dataset.hot;
+    if (!h) return;
+    if (h.startsWith("allow:") || h.startsWith("deny:")) await invoke("approval", { id: h.split(":")[1], allow: h.startsWith("allow:") });
+    else if (h === "accept") await invoke("accept", room.id);
+    else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
+    else if (h.startsWith("member:")) {
+      const [, persona, role] = h.split(":");
+      await invoke("member", { roomId: room.id, persona, role });
+    } else if (h.startsWith("tab:")) setTab(h.slice(4));
+  };
+  const status = room.state === "awaiting_user" ? "Waiting for your approval" : busy(room) ? (room.step === "review" ? "Reviewing" : "Working") : "";
+  return (
+    <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
+      <div className="col" style={{ flex: 1, minWidth: 0 }}>
+        <div className="rh">
+          <div className="f1" style={{ minWidth: 0 }}>
+            <div className="s16 b" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{room.title}</div>
+            <div className="s12 dim" style={{ marginTop: 2 }}>
+              {project ? `${project.name} · ${project.root}` : "Chat · no project folder"}
+              {status && <span style={{ color: room.state === "awaiting_user" ? T.amber : T.green }}> · {status}</span>}
+            </div>
+          </div>
+          {!direct && (
+            <>
+              <Html h={stack(team(room).map((p) => pd(p)?.avatar ?? "claude"), 26)} />
+              <button type="button" className="btn sm" style={{ border: 0 }} aria-haspopup="dialog" aria-expanded={!!adding} onClick={(e) => setAdding(adding ? null : e.currentTarget.getBoundingClientRect())}>
+                <Icon n="plus" s={14} c={T.text} w={2} />Add model
+              </button>
+            </>
+          )}
+        </div>
+        {adding && <AddModel state={state} room={room} invoke={invoke} at={new DOMRect(adding.right - 360, adding.y, 360, adding.height)} onClose={() => setAdding(null)} />}
+        {!direct && (
+          <div
+            dangerouslySetInnerHTML={{ __html: workflow({ mode: TEMPLATE[room.template], steps: room.template === "roundtable" ? ["Answer"] : ["Build", "Review"], stepIdx: room.step === "review" ? 1 : room.step === "build" ? 0 : -1, done: room.step === "awaiting acceptance", status: STATE[room.state] ?? room.state, turn: `${room.used} of ${room.budget}`, controls: busy(room) } as any) }}
+            onClick={(e) => {
+              const b = (e.target as HTMLElement).closest(".btn");
+              if (b) void invoke("control", { roomId: room.id, action: /stop/i.test(b.textContent || "") ? "interrupt" : "pause" });
+            }}
+          />
+        )}
+        <div
+          className="tl"
+          ref={tl}
+          onScroll={(e) => {
+            const d = e.currentTarget;
+            stick.current = d.scrollHeight - d.scrollTop - d.clientHeight < 80;
+          }}
+          onClick={act}
+        >
+          {room.messages.length || asks.length ? (
+            <div className="tli" dangerouslySetInnerHTML={{ __html: html }} />
+          ) : (
+            <div className="empty" style={{ height: "100%" }}>
+              <div className="s16 b" style={{ color: T.text }}>{direct ? `Chat with ${label(state, t.engine, t.model)}` : `${TEMPLATE[room.template]} · ${project?.name ?? ""}`}</div>
+              <div className="s13">{project ? (direct ? "It can read this project and edit files after you allow each change." : "Describe the task. The builder works, then the reviewers check the same revision.") : "It can talk and read, but cannot edit files in a chat without a project."}</div>
+            </div>
+          )}
+        </div>
+        <Composer
+          state={state}
+          room={room}
+          placeholder={direct ? `Message ${label(state, t.engine, t.model)}` : `Message ${room.title}, or @mention someone`}
+          working={busy(room)}
+          onStop={() => invoke("control", { roomId: room.id, action: "interrupt" })}
+          chip={direct ? <ModelChip state={state} value={t} pick={(v) => invoke("chat.target", { roomId: room.id, ...v })} /> : undefined}
+          footer={
+            <span className="dim">
+              {direct ? (project ? `Edits in ${project.name} need your approval` : "Chat only · the AI cannot edit files here") : `${TEMPLATE[room.template]} · one writer at a time · @name to talk to one`}
+            </span>
+          }
+          onSend={async (text) => (await invoke("send", { roomId: room.id, text })) !== null}
+        />
+      </div>
+      {panel > 0 && (
+        <>
+          <Grip side="right" width={panel} min={280} max={560} def={PANELS.rw} set={setRw} />
+          <div className="insp" style={{ width: panel }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab) }} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** what an approval shows: the command as typed, the diff, or the raw input for anything else */
+function askBody(input: any): string {
+  const lines = (s: string, p: string) => String(s).split("\n").map((l) => p + l).join("\n");
+  if (typeof input?.command === "string") return input.command + (input.cwd ? `\n\nin ${input.cwd}` : "");
+  if (typeof input?.diff === "string" && input.diff) return input.diff;
+  if (input?.file_path && typeof input.content === "string") return `${input.file_path} (new content)\n\n${input.content}`;
+  if (input?.file_path && typeof input.new_string === "string") return `${input.file_path}\n\n${lines(input.old_string ?? "", "- ")}\n${lines(input.new_string, "+ ")}`;
+  return JSON.stringify(input, null, 2);
+}
+
+/** result card for a plain chat in a project: which files changed (no reviews there) */
+function changed(room: Room) {
+  const a = room.artifacts.at(-1)!;
+  return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">Files changed · r${a.revision}</span><span class="f1"></span>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">Accepted</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">Accept</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${Object.keys(a.files).length} files tracked</div></div>`;
+}
+
+// W09 result card: only facts Walt holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
+function deliverable(state: State, room: Room, a: Room["artifacts"][number]) {
+  const pd = (id: string) => state.personas.find((p) => p.id === id);
+  const box = (k: string, inner: string, sub: string, dashed = false) =>
+    `<div class="f1" style="background:#1F1F21;border-radius:12px;padding:12px;${dashed ? "border:1px dashed #48484A" : ""}"><div class="s12 dim">${k}</div><div class="row g8" style="margin-top:6px">${inner}</div><div class="s12 dim" style="margin-top:4px">${sub}</div></div>`;
+  const reviews = room.reviewers.map((p) => {
+    const v = a.reviews.find((x) => x.persona === p);
+    const ok = v?.hash === a.hash;
+    return box("Source review", `${av(pd(p)?.avatar ?? "claude", 20)}<span class="s13 b">${esc(pd(p)?.name ?? p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? `read r${a.revision} · same hash` : v ? "stale: files changed after review" : "no review");
+  });
+  const accept = a.accepted ? box("Your acceptance", '<span class="s13 b">Accepted</span>', "by you") : box("Your acceptance", '<span class="s13 b">Waiting for you</span>', "Not implied by reviews", true);
+  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · result</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}Accept</button>`}<button class="btn" data-hot="control:continue" style="border:0">Continue with a new budget</button></div></div>`;
+}
+
+function inspectorHtml(state: State, room: Room, tab: string) {
+  const direct = room.template === "direct";
+  const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
+  const files = room.artifacts.map((a) => `<div class="card" style="padding:12px;margin:10px 0">r${a.revision} · ${a.accepted ? "Accepted" : "Awaiting acceptance"}<div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${a.reviews.length} reviews · ${Object.keys(a.files).length} files</div></div>`).join("") || '<div class="s13 dim">No changes yet.</div>';
+  // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
+  const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
+  const team = (direct ? [] : [room.builder, ...room.reviewers, ...(room.members || [])])
+    .map((id) => {
+      const p = state.personas.find((x) => x.id === id);
+      if (!p) return "";
+      const r = roleIn(room, id);
+      return `<div class="row g8 s13" style="margin:8px 0">${av(p.avatar, 22)}<span>${esc(p.name)}</span>${roleTag(p.avatar, r)}<span class="f1"></span><span class="s12 dim">${can[r]}</span></div>`;
+    })
+    .join("");
+  const body =
+    tab === "Context"
+      ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || "No packet yet")}</pre>`
+      : tab === "Files"
+        ? files
+        : tab === "Activity"
+          ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || '<div class="s13 dim">Nothing yet.</div>'
+          : `<div class="lbl">Who does what</div>${team}<div class="lbl">Budget</div><div>${room.used} of ${room.budget} turns used</div><div class="col g8" style="margin-top:20px">${btn("Continue · +2 turns", "control:continue")}${btn("Resume", "control:resume")}${btn("End chat", "control:end")}</div>`;
+  const tabs = (direct ? ["Files", "Activity"] : ["Task", "Files", "Context", "Activity"]).map((t) => `<span class="tab ${tab === t ? "on" : ""}" data-hot="tab:${t}">${t}</span>`).join("");
+  return `<div class="tabs">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
+}
+
+type Pick = { engine: Engine; model: string; role: "Builder" | "Reviewer" | "Member"; effort?: Effort };
+/** step 2 of a new project (and "New team chat"): tick the models that join, give each a role, then start */
+function Joins({ state, invoke, projectId, first, back, done }: { state: State; invoke: Invoke; projectId: string; first: boolean; back: () => void; done: (id: string) => void }) {
+  const [picks, setPicks] = useState<Pick[]>([]);
+  const [talk, setTalk] = useState(false);
+  const [older, setOlder] = useState(false);
+  const [busyNow, setBusy] = useState(false);
+  const project = state.projects.find((p) => p.id === projectId);
+  const key = (p: { engine: Engine; model: string }) => p.engine + ":" + p.model;
+  const toggle = (engine: Engine, model: string) => {
+    const k = key({ engine, model });
+    if (picks.some((p) => key(p) === k)) {
+      const rest = picks.filter((p) => key(p) !== k);
+      // keep one builder: promote the first one left
+      if (!rest.some((p) => p.role === "Builder") && rest.length) rest[0] = { ...rest[0], role: "Builder" };
+      setPicks(rest);
+    } else setPicks([...picks, { engine, model, role: picks.some((p) => p.role === "Builder") ? "Reviewer" : "Builder" }]);
+  };
+  const set = (i: number, v: Partial<Pick>) =>
+    setPicks(picks.map((p, j) => (j === i ? { ...p, ...v } : v.role === "Builder" && p.role === "Builder" ? { ...p, role: "Reviewer" } : p)));
+  const reviewers = picks.filter((p) => p.role === "Reviewer").length;
+  const why =
+    !picks.length ? "Pick at least one model." :
+    picks.length === 1 ? "One model: this starts a plain chat in the project." :
+    talk ? (picks.length > 4 ? "A roundtable takes up to 4 models." : "") :
+    !reviewers ? "Make at least one model a reviewer, or switch to Roundtable." :
+    reviewers > 3 ? "Up to 3 reviewers." : "";
+  const ok = picks.length > 0 && (picks.length === 1 || !why);
+  const start = async () => {
+    setBusy(true);
+    try {
+      if (picks.length === 1) {
+        const r = await invoke("chat.new", projectId);
+        if (r && (await invoke("chat.target", { roomId: r.id, engine: picks[0].engine, model: picks[0].model, ...(picks[0].effort && { effort: picks[0].effort }) }))) done(r.id);
+        return;
+      }
+      const ids: (Pick & { id: string })[] = [];
+      for (const p of picks) {
+        const per = await invoke("persona.for", { engine: p.engine, model: p.model, ...(p.effort && { effort: p.effort }) });
+        if (!per) return;
+        ids.push({ ...p, id: per.id });
+      }
+      const builder = ids.find((p) => p.role === "Builder") ?? ids[0];
+      const others = ids.filter((p) => p !== builder);
+      const revs = talk ? others : others.filter((p) => p.role === "Reviewer");
+      const template = talk ? "roundtable" : revs.length >= 2 ? "triad" : "build_review";
+      const r = await invoke("room", { projectId, title: first ? "Main" : "Team chat", template, builder: builder.id, reviewers: revs.map((p) => p.id) });
+      if (!r) return;
+      for (const m of talk ? [] : others.filter((p) => p.role === "Member")) await invoke("member", { roomId: r.id, persona: m.id, role: "Member" });
+      done(r.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="col" style={{ flex: 1, minHeight: 0, padding: "28px 40px 0", overflow: "auto" }}>
+      <div className="s24 b">Who joins {project?.name ?? "this project"}?</div>
+      <div className="s13 dim" style={{ marginTop: 6 }}>Only models your signed-in accounts can use are listed. You can add more later with Add model in any team chat.</div>
+      <div className="row" style={{ gap: 24, marginTop: 20, alignItems: "flex-start" }}>
+        <div className="card f1" style={{ padding: 8, minWidth: 0 }}>
+          {ENGINES_ON.map((e) => {
+            const all = (state.catalog?.[e] ?? []).filter((m) => m.id !== "default");
+            const list = older ? all : all.filter((m) => !m.more);
+            return (
+              <React.Fragment key={e}>
+                <div className="mlabel" style={{ padding: "10px 12px 6px" }}>{ENGINE_NAME[e]}</div>
+                {!all.length && <div className="s13 dim" style={{ padding: "6px 12px" }}>{personaStatus(e, state.engines).ready ? "Loading models…" : personaStatus(e, state.engines).label}</div>}
+                {list.map((m) => {
+                  const i = picks.findIndex((p) => key(p) === key({ engine: e, model: m.id }));
+                  return (
+                    <div key={m.id} className={`navi ${i >= 0 ? "on" : ""}`} role="checkbox" aria-checked={i >= 0} onClick={() => toggle(e, m.id)} style={{ padding: "8px 12px" }}>
+                      <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 28)} />
+                      <span className="t b">{m.label}</span>
+                      {i >= 0 && !talk && <span className="s12" style={{ color: T.green }}>{picks[i].role}</span>}
+                      <span style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", ...(i >= 0 ? { background: T.green } : { border: "1.5px solid #48484A" }) }}>{i >= 0 && <Icon n="check" s={13} c="#04170B" w={2.6} />}</span>
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+          {!older && <div className="navi" style={{ color: T.dim, padding: "8px 12px" }} onClick={() => setOlder(true)}><Icon n="plus" s={15} />More models</div>}
+        </div>
+        <div className="col g12" style={{ width: 460, flex: "none" }}>
+          <div className="card" style={{ padding: 16 }}>
+            <div className="s14 b">Team</div>
+            {!picks.length && <div className="s13 dim" style={{ marginTop: 8 }}>Tick models on the left.</div>}
+            {picks.map((p, i) => {
+              const info = state.catalog?.[p.engine]?.find((m) => m.id === p.model);
+              return (
+                <div key={key(p)} className="row g10" style={{ padding: "10px 0", borderBottom: `1px solid ${T.line2}` }}>
+                  <Html h={av(p.engine === "codex" ? "codex" : /sonnet/i.test(info?.label ?? "") ? "sonnet" : "claude", 28)} />
+                  <div className="f1" style={{ minWidth: 0 }}><div className="s13 b" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info?.label ?? p.model}</div><div className="s12 dim">{ENGINE_NAME[p.engine]}</div></div>
+                  <Dropdown label={`Effort for ${info?.label}`} value={(p.effort ?? "") as string} width={112} disabled={!info?.efforts.length} onChange={(v) => set(i, { effort: (v || undefined) as Effort | undefined })} options={[{ value: "", label: "Default" }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
+                  {!talk && <Dropdown label={`Role for ${info?.label}`} value={p.role} width={112} onChange={(v) => set(i, { role: v })} options={(["Builder", "Reviewer", "Member"] as const).map((r) => ({ value: r, label: r }))} />}
+                </div>
+              );
+            })}
+            <div className="s12 dim" style={{ marginTop: 10, lineHeight: 1.5 }}>{talk ? "Everyone answers in turn and reads the project; nobody edits files." : "One builder edits files after you allow each change; reviewers read the same revision; members answer when @mentioned."}</div>
+          </div>
+          <div className="card" style={{ padding: 16 }}>
+            <div className="s14 b">How they work together</div>
+            <div className="seg" style={{ marginTop: 10 }}>
+              <span className={talk ? "" : "on"} onClick={() => setTalk(false)}>Build & review</span>
+              <span className={talk ? "on" : ""} onClick={() => setTalk(true)}>Roundtable</span>
+            </div>
+            <div className="s12 dim" style={{ marginTop: 10 }}>{talk ? "Roundtable: 4 turns per message." : reviewers >= 2 ? `Triad: ${reviewers} reviewers in parallel, 6 turns per task.` : "Build & Review: 4 turns per task."}</div>
+          </div>
+        </div>
+      </div>
+      <div className="f1" />
+      <div className="row sb" style={{ padding: "18px 0 24px", marginTop: 20, borderTop: `1px solid ${T.line2}` }}>
+        <button type="button" className="btn o" onClick={back}>{first ? "Skip · plain chat" : "Cancel"}</button>
+        <span className="row g12">
+          <span className={`s12 ${ok ? "dim" : ""}`} style={ok ? {} : { color: T.amber }}>{why || `${picks.length} models`}</span>
+          <button type="button" className="btn g" style={{ border: 0, opacity: ok && !busyNow ? 1 : 0.4 }} disabled={!ok || busyNow} onClick={start}>{first ? "Create team chat" : "Start team chat"}</button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Search({ state, open }: { state: State; open: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const hits = needle
+    ? state.rooms.flatMap((r) => {
+        const m = r.messages.find((m) => m.text.toLowerCase().includes(needle));
+        return r.title.toLowerCase().includes(needle) || m ? [{ r, snip: m?.text ?? "" }] : [];
+      })
+    : [];
+  return (
+    <div className="panel">
+      <h2>Search</h2>
+      <input autoFocus aria-label="Search chats" placeholder="Search chats and messages" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", maxWidth: 640, marginTop: 12 }} />
+      <div className="col g8" style={{ marginTop: 18, maxWidth: 640 }}>
+        {hits.map(({ r, snip }) => {
+          const i = snip.toLowerCase().indexOf(needle);
+          return (
+            <div key={r.id} className="card" style={{ padding: "12px 14px", cursor: "pointer" }} onClick={() => open(r.id)}>
+              <div className="s14 b">{r.title}</div>
+              <div className="s12 dim" style={{ marginTop: 2 }}>{r.projectId ? state.projects.find((p) => p.id === r.projectId)?.name : "Chat"}</div>
+              {snip && <div className="s13 sub" style={{ marginTop: 6 }}>…{snip.slice(Math.max(0, i - 50), i + 90)}…</div>}
+            </div>
+          );
+        })}
+        {needle && !hits.length && <div className="dim s13">Nothing found.</div>}
+      </div>
+    </div>
+  );
+}
+
+const PLANNED: [string, string, string][] = [
+  ["Gemini CLI", "Installed on this laptop. Its adapter comes next; sign in with gemini first.", "gemini"],
+  ["Groq, xAI Grok and other OpenAI-compatible APIs", "Need an API key (no CLI login). Chat and review only until Walt gives them file tools.", "globe"],
+  ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
+  ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
+];
+type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
+/** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
+const Customize = (p: PageProps) => <Pages {...p} title="Customize" tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title="Settings" tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["about", "About", "eye"]]} />;
+function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
+  const s = state.settings;
+  const rows: [string, string, React.ReactNode][] = [
+    ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{l}</span>)}</div>],
+    ["Theme", "", <div className="seg">{([["dark", "Dark"], ["light", "Light"]] as const).map(([v, l]) => <span key={v} className={s.theme === v ? "on" : ""} onClick={() => invoke("settings", { theme: v })}>{l}</span>)}</div>],
+    [
+      "Default model for new chats",
+      "Picking a model in a chat changes this too.",
+      <Dropdown
+        label="Default model for new chats"
+        value={s.lastTarget ? `${s.lastTarget.engine}:${s.lastTarget.model}` : ""}
+        width={220}
+        onChange={(v) => {
+          const i = v.indexOf(":");
+          void invoke("settings", { lastTarget: { engine: v.slice(0, i), model: v.slice(i + 1) } });
+        }}
+        options={[
+          ...(s.lastTarget ? [] : [{ value: "", label: "Claude default" }]),
+          ...ENGINES_ON.flatMap((e) => (state.catalog?.[e] ?? []).filter((m) => !m.more).map((m) => ({ value: `${e}:${m.id}`, label: m.label === "Default" ? `${ENGINE_NAME[e]} default` : m.label, hint: ENGINE_NAME[e] }))),
+        ]}
+      />,
+    ],
+    ["Keep AI ready for", "After that its process sleeps and wakes in a few seconds when needed.", <Dropdown label="Keep AI ready for" value={String(s.idleMinutes)} width={140} onChange={(v) => invoke("settings", { idleMinutes: Number(v) })} options={[5, 10, 15, 30, 60].map((m) => ({ value: String(m), label: `${m} minutes` }))} />],
+  ];
+  return (
+    <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
+      <div className="col g4" style={{ width: 210, padding: "26px 12px", borderRight: `1px solid ${T.line2}`, flex: "none" }}>
+        <div className="s18 b" style={{ padding: "0 10px 12px" }}>{title}</div>
+        {tabs.map(([k, l, i]) => (
+          <div key={k} role="button" className={`navi ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}><Icon n={i} /><span className="t">{l}</span></div>
+        ))}
+      </div>
+      <div className="panel">
+        {tab === "ai" && (
+          <>
+            <h2>AI & models</h2>
+            <div className="s13 dim" style={{ marginBottom: 20 }}>Walt uses the apps you are signed in to. The models in each chat's menu come from your account.</div>
+            <EngineCards state={state} invoke={invoke} />
+            <div className="lbl" style={{ marginTop: 30 }}>More AI · planned</div>
+            <div className="col g8">
+              {PLANNED.map(([title, d, i]) => (
+                <div key={title} className="card row g12" style={{ padding: "12px 16px", opacity: 0.85 }}>
+                  {i === "gemini" ? <Html h={av("gemini", 30)} /> : <Icon n={i} s={20} c={T.sub} />}
+                  <div className="f1"><div className="s14 b">{title}</div><div className="s12 dim" style={{ marginTop: 2 }}>{d}</div></div>
+                  <span className="pill" style={{ background: "#3A3A3C", color: T.sub }}>Planned</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {tab === "personas" && (
+          <>
+            <h2>Personas</h2>
+            <div style={{ marginTop: 14 }}><PersonaSettings state={state} invoke={invoke} /></div>
+          </>
+        )}
+        {tab === "general" && (
+          <>
+            <h2>General</h2>
+            <div className="s13 dim">How Walt behaves on this laptop. What the AI can do lives in Customize.</div>
+            <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
+              {rows.map(([title, d, c], i) => (
+                <div key={title} className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+                  <div className="f1"><div className="s14">{title}</div>{d && <div className="s12 dim" style={{ marginTop: 2 }}>{d}</div>}</div>
+                  {c}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {tab === "permissions" && (
+          <>
+            <h2>Permissions</h2>
+            <div className="card col g12 s13" style={{ padding: 18, marginTop: 18, maxWidth: 720, lineHeight: 1.6 }}>
+              <div><b>Chats without a project</b> · the AI can talk and read, never edit.</div>
+              <div><b>Chats in a project</b> · every file edit and command asks you first, with the full command or diff.</div>
+              <div><b>Team chats</b> · one builder writes at a time; reviewers are read-only.</div>
+              <div><b>Ce:L island</b> · can pause and answer questions; tool approvals always open Walt.</div>
+              <div className="dim">Waiting never counts as allow. Walt does not use API keys or your passwords.</div>
+            </div>
+          </>
+        )}
+        {tab === "about" && (
+          <>
+            <h2>About Walt</h2>
+            <div className="s13 dim" style={{ marginTop: 8, lineHeight: 1.7 }}>
+              Version 0.1.0 · child app of Ce:L<br />History and settings stay on this laptop.<br />Engines: {ENGINES_ON.map((e) => ENGINE_LABEL[e]).join(", ")}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(<App />);

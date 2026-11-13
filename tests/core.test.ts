@@ -181,6 +181,9 @@ test("agent markdown is escaped before formatting", () => {
   assert.match(out, /<span class="mono"[^>]*>a&lt;b<\/span>/);
   assert.match(out, /<b>bold<\/b>/);
   assert.match(out, /<pre class="mono"[^>]*>if \(a &lt; b\) return &quot;x&quot;;<\/pre>done$/);
+  const t = md("See [notes](D:/x/notes.md)\n| A | B |\n|---|:-:|\n| 1 | <b> |\nend");
+  assert.match(t, /<span [^>]*title="D:\/x\/notes.md">notes<\/span>/);
+  assert.match(t, /<table[^>]*><tr><th[^>]*>A<\/th><th[^>]*>B<\/th><\/tr><tr><td[^>]*>1<\/td><td[^>]*>&lt;b&gt;<\/td><\/tr><\/table>end$/);
 });
 import { parseMessage } from "../packages/domain/command";
 import { DEFAULT_PERSONAS } from "../packages/domain/model";
@@ -246,5 +249,65 @@ test("codex runs without the user's MCP servers, plugins or apps", async () => {
   const skills = userSkills(join(dir, "skills"));
   assert.deepEqual(skills, [join(dir, "skills", "ponytail", "SKILL.md")]);
   assert.ok(codexArgs([], skills).includes(`skills.config=[{path='${skills[0]}',enabled=false}]`));
+  await rm(dir, { recursive: true });
+});
+test("plain chats: no project, model picker target, rename, delete", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-chat-"));
+  const host = new Host(new Store(join(dir, "data")));
+  const r = host.newChat("");
+  assert.equal(r.projectId, "");
+  assert.equal(r.template, "direct");
+  assert.equal(host.persona(r.builder).engine, "claude");
+  assert.ok(host.rootOf(r).includes(join("data", "chats", r.id)), "a projectless chat gets its own folder");
+  host.state.catalog = { codex: [{ id: "gpt-6.1-sol", label: "GPT-6.1 Sol", efforts: ["low", "high"] }] };
+  host.setTarget(r.id, { engine: "codex", model: "gpt-6.1-sol", effort: "high" });
+  assert.equal(host.persona(r.builder).engine, "codex");
+  assert.deepEqual(r.tune?.[r.builder], { model: "gpt-6.1-sol", effort: "high" });
+  assert.throws(() => host.setTarget(r.id, { engine: "codex", model: "gpt-6.1-sol", effort: "max" }), /accepts effort low, high/);
+  assert.throws(() => host.setTarget(r.id, { engine: "codex", model: "nope" }), /not available/);
+  assert.equal(host.newChat("").builder, r.builder, "the next chat starts with the last picked model");
+  assert.throws(() => host.createRoom({ projectId: "", title: "x", template: "triad", builder: "sonnet", reviewers: ["claude", "codex"] }), /only talk/);
+  host.rename(r.id, "  Ide landing page  ");
+  assert.equal(r.title, "Ide landing page");
+  host.deleteRoom(r.id);
+  assert.ok(!host.state.rooms.some((x) => x.id === r.id));
+  await host.close();
+  await rm(dir, { recursive: true });
+});
+
+test("add a model to a team chat: one persona per model, @first word, members", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-team-"));
+  const host = new Host(new Store(join(dir, "data")));
+  host.state.catalog = { claude: [{ id: "claude-haiku-5-5", label: "Haiku 5.5", efforts: ["low", "high"] }] };
+  const a = host.personaFor({ engine: "claude", model: "claude-haiku-5-5" });
+  assert.equal(a.name, "Haiku 5.5");
+  assert.equal(host.personaFor({ engine: "claude", model: "claude-haiku-5-5" }).id, a.id, "the same model reuses its persona");
+  assert.equal(host.personaFor({ engine: "claude", model: "claude-haiku-5-5", effort: "high" }).name, "Haiku 5.5 high");
+  assert.throws(() => host.personaFor({ engine: "claude", model: "nope" }), /not available/);
+  assert.equal(parseMessage("@Haiku hi", host.state.personas.filter((p) => p.id !== a.id + "x" && p.name !== "Haiku 5.5 high")).to, a.id, "a unique first word is a mention");
+  const r = host.newChat("");
+  host.member(r.id, a.id, "Member");
+  assert.deepEqual(r.members, [a.id]);
+  await host.close();
+  await rm(dir, { recursive: true });
+});
+
+test("a model switched in mid-chat gets the messages it missed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-recap-"));
+  const host = new Host(new Store(join(dir, "data")));
+  const r = host.newChat("");
+  const claude = r.builder;
+  const codex = host.state.personas.find((p) => p.engine === "codex")!.id;
+  host.state.catalog = { claude: [{ id: "claude-haiku-5-5", label: "Haiku 5.5", efforts: [] }] };
+  const say = (author: string, text: string, model?: string) => (host.message(r, author, text).meta = model ? { model } : undefined);
+  say("cello", "Name a colour.");
+  say(claude, "Teal.", "claude-haiku-5-5");
+  say("cello", "Why?");
+  assert.equal(host.unseen(r, claude), "", "it saw everything up to its last reply");
+  assert.equal(host.unseen(r, codex), "[User] Name a colour.\n[Haiku 5.5] Teal.", "a new model gets the whole chat so far");
+  say(codex, "Because it is calm.");
+  say("cello", "And another?");
+  assert.equal(host.unseen(r, claude), "[User] Why?\n[Codex] Because it is calm.", "back on Claude: only what came after its last reply");
+  await host.close();
   await rm(dir, { recursive: true });
 });

@@ -28,6 +28,18 @@ export const DEFAULT_PERSONAS: PersonaDef[] = [
   { id: "sonnet", name: "Claude Sonnet", engine: "claude", model: "sonnet", strengths: ["Quick features", "Docs", "UI copy"], avatar: "sonnet" },
   { id: "gemini", name: "Gemini", engine: "gemini", model: "", strengths: ["Research", "Second opinion", "Long files"], avatar: "gemini" },
 ];
+/** a model the signed-in account can use, as the CLI reports it */
+export interface ModelInfo {
+  id: string;
+  label: string;
+  efforts: Effort[];
+  defaultEffort?: Effort;
+  isDefault?: boolean;
+  /** shown under "More models" */
+  more?: boolean;
+}
+/** engines Walt can run today; the others stay hidden until their adapter works */
+export const ENGINES_ON: Engine[] = ["claude", "codex"];
 /** per-message or per-room override of a persona's model/effort */
 export interface Tune {
   model?: string;
@@ -108,12 +120,18 @@ export interface State {
   asks: Ask[];
   engines: EngineReport[];
   personas: PersonaDef[];
+  /** models per engine from the signed-in CLIs; refreshed with the doctor */
+  catalog?: Partial<Record<Engine, ModelInfo[]>>;
   /** live agent processes; added to messages for the UI, never stored */
   procs?: { room: string; persona: Persona; busy: boolean }[];
   settings: {
     locale: "en" | "id";
     theme: "dark" | "light";
     idleMinutes: number;
+    /** model the next new chat starts with */
+    lastTarget?: { engine: Engine; model: string; effort?: Effort };
+    /** onboarding (Welcome + Engines) seen */
+    onboarded?: boolean;
   };
 }
 export const budgets: Record<Template, number> = {

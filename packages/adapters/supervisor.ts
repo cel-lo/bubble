@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { join, delimiter, isAbsolute, dirname } from "node:path";
 import type { EngineReport, PersonaDef, Tune } from "../domain/model";
 import { capture } from "./environment";
-import { ClaudeSession } from "./claude";
-import { CodexSession } from "./codex";
+import { ClaudeSession, claudeModels } from "./claude";
+import { CodexSession, codexModels } from "./codex";
+import { tmpdir } from "node:os";
+import type { Engine, ModelInfo } from "../domain/model";
 type Session = ClaudeSession | CodexSession;
 export class Supervisor {
   sessions = new Map<string, Session>();
@@ -106,6 +108,15 @@ export class Supervisor {
     if (s.sessionId) this.resumeIds.set(key, s.sessionId);
     await s.stop();
     this.sessions.delete(key);
+  }
+  /** models per signed-in engine; an engine whose list fails is left out rather than guessed */
+  async catalog(engines: string[]) {
+    const out: Partial<Record<Engine, ModelInfo[]>> = {};
+    await Promise.all([
+      engines.includes("claude") && existsSync(this.claude) ? claudeModels(this.claude, tmpdir()).then((m) => (out.claude = m)).catch(() => {}) : null,
+      engines.includes("codex") && (this.codex ||= this.codexExe() || "") ? codexModels(this.codex, tmpdir()).then((m) => (out.codex = m)).catch(() => {}) : null,
+    ]);
+    return out;
   }
   /** live agent processes, for the UI (not persisted) */
   list() {

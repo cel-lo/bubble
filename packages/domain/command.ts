@@ -16,13 +16,13 @@ export const MODEL_ID = /^[\w.:/-]{1,80}$/;
 const END = String.raw`(?=$|[\s,.:;!?])`;
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** names a persona answers to: its id, its full name, and the last word of the name when that is unique */
+/** names a persona answers to: its id, its full name, and the last or first word of the name when that is unique ("@Opus", "@Haiku") */
 export function aliases(personas: PersonaDef[]) {
-  const last = (p: PersonaDef) => p.name.trim().split(/\s+/).at(-1)!.toLowerCase();
+  const word = (p: PersonaDef, i: 0 | -1) => p.name.trim().split(/\s+/).at(i)!.toLowerCase();
   const out: [string, Persona][] = [];
   for (const p of personas) {
     out.push([p.id.toLowerCase(), p.id], [p.name.toLowerCase(), p.id]);
-    if (personas.filter((q) => last(q) === last(p)).length === 1) out.push([last(p), p.id]);
+    for (const i of [-1, 0] as const) if (personas.filter((q) => word(q, i) === word(p, i)).length === 1) out.push([word(p, i), p.id]);
   }
   return out.sort((a, b) => b[0].length - a[0].length);
 }

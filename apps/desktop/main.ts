@@ -25,12 +25,13 @@ function call(method: string, input?: unknown) {
     child.postMessage({ id, method, input });
   });
 }
+// WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Walt.
+// Set before the lock: the lock lives in userData, so it guards one data folder (one writer per walt.sqlite).
+app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Walt"));
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
   app.whenReady().then(async () => {
-    // WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Walt
-    app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Walt"));
     child = utilityProcess.fork(
       join(__dirname, "../host/index.cjs"),
       [app.getPath("userData")],
