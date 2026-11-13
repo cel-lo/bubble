@@ -567,8 +567,10 @@ test("Claude gets Bash only as a builder with the shell setting on", async () =>
   const tools = (readonly: boolean, shell: boolean) => {
     const s = new ClaudeSession(process.execPath, tmpdir(), "", readonly, undefined, undefined, undefined, shell);
     (s as any).ready.catch(() => {});
+    // the fake CLI (node) exits at once; writes to its closed stdin must not leak past the test
+    (s as any).child.stdin.on("error", () => {});
     const args: string[] = (s as any).child.spawnargs;
-    void s.stop();
+    (s as any).child.kill();
     return args[args.indexOf("--tools") + 1];
   };
   assert.equal(tools(false, false), "Read,Glob,Grep,Write,Edit");
@@ -588,4 +590,46 @@ test("Auto roles pick the builder whose Good at fits the task; ties keep the bui
   assert.equal(autoBuilder("rewrite the README docs", team, "codex").id, "sonnet");
   assert.equal(autoBuilder("hello there", team, "opus").id, "opus");
   assert.equal(autoBuilder("fix the bug", team, "codex").id, "codex");
+});
+import { existsSync as fileExists } from "node:fs";
+import { execFileSync } from "node:child_process";
+test("diff shows what the latest revision changed; backup copies the database", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-diff-"));
+  const root = join(dir, "proj");
+  await mkdir(root);
+  await writeFile(join(root, "keep.txt"), "same");
+  const host = new Host(new Store(join(dir, "data")));
+  const p = await host.project({ name: "P", root, goal: "", constraints: "" });
+  const r = host.createRoom({ projectId: p.id, title: "T", template: "build_review", builder: "codex", reviewers: ["claude"] });
+  (host.supervisor as any).get = async (_room: string, def: { id: string }) => ({
+    run: async () => (def.id === "codex" ? (await writeFile(join(root, "new.txt"), "one\ntwo"), "made new.txt") : "VERDICT: APPROVE"),
+    stop: async () => {},
+  });
+  await host.send(r.id, "add new.txt");
+  for (let i = 0; i < 200 && r.step !== "awaiting acceptance"; i++) await new Promise((ok) => setTimeout(ok, 10));
+  const d = await host.diff(r.id);
+  assert.equal(d.revision, 1);
+  assert.deepEqual(d.files.map((f) => [f.path, f.status]), [["new.txt", "added"]], "unchanged files are left out");
+  assert.equal(d.files[0].patch, "+one\n+two", "no git: the new text as added lines");
+  // a git project: the real diff against HEAD
+  const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: root });
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  (host.supervisor as any).get = async (_room: string, def: { id: string }) => ({
+    run: async () => (def.id === "codex" ? (await writeFile(join(root, "keep.txt"), "changed"), "edited keep.txt") : "VERDICT: APPROVE"),
+    stop: async () => {},
+  });
+  r.budget += 2;
+  await host.send(r.id, "edit keep.txt");
+  for (let i = 0; i < 300 && r.artifacts.length < 2; i++) await new Promise((ok) => setTimeout(ok, 10));
+  for (let i = 0; i < 300 && r.step !== "awaiting acceptance"; i++) await new Promise((ok) => setTimeout(ok, 10));
+  const g = await host.diff(r.id);
+  assert.deepEqual(g.files.map((f) => [f.path, f.status]), [["keep.txt", "changed"]]);
+  assert.match(g.files[0].patch, /^-same$/m);
+  assert.match(g.files[0].patch, /^\+changed$/m);
+  const b = host.backup();
+  assert.ok(fileExists(b.file) && host.backups().length === 1);
+  await host.close();
+  await rm(dir, { recursive: true });
 });

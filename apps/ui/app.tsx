@@ -83,7 +83,15 @@ function App() {
   useEffect(() => {
     // Ctrl+B toggles the sidebar, Ctrl+Alt+B the side panel (like an editor)
     const key = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.key.toLowerCase() !== "b") return;
+      if (!e.ctrlKey) return;
+      const k = e.key.toLowerCase();
+      const go: Record<string, View> = { n: { kind: "home" }, k: { kind: "search" }, ",": { kind: "settings", tab: "general" } };
+      if (go[k] && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setView(go[k]);
+        return;
+      }
+      if (k !== "b") return;
       e.preventDefault();
       setPanels((o) => {
         const n = e.altKey ? { ...o, right: !o.right } : { ...o, left: !o.left };
@@ -114,6 +122,31 @@ function App() {
     );
     return () => (off(), offDelta());
   }, []);
+  // a Windows notification when an AI needs you or finishes while Walt is in the background
+  const seen = useRef<{ asks: Set<string>; busy: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    const busyNow = new Set(state.rooms.filter((r) => r.state === "running" || r.state === "awaiting_user").map((r) => r.id));
+    const prev = seen.current;
+    seen.current = { asks: new Set(state.asks.map((a) => a.id)), busy: busyNow };
+    if (!prev || state.settings.notify === false || document.hasFocus() || typeof Notification === "undefined") return;
+    const tell = (roomId: string, title: string, body: string) => {
+      const n = new Notification(title, { body: body.slice(0, 180), silent: false });
+      n.onclick = () => {
+        window.walt.window("show");
+        setView({ kind: "chat", id: roomId });
+      };
+    };
+    const name = (id: string) => state.personas.find((p) => p.id === id)?.name ?? id;
+    const title = (id: string) => state.rooms.find((r) => r.id === id)?.title ?? "Walt";
+    for (const a of state.asks) if (!prev.asks.has(a.id)) tell(a.roomId, t("{0} needs you", title(a.roomId)), t("{0} wants to use {1}", name(a.persona), a.title));
+    for (const id of prev.busy)
+      if (!busyNow.has(id)) {
+        const r = state.rooms.find((x) => x.id === id);
+        const last = r?.messages.at(-1);
+        if (r) tell(id, t("{0} finished", r.title), last ? `${last.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, state.personas.find((p) => p.id === last.author)?.engine ?? "claude", last.meta?.model) : name(last.author)}: ${last.text.replace(/\s+/g, " ")}` : "");
+      }
+  }, [state]);
   useEffect(() => {
     if (!error) return;
     const t = setTimeout(() => setError(""), 9000);
@@ -678,12 +711,56 @@ function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened:
   );
 }
 
+type Diff = { revision: number; files: { path: string; status: string; patch: string }[]; more?: number };
+/** the latest revision's changes, read-only: git diff when the project uses git, else the new text */
+function DiffView({ diff, title, onClose }: { diff: Diff; title: string; onClose: () => void }) {
+  const [open, setOpen] = useState(0);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  const f = diff.files[open];
+  const color = (l: string) => (l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff ") || l.startsWith("index ") ? { color: T.faint } : l.startsWith("+") ? { background: T.green + "1f", color: T.green } : l.startsWith("-") ? { background: T.red + "1f", color: T.red } : l.startsWith("@@") ? { color: T.blue } : {});
+  const tag: Record<string, string> = { added: "A", deleted: "D", changed: "M" };
+  return (
+    <div className="scrim" role="dialog" aria-modal="true" aria-label={t("Changes in r{0}", diff.revision)} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="card col" style={{ width: "min(1100px, 92vw)", height: "84vh", padding: 0, overflow: "hidden" }}>
+        <div className="row g10" style={{ padding: "14px 18px", borderBottom: `1px solid ${T.line}` }}>
+          <Icon n="diff" s={18} />
+          <span className="s15 b f1">{title} · {t("Changes in r{0}", diff.revision)}</span>
+          <span className="tbb" role="button" aria-label={t("Close")} onClick={onClose}><Icon n="x" s={16} /></span>
+        </div>
+        {!diff.files.length ? (
+          <div className="s13 dim" style={{ padding: 24 }}>{t("No file changes in this revision.")}</div>
+        ) : (
+          <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
+            <div className="col" style={{ width: 260, borderRight: `1px solid ${T.line}`, overflow: "auto", padding: 6 }}>
+              {diff.files.map((x, i) => (
+                <div key={x.path} className={`navi${i === open ? " on" : ""}`} title={x.path} onClick={() => setOpen(i)}>
+                  <span className="mono s11" style={{ color: x.status === "added" ? T.green : x.status === "deleted" ? T.red : T.amber, width: 12 }}>{tag[x.status]}</span>
+                  <span className="t s13" style={{ direction: "rtl", textAlign: "left" }}>{x.path}</span>
+                </div>
+              ))}
+              {!!diff.more && <div className="s12 dim" style={{ padding: 10 }}>{t("+{0} more files", diff.more)}</div>}
+            </div>
+            <pre className="mono f1" style={{ margin: 0, overflow: "auto", fontSize: 12.5, lineHeight: 1.55, padding: "10px 0" }}>
+              {f.status === "deleted" ? <div className="dim" style={{ padding: "0 16px" }}>{t("File deleted.")}</div> : f.patch.split("\n").map((l, i) => <div key={i} style={{ padding: "0 16px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", ...color(l) }}>{l || " "}</div>)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: Room; invoke: Invoke; panel: number; setRw: (w: number) => void }) {
   const direct = room.template === "direct";
   const [adding, setAdding] = useState<DOMRect | null>(null);
   const [tab, setTab] = useState(direct ? "Files" : "Task");
   const [menuAt, setMenuAt] = useState<DOMRect | null>(null);
   const [note, setNote] = useState("");
+  const [diff, setDiff] = useState<Diff | null>(null);
   useEffect(() => {
     if (!note) return;
     const id = setTimeout(() => setNote(""), 6000);
@@ -762,6 +839,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     if (!h) return;
     if (h.startsWith("allow:") || h.startsWith("deny:")) await invoke("approval", { id: h.split(":")[1], allow: h.startsWith("allow:") });
     else if (h === "accept") await invoke("accept", room.id);
+    else if (h === "diff") setDiff(await invoke("diff", room.id));
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
     else if (h.startsWith("member:")) {
       const [, persona, role] = h.split(":");
@@ -804,6 +882,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           </span>
         </div>
         {menuAt && <Menu at={menuAt} width={280} items={chatMenu()} onClose={() => setMenuAt(null)} />}
+        {diff && <DiffView diff={diff} title={room.title} onClose={() => setDiff(null)} />}
         {adding && <AddModel state={state} room={room} invoke={invoke} at={new DOMRect(adding.right - 360, adding.y, 360, adding.height)} onClose={() => setAdding(null)} />}
         {!direct && (
           <div
@@ -870,7 +949,7 @@ function askBody(input: any): string {
 /** result card for a plain chat in a project: which files changed (no reviews there) */
 function changed(room: Room) {
   const a = room.artifacts.at(-1)!;
-  return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">${t("Files changed · r{0}", a.revision)}</span><span class="f1"></span>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">${t("Accepted")}</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">${t("Accept")}</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${t("{0} files tracked", Object.keys(a.files).length)}</div></div>`;
+  return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">${t("Files changed · r{0}", a.revision)}</span><span class="f1"></span><button class="btn sm" data-hot="diff" style="border:0">${t("Open diff")}</button>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">${t("Accepted")}</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">${t("Accept")}</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${t("{0} files tracked", Object.keys(a.files).length)}</div></div>`;
 }
 
 // W09 result card: only facts Walt holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
@@ -884,7 +963,7 @@ function deliverable(state: State, room: Room, a: Room["artifacts"][number]) {
     return box(t("Source review"), `${av(pd(p)?.avatar ?? "claude", 20)}<span class="s13 b">${esc(pd(p)?.name ?? p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? t("read r{0} · same hash", a.revision) : t(v ? "stale: files changed after review" : "no review"));
   });
   const accept = a.accepted ? box(t("Your acceptance"), `<span class="s13 b">${t("Accepted")}</span>`, t("by you")) : box(t("Your acceptance"), `<span class="s13 b">${t("Waiting for you")}</span>`, t("Not implied by reviews"), true);
-  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · ${t("result")}</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}${t("Accept")}</button>`}<button class="btn" data-hot="control:continue" style="border:0">${t("Continue with a new budget")}</button></div></div>`;
+  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · ${t("result")}</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}${t("Accept")}</button>`}<button class="btn" data-hot="diff" style="border:0">${ic("diff", 15, T.text)}${t("Open diff")}</button><button class="btn" data-hot="control:continue" style="border:0">${t("Continue with a new budget")}</button></div></div>`;
 }
 
 function inspectorHtml(state: State, room: Room, tab: string) {
@@ -1125,14 +1204,54 @@ function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
   );
 }
 
+const SHORTCUTS: [string, string][] = [
+  ["Ctrl N", "New chat"],
+  ["Ctrl K", "Search chats"],
+  ["Ctrl ,", "Settings"],
+  ["Ctrl B", "Show or hide the sidebar"],
+  ["Ctrl Alt B", "Show or hide the side panel"],
+  ["Enter", "Send"],
+  ["Shift Enter", "New line"],
+  ["@", "Talk to one model in a team chat"],
+  ["/effort, /model", "Change effort or model for one message (add keep for the chat)"],
+  ["Esc", "Close a menu or dialog"],
+];
+function DataPage({ invoke }: { invoke: Invoke }) {
+  const [info, setInfo] = useState<{ dir: string; list: { name: string; size: number; at: string }[] } | null>(null);
+  const load = () => void invoke("backups").then((v) => v && setInfo(v));
+  useEffect(load, []);
+  return (
+    <>
+      <h2>{t("Data & backup")}</h2>
+      <div className="s13 dim" style={{ maxWidth: 720, lineHeight: 1.55 }}>{t("Chats, projects and settings live in one database on this laptop. Nothing is uploaded. Project files stay in their own folders.")}</div>
+      <div className="card col g12" style={{ padding: 18, marginTop: 18, maxWidth: 720 }}>
+        <div className="mono s12 dim" style={{ overflowWrap: "anywhere" }}>{info?.dir}</div>
+        <div className="row g8">
+          <button type="button" className="btn g" style={{ border: 0 }} onClick={() => void invoke("backup").then(load)}>{t("Back up now")}</button>
+          <button type="button" className="btn" style={{ border: 0 }} onClick={() => window.walt.window("data")}>{t("Open data folder")}</button>
+        </div>
+        <div className="s12 dim">{t("Walt keeps the newest 10 backups in the backups folder. To restore one, quit Walt and copy it over walt.sqlite.")}</div>
+        {info?.list.map((b) => (
+          <div key={b.name} className="row g8 s13">
+            <Icon n="db" s={15} />
+            <span className="mono f1">{b.name}</span>
+            <span className="s12 dim">{(b.size / 1024).toFixed(0)} KB</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
 /** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
 const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"]]} />;
-const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["about", "About", "eye"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
   const rows: [string, string, React.ReactNode][] = [
     ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{t(l)}</span>)}</div>],
+    ["Notifications", "When an AI needs you or finishes while Walt is in the background.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={(s.notify !== false) === v ? "on" : ""} onClick={() => invoke("settings", { notify: v })}>{t(l)}</span>)}</div>],
     ["Theme", "", <div className="seg">{([["dark", "Dark"], ["light", "Light"]] as const).map(([v, l]) => <span key={v} className={s.theme === v ? "on" : ""} onClick={() => invoke("settings", { theme: v })}>{t(l)}</span>)}</div>],
     [
       "Default model for new chats",
@@ -1242,6 +1361,20 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
                 <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{t("Tests, builds, git. Each command still asks you first, and every process ends when Walt closes. Codex builders always have this. Reviewers never do.")}</div>
               </div>
               <div className="seg">{([[false, "Off"], [true, "On"]] as const).map(([v, l]) => <span key={l} className={!!s.claudeShell === v ? "on" : ""} onClick={() => invoke("settings", { claudeShell: v })}>{t(l)}</span>)}</div>
+            </div>
+          </>
+        )}
+        {tab === "data" && <DataPage invoke={invoke} />}
+        {tab === "shortcuts" && (
+          <>
+            <h2>{t("Shortcuts")}</h2>
+            <div className="card col" style={{ marginTop: 18, maxWidth: 620 }}>
+              {SHORTCUTS.map(([k, d], i) => (
+                <div key={k} className="row g16 s13" style={{ padding: "12px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+                  <span className="f1">{t(d)}</span>
+                  <span className="mono s12 chip">{k}</span>
+                </div>
+              ))}
             </div>
           </>
         )}

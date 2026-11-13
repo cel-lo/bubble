@@ -14,6 +14,10 @@ const mark = (m: Message) => `${m.text.length}|${m.text.slice(-64)}|${m.kind ?? 
 export class Store {
   readonly db: DatabaseSync;
   private written = new Map<string, string>(); // message id -> mark at last write
+  /** a consistent copy of the whole database (works while Walt runs) */
+  backup(file: string) {
+    this.db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+  }
   constructor(readonly dir: string) {
     mkdirSync(dir, { recursive: true });
     this.db = new DatabaseSync(join(dir, "walt.sqlite"));

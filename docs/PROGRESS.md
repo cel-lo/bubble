@@ -109,6 +109,15 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - npm run package (release/win-unpacked/Walt.exe) and npm run package:setup (release/Walt-Setup-0.1.0.exe, per-user NSIS installer, install folder can be changed). Both unsigned: there is no code signing certificate, and the npm electron.exe is not signed either. signAndEditExecutable stays false (no icon edit). Smart App Control read as off on this laptop (CI policy state 0); if it is turned on, unsigned builds may be blocked and the fix is a real certificate. Verified: the packaged Walt.exe opened the test data, found both CLIs, and ran a real Haiku turn with the Job Object helper up. The installer was built, not installed.
 - FigCraft: V01–V14 hotspots are linked (design-pipeline/walt/links.mjs) with 5 "Walt v2 · …" flows: main window + panel toggles, new chat + model menu, new project (folder → who joins → first chat), add a model, Settings and Customize. The Designs-CeL.figcraft file is not saved by the script.
 
+## Diff, notifications, Data & backup, shortcuts — 2026-11-13
+
+- Open diff (result card and Files changed card): the latest revision's changed files, read-only. git diff against HEAD when the project uses git; otherwise the new text as added lines (a changed file says it has no git history). Up to 60 files / 400 KB. Unit test with and without git; checked in the app.
+- Windows notifications when an AI asks for approval or a chat finishes while Walt is in the background; clicking opens that chat. Settings · General · Notifications (on by default). Needs setAppUserModelId, now set. Checked: minimized window got "Packaged test finished | Haiku 5.5: …".
+- Settings · Data & backup: Back up now (SQLite VACUUM INTO <data>/backups, newest 10 kept), Open data folder, how to restore. Unit test; checked in the app.
+- Settings · Shortcuts, and new keys: Ctrl N new chat, Ctrl K search, Ctrl , settings.
+- The shell-flag test no longer leaks an EPIPE after it ends (it failed the suite now and then).
+- 27 unit tests.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

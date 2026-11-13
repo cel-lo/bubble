@@ -146,6 +146,8 @@ export interface State {
     lastTarget?: { engine: Engine; model: string; effort?: Effort };
     /** Claude builders get Bash; every command still asks the owner first (Codex always has its shell) */
     claudeShell?: boolean;
+    /** Windows notifications when an AI needs you or finishes while Walt is in the background (default on) */
+    notify?: boolean;
     /** onboarding (Welcome + Engines) seen */
     onboarded?: boolean;
   };

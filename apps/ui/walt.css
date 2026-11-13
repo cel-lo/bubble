@@ -73,3 +73,6 @@
 ::-webkit-scrollbar-thumb:hover{background:#56565C;background-clip:padding-box}
 .light ::-webkit-scrollbar-thumb{background:#C9C9CF;background-clip:padding-box}
 .light ::-webkit-scrollbar-thumb:hover{background:#A9A9B0;background-clip:padding-box}
+/* full-window dialog backdrop (diff view) */
+.scrim { position: fixed; inset: 0; background: #00000080; display: flex; align-items: center; justify-content: center; z-index: 50; }
+.light .scrim { background: #0000004d; }

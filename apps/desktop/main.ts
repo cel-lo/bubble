@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  shell,
   dialog,
   utilityProcess,
   Tray,
@@ -28,6 +29,8 @@ function call(method: string, input?: unknown) {
 // WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Walt.
 // Set before the lock: the lock lives in userData, so it guards one data folder (one writer per walt.sqlite).
 app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Walt"));
+// Windows shows notifications only for an app with an id
+app.setAppUserModelId("local.cello.walt");
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
@@ -84,6 +87,9 @@ else {
       if (action === "maximize")
         win.isMaximized() ? win.unmaximize() : win.maximize();
       if (action === "close") win.hide();
+      if (action === "show") (win.show(), win.focus());
+      // Settings · Data & backup
+      if (action === "data") void shell.openPath(app.getPath("userData"));
     });
     await win.loadFile(join(__dirname, "../ui/index.html"));
     const icon = nativeImage.createFromDataURL(

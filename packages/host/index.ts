@@ -85,6 +85,15 @@ parent.on("message", async ({ data }: any) => {
         result = host.answer(v.id, v.allow);
         break;
       }
+      case "backup":
+        result = host.backup();
+        break;
+      case "backups":
+        result = { dir: host.store.dir, list: host.backups() };
+        break;
+      case "diff":
+        result = await host.diff(z.string().parse(input));
+        break;
       case "accept":
         result = await host.accept(z.string().parse(input));
         break;
@@ -99,6 +108,7 @@ parent.on("message", async ({ data }: any) => {
               idleMinutes: z.number().int().min(5).max(60),
               onboarded: z.boolean(),
               claudeShell: z.boolean(),
+              notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),
             })

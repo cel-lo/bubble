@@ -22,9 +22,9 @@ import {
 } from "../domain/model";
 import { parseMessage, decision, autoBuilder, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
 
@@ -753,6 +753,54 @@ export class Host extends EventEmitter {
     this.room(ask.roomId).state = "running";
     this.commit("ask.resolved");
     resolve(allow);
+  }
+  /** what the latest revision changed: git diff against HEAD when the project is a git repo, else the new text of each file */
+  async diff(roomId: string) {
+    const r = this.room(roomId);
+    const a = r.artifacts.at(-1);
+    const root = this.projectOf(r)?.root;
+    if (!a || !root) return { revision: 0, files: [] };
+    const prev: Record<string, string> = r.artifacts.at(-2)?.files ?? (r.packet as { fileRefs?: Record<string, string> })?.fileRefs ?? {};
+    const paths = [...new Set([...Object.keys(a.files), ...Object.keys(prev)])].filter((f) => prev[f] !== a.files[f]).sort();
+    const git = (args: string[]) =>
+      new Promise<string>((ok) => execFile("git", ["-c", "core.quotepath=off", ...args], { cwd: root, env: cleanEnv(), timeout: 10_000, maxBuffer: 4_000_000, windowsHide: true }, (e, out) => ok(e ? "" : out)));
+    let room = 400_000;
+    const files = [];
+    for (const path of paths.slice(0, 60)) {
+      const status = !(path in prev) ? "added" : !(path in a.files) ? "deleted" : "changed";
+      let patch = status === "deleted" ? "" : await git(["diff", "--no-color", "HEAD", "--", path]);
+      if (!patch && status !== "deleted") {
+        // untracked, or no git: show the file as all new lines
+        try {
+          const text = a.files[path].startsWith("size:") ? "(over 20 MB)" : readFileSync(join(root, path), "utf8");
+          patch = text.includes("\0") ? "(binary file)" : (status === "changed" ? "@@ no git history for this file: the whole new text @@\n" : "") + text.split(/\r?\n/).map((l) => "+" + l).join("\n");
+        } catch {
+          patch = "(could not be read)";
+        }
+      }
+      if (patch.length > room) patch = patch.slice(0, Math.max(0, room)) + "\n… (cut here)";
+      room -= patch.length;
+      files.push({ path, status, patch });
+    }
+    return { revision: a.revision, files, more: Math.max(0, paths.length - 60) };
+  }
+  /** copy the database to <data>/backups; the newest 10 are kept */
+  backup() {
+    const dir = join(this.store.dir, "backups");
+    mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toLocaleString("sv-SE").replace(/[: ]/g, "-");
+    const file = join(dir, `walt-${stamp}.sqlite`);
+    this.store.backup(file);
+    for (const old of this.backups().slice(10)) rmSync(join(dir, old.name), { force: true });
+    return { file };
+  }
+  backups() {
+    const dir = join(this.store.dir, "backups");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((n) => /^walt-.*\.sqlite$/.test(n))
+      .map((name) => ({ name, size: statSync(join(dir, name)).size, at: statSync(join(dir, name)).mtime.toISOString() }))
+      .sort((a, b) => b.at.localeCompare(a.at));
   }
   async accept(id: string) {
     const r = this.room(id);
