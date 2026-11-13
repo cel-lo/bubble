@@ -434,11 +434,21 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
   };
   const W = 360;
   const left = Math.min(Math.max(8, at.left), window.innerWidth - W - 8);
-  const top = Math.min(at.bottom + 6, window.innerHeight - 560);
+  // open below the button, or above it when there is more room there (the sidebar's Team · Add sits low);
+  // only the model list scrolls, so the Add / Cancel row is always on screen
+  const below = window.innerHeight - at.bottom - 14, above = at.top - 14;
+  const place = below >= 460 || below >= above ? { top: at.bottom + 6, maxHeight: Math.min(640, below) } : { bottom: window.innerHeight - at.top + 6, maxHeight: Math.min(640, above) };
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 59 }} onMouseDown={onClose} />
-      <div ref={ref} className="menu col" role="dialog" aria-label={`Add a model to ${room.title}`} style={{ position: "fixed", left, top: Math.max(8, top), width: W, zIndex: 60, padding: 10, maxHeight: "min(640px, calc(100vh - 16px))" }}>
+      <div
+        ref={ref}
+        className="menu col"
+        role="dialog"
+        aria-label={`Add a model to ${room.title}`}
+        style={{ position: "fixed", left, width: W, zIndex: 60, padding: 10, overflow: "hidden", ...place }}
+        onKeyDown={(e) => e.key === "Enter" && pick && (e.preventDefault(), void add())}
+      >
         <div className="row sb" style={{ padding: "2px 4px 8px" }}><span className="s15 b">Add a model to {room.title}</span><span role="button" aria-label="Close" onClick={onClose}><Icon n="x" s={15} /></span></div>
         <input autoFocus aria-label="Search models" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", padding: "7px 10px", fontSize: 13.5 }} />
         <div style={{ overflow: "auto", minHeight: 0, flex: 1, marginTop: 6 }}>
@@ -477,7 +487,7 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
         <div className="s12 dim" style={{ padding: "4px 4px 0", lineHeight: 1.5 }}>{as === "Member" ? "Members answer only when you @mention them." : "Reviewers read every new revision, read-only."} The builder stays the only one who edits files.</div>
         <div className="row g8" style={{ padding: "10px 4px 2px", justifyContent: "flex-end" }}>
           <button type="button" className="btn" style={{ border: 0 }} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn g" style={{ border: 0, opacity: pick ? 1 : 0.4 }} disabled={!pick} onClick={add}>{info ? `Add ${info.label}` : "Add"}</button>
+          <button type="button" className="btn g" style={{ border: 0, opacity: pick ? 1 : 0.4 }} disabled={!pick} onClick={add}>{info ? `Add ${info.label}` : "Pick a model"}</button>
         </div>
       </div>
     </>

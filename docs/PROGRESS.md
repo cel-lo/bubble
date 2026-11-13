@@ -71,6 +71,12 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Settings · General: Default model for new chats (the same value a chat's model menu sets).
 - Light theme checked on the v2 layout: theme class moved to <html> so menus in portals follow it; light overrides for icons drawn in the dark text colour, avatar rings, result boxes, code blocks and inputs. 14 unit tests.
 
+## Fixes from cello's test — 2026-11-13
+
+- A project folder with a file over 20 MB (CompPhys.zip) stopped every turn with "File exceeds snapshot limit". Big files are now tracked by size + modified time instead of content, so a change still shows up. Tested with a 21 MB zip (unit test + a real Haiku turn).
+- Add model: the whole popover scrolled, so the Add / Cancel row was cut off on short windows. Now only the model list scrolls, the popover opens upward from the sidebar's Team · Add when there is more room above, Enter adds, and the button reads "Pick a model" until one is chosen. Checked on a 1500×700 window from both buttons; GPT-6-Astra added.
+- Thin scrollbars everywhere (no arrow buttons, rounded thumb), light and dark.
+
 ## Found while testing (next work, in order)
 
 1. Whole state (all messages) is rewritten as one JSON row every 200 ms while streaming. Move messages to their own table before histories grow.

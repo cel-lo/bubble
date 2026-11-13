@@ -26,9 +26,8 @@ export async function manifest(root: string) {
             "Project exceeds 20,000 files. Select a smaller root.",
           );
         const stat = await lstat(join(dir, item.name));
-        if (stat.size > 20 * 1024 * 1024)
-          throw new Error("File exceeds snapshot limit: " + rel);
-        files[rel] = hash(await readFile(join(dir, item.name)));
+        // big files (zips, videos) are tracked by size + modified time instead of content, so they never block a chat
+        files[rel] = stat.size > 20 * 1024 * 1024 ? `size:${stat.size}:${stat.mtimeMs}` : hash(await readFile(join(dir, item.name)));
       }
     }
   };

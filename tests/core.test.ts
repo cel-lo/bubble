@@ -311,3 +311,14 @@ test("a model switched in mid-chat gets the messages it missed", async () => {
   await host.close();
   await rm(dir, { recursive: true });
 });
+
+test("a file over 20 MB in the project is tracked by size, not a failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "walt-big-"));
+  await writeFile(join(root, "big.zip"), Buffer.alloc(21 * 1024 * 1024));
+  await writeFile(join(root, "a.txt"), "hi");
+  const m = await manifest(root);
+  assert.match(m.files["big.zip"], /^size:22020096:/);
+  await writeFile(join(root, "big.zip"), Buffer.alloc(22 * 1024 * 1024));
+  assert.notEqual((await manifest(root)).hash, m.hash, "a changed big file still changes the manifest");
+  await rm(root, { recursive: true });
+});

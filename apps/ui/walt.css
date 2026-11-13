@@ -65,3 +65,11 @@
 .light .bub table th,.light .bub table td{border-color:#E3E3E8!important}
 .light input,.light textarea,.light select{background:#FFFFFF;border-color:#D8D8DC;color:#1C1C1E}
 .light .cbox textarea{background:transparent}
+/* thin scrollbars everywhere: no arrow buttons, rounded thumb with a transparent border so it floats */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-button{display:none;width:0;height:0}
+::-webkit-scrollbar-thumb{background:#3A3A3E;border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#56565C;background-clip:padding-box}
+.light ::-webkit-scrollbar-thumb{background:#C9C9CF;background-clip:padding-box}
+.light ::-webkit-scrollbar-thumb:hover{background:#A9A9B0;background-clip:padding-box}
