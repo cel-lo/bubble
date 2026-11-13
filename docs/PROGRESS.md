@@ -125,6 +125,12 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Checked live with the test Walt: the decision peek showed (I03 look), … opened Walt at that chat, Blue answered from the island reached Walt with via island and Haiku replied; the feed streams over HTTP/1.0. Walt started with --background stays in the tray.
 - Not checked on screen: the open Walt page and the closed-notch dots. Nusa sits on top of Ce:L's closed notch, and the island kept showing real WhatsApp peeks, so clicking it was not safe.
 
+## Island fixes, Island settings — 2026-11-13
+
+- Start Walt on the island did nothing: Walt was started before it wrote launch.json, and Start Walt ran it hidden (--background). Now it starts Walt with its window (A58), falls back to the per-user install (%LOCALAPPDATA%/Programs/Walt/Walt.exe), and the page says Starting Walt… or Walt not found.
+- Island buttons felt slow: Pause only takes effect after the turn and Stop waits for the AI to stop, and the page showed nothing meanwhile. Now each press shows Pausing after this turn… / Stopping… / Resuming… / Opening in Walt… at once, until the feed shows the change; the snapshot carries pause, so a paused-after-turn chat says Pauses after this turn with the pause button lit.
+- Settings · Island (Ce:L): connected or not (live), Answer decisions from the island (on by default; off sends decisions without options and refuses answers), tool approvals from the island: never. Unit test for the switch.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

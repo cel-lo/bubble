@@ -28,7 +28,9 @@ export async function controlServer(
     );
     const decisions = rooms.flatMap((r) => {
       const d = host.decisionOf(r);
-      return d ? [{ askId: "decision:" + r.id, kind: "decision", roomId: r.id, engine: persona(d.asker)?.engine, who: who(r, d.asker), title: line(d.question, 80), options: d.options.map((o) => line(o)), blocking: true }] : [];
+      // answering from the island turned off: the question still shows, with no options (it opens Walt)
+      const options = host.state.settings.islandAnswers === false ? [] : (d?.options ?? []).map((o) => line(o));
+      return d ? [{ askId: "decision:" + r.id, kind: "decision", roomId: r.id, engine: persona(d.asker)?.engine, who: who(r, d.asker), title: line(d.question, 80), options, blocking: true }] : [];
     });
     return {
       revision: host.state.revision,
@@ -49,6 +51,8 @@ export async function controlServer(
           engines: team.map((p) => persona(p)?.engine ?? "claude"),
           owner: { persona: who(r, owner), engine: persona(owner)?.engine ?? "claude", process: working.has(r.id + ":" + owner) ? "busy" : "idle" },
           turn: { used: r.used, max: r.budget },
+          // pause after this turn was asked: the chat still runs until its turn ends
+          pause: r.pause,
           waiting: host.state.asks.filter((a) => a.roomId === r.id).length + (host.decisionOf(r) ? 1 : 0),
           lastLine: last ? line(last.text, 60) : "",
         };
@@ -154,7 +158,7 @@ export async function controlServer(
       else if (ask) {
         // only decisions are answered here; tool approvals always open Walt, so the full command is read there
         const id = decodeURIComponent(ask[1]);
-        if (!id.startsWith("decision:") || typeof body.option !== "string") {
+        if (!id.startsWith("decision:") || typeof body.option !== "string" || host.state.settings.islandAnswers === false) {
           respond(403, { error: "not_allowed_from_island" });
           return;
         }
@@ -205,6 +209,8 @@ export async function controlServer(
   return {
     port,
     server,
+    /** islands following the feed right now */
+    clients: () => clients.size,
     close: async () => {
       clearInterval(heartbeat);
       clearTimeout(queued);

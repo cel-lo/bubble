@@ -186,6 +186,12 @@ test("island rejects browser origins, bad auth and approvals; dedupes commands; 
     assert.deepEqual([sent.text, sent.meta?.via], ["SQLite", "island"], "recorded as answered from the island");
     for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
     assert.equal((await answer("SQLite", "d-2")).status, 400, "already answered");
+    // answering from the island turned off: the question shows without options, and answers are refused
+    host.state.settings.islandAnswers = false;
+    room.messages.push({ id: "m9", author: "sonnet", at: new Date().toISOString(), text: "DECISION: Again?\n- Yes\n- No" });
+    const off = (await fetch(base + "/island/v1/state", { headers })).json;
+    assert.deepEqual(off.needsYou.find((a: any) => a.kind === "decision").options, []);
+    assert.equal((await answer("Yes", "d-3")).status, 403);
   } finally {
     await api.close();
     await host.close();

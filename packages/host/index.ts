@@ -88,6 +88,9 @@ parent.on("message", async ({ data }: any) => {
       case "backup":
         result = host.backup();
         break;
+      case "island":
+        result = { connected: api.clients() > 0 };
+        break;
       case "backups":
         result = { dir: host.store.dir, list: host.backups() };
         break;
@@ -108,6 +111,7 @@ parent.on("message", async ({ data }: any) => {
               idleMinutes: z.number().int().min(5).max(60),
               onboarded: z.boolean(),
               claudeShell: z.boolean(),
+              islandAnswers: z.boolean(),
               notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),

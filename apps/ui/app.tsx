@@ -1218,6 +1218,45 @@ const SHORTCUTS: [string, string][] = [
   ["/effort, /model", "Change effort or model for one message (add keep for the chat)"],
   ["Esc", "Close a menu or dialog"],
 ];
+/** Ce:L's dynamic island follows Walt over a local API (127.0.0.1, a new token each start) */
+function IslandPage({ state, invoke }: { state: State; invoke: Invoke }) {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const look = () => void invoke("island").then((v) => v && setOn(v.connected));
+    look();
+    const t = setInterval(look, 3000);
+    return () => clearInterval(t);
+  }, []);
+  const answers = state.settings.islandAnswers !== false;
+  const row = (title: string, d: string, c: React.ReactNode, i: number) => (
+    <div className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+      <div className="f1"><div className="s14">{title}</div>{d && <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{d}</div>}</div>
+      {c}
+    </div>
+  );
+  return (
+    <>
+      <h2>{t("Island (Ce:L)")}</h2>
+      <div className="s13 dim" style={{ maxWidth: 720, lineHeight: 1.55 }}>{t("Ce:L shows what Walt is doing at the top of the screen: who is working, questions for you, and when a chat is done.")}</div>
+      <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
+        {row(
+          on ? t("Connected to Ce:L") : t("Ce:L is not connected"),
+          t("Over a local API on 127.0.0.1, with a new token each time Walt starts."),
+          <span style={{ width: 9, height: 9, borderRadius: 5, background: on ? T.green : T.faint, flex: "none" }} />,
+          0,
+        )}
+        {row(
+          t("Answer decisions from the island"),
+          t("When an AI asks you to choose, the options show on the island and one click answers."),
+          <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={answers === v ? "on" : ""} onClick={() => invoke("settings", { islandAnswers: v })}>{t(l)}</span>)}</div>,
+          1,
+        )}
+        {row(t("Tool approvals from the island"), t("Always opened in Walt, so you read the full command or diff first."), <span className="row g6 s13 dim"><Icon n="lock" s={14} />{t("Never")}</span>, 2)}
+      </div>
+    </>
+  );
+}
+
 function DataPage({ invoke }: { invoke: Invoke }) {
   const [info, setInfo] = useState<{ dir: string; list: { name: string; size: number; at: string }[] } | null>(null);
   const load = () => void invoke("backups").then((v) => v && setInfo(v));
@@ -1248,7 +1287,7 @@ function DataPage({ invoke }: { invoke: Invoke }) {
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
 /** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
 const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"]]} />;
-const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
   const rows: [string, string, React.ReactNode][] = [
@@ -1367,6 +1406,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
           </>
         )}
         {tab === "data" && <DataPage invoke={invoke} />}
+        {tab === "island" && <IslandPage state={state} invoke={invoke} />}
         {tab === "shortcuts" && (
           <>
             <h2>{t("Shortcuts")}</h2>
