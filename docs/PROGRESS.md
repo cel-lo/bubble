@@ -116,7 +116,7 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Settings · Data & backup: Back up now (SQLite VACUUM INTO <data>/backups, newest 10 kept), Open data folder, how to restore. Unit test; checked in the app.
 - Settings · Shortcuts, and new keys: Ctrl N new chat, Ctrl K search, Ctrl , settings.
 - The shell-flag test no longer leaks an EPIPE after it ends (it failed the suite now and then).
-- 27 unit tests.
+- 26 unit tests.
 
 ## Found while testing (next work, in order)
 
