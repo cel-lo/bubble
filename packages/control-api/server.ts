@@ -4,6 +4,7 @@ import { writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Host } from "../host/service";
 import { plain as line } from "../domain/command";
+import type { Engine } from "../domain/model";
 export async function controlServer(
   host: Host,
   dir: string,
@@ -35,7 +36,7 @@ export async function controlServer(
     return {
       revision: host.state.revision,
       walt: { status: "running", locale: host.state.settings.locale },
-      engines: host.state.engines.map((e) => ({ engine: e.engine, auth: e.auth, quota: e.quota })),
+      engines: host.state.engines.map((e) => ({ engine: e.engine, auth: e.auth, quota: host.state.usage?.[e.engine as Engine] ?? "unknown" })),
       activeRooms: rooms.map((r) => {
         const team = [r.builder, ...(r.template === "direct" ? [] : r.reviewers)];
         // who is working now: a busy process, else the builder

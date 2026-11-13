@@ -1,7 +1,7 @@
 // First launch (W01 language, W02 engines) and the New project / Team panels. Layout and classes follow the
 // FigCraft frames; every value comes from Walt's state. Only engines with a working adapter are shown.
 import React, { useEffect, useState } from "react";
-import type { State, EngineReport, PersonaDef, Engine } from "../../packages/domain/model";
+import type { State, EngineReport, PersonaDef, Engine, Quota } from "../../packages/domain/model";
 import { ENGINES_ON } from "../../packages/domain/model";
 import { T, ic, av, wordmark } from "./generated/kit.mjs";
 import { Dropdown } from "./menu";
@@ -117,6 +117,36 @@ export function Welcome({ state, invoke, go }: { state: State; invoke: Invoke; g
   );
 }
 
+/** plan usage, as in the apps' own usage popovers: one bar per limit window */
+const windowName = (mins: number) => (mins === 10080 ? t("Weekly limit") : t("{0}-hour limit", Math.round(mins / 60)));
+const resetText = (at: number) => {
+  const ms = at * 1000 - Date.now();
+  if (ms <= 0) return t("Resets now");
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (!h) return t("Resets in {0} min", Math.max(1, m));
+  return h < 24 ? t("Resets in {0} h {1} min", h, m) : t("Resets {0}", new Date(at * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }));
+};
+export const usageColor = (percent: number, limited = false) => (limited || percent >= 100 ? T.red : percent >= 80 ? T.amber : T.blue);
+/** the window closest to its limit; what the sidebar shows */
+export const worst = (q: Quota) => Math.max(...q.windows.map((w) => w.percent));
+export function UsageBars({ q }: { q: Quota }) {
+  return (
+    <div className="col g10">
+      {q.limited && <div className="s13" style={{ color: T.red }}>{t("Limit reached. New messages wait until it resets.")}</div>}
+      {q.windows.map((w) => (
+        <div key={w.mins}>
+          <div className="row sb s12"><span>{windowName(w.mins)}</span><span className="dim">{t("{0}% used", w.percent)}</span></div>
+          <div role="progressbar" aria-label={windowName(w.mins)} aria-valuenow={w.percent} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: T.line, marginTop: 5, overflow: "hidden" }}>
+            <div style={{ width: `${Math.min(100, w.percent)}%`, height: "100%", background: usageColor(w.percent, q.limited) }} />
+          </div>
+          {!!w.resetsAt && <div className="s12 dim" style={{ marginTop: 4 }}>{resetText(w.resetsAt)}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** engine cards; used in onboarding and in Customize · AI & models */
 export function EngineCards({ state, invoke }: { state: State; invoke: Invoke }) {
   const [checking, setChecking] = useState(false);
@@ -134,6 +164,12 @@ export function EngineCards({ state, invoke }: { state: State; invoke: Invoke })
             {r?.installed && r.auth === "required" && <><div className="s13 sub">{t("Sign in once in a terminal. Walt uses the same login afterwards.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
             {s.ready && <div className="s13 sub">{models.length ? t("Signed in. {0} models on this account.", models.length) : t("Signed in. Model list loads with the next check.")}</div>}
             {!!models.length && <div className="row g6" style={{ flexWrap: "wrap" }}>{models.filter((m) => !m.more).map((m) => <span key={m.id} className="chip" style={{ fontSize: 12 }}>{m.label}</span>)}</div>}
+            {s.ready && (
+              <div style={{ marginTop: 4 }}>
+                <div className="lbl">{t("Plan usage")}</div>
+                {state.usage?.[e] ? <UsageBars q={state.usage[e]!} /> : <div className="s12 dim">{t(e === "claude" ? "Shows after your next Claude message." : "Shows after the next check.")}</div>}
+              </div>
+            )}
             <div className="f1" />
             <div className="row sb s12 dim"><span>{r ? t("Checked this session") : ""}</span><span className="row g6" style={{ color: T.blue, cursor: "pointer" }} onClick={check}><Html h={ic("refresh", 14, T.blue)} />{t("Check again")}</span></div>
           </div>

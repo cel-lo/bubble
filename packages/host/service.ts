@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
-import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, syncedPlugin, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
+import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, usage, syncedPlugin, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
 
 const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
 
@@ -48,6 +48,10 @@ export class Host extends EventEmitter {
     synced.dir = join(store.dir, "claude-skills");
     super();
     this.state = store.load();
+    usage.report = (engine, q) => {
+      this.state.usage = { ...this.state.usage, [engine]: q };
+      this.commit("engine.usage");
+    };
     if (!this.state.personas?.length) this.state.personas = structuredClone(DEFAULT_PERSONAS);
     for (const r of this.state.rooms)
       if (["running", "awaiting_user"].includes(r.state)) {

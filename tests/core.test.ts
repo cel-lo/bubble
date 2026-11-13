@@ -775,3 +775,16 @@ test("every message is a new task with fresh turns: a team chat never gets stuck
   await host.close();
   await rm(dir, { recursive: true });
 });
+
+import { codexQuota, claudeQuota } from "../packages/adapters/tools";
+test("plan usage from Codex and Claude reports", () => {
+  const c = codexQuota({ primary: { usedPercent: 6, windowDurationMins: 300, resetsAt: 1794598517 }, secondary: { usedPercent: 20, windowDurationMins: 10080, resetsAt: 1795071380 }, rateLimitReachedType: null });
+  assert.deepEqual(c?.windows, [{ mins: 300, percent: 6, resetsAt: 1794598517 }, { mins: 10080, percent: 20, resetsAt: 1795071380 }]);
+  assert.equal(c?.limited, false);
+  const q = claudeQuota({ status: "rejected", unifiedWindows: { five_hour: { utilization: 0.46, resetsAt: 1794604200 }, seven_day: { utilization: 1, resetsAt: 1794657600 }, unknown_window: { utilization: 0.1 } } });
+  assert.deepEqual(q?.windows.map((w) => [w.mins, w.percent]), [[300, 46], [10080, 100]]);
+  assert.equal(q?.limited, true);
+  assert.equal(claudeQuota({ status: "allowed_warning", unifiedWindows: { five_hour: { utilization: 0.9 } } })?.limited, false);
+  assert.equal(codexQuota(undefined), undefined);
+  assert.equal(claudeQuota({}), undefined);
+});

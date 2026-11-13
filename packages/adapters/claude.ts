@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { cleanEnv, gone } from "./environment";
 import { LEVELS, type ModelInfo } from "../domain/model";
-import { NO_TOOLS, type ToolKit } from "./tools";
+import { NO_TOOLS, claudeQuota, usage, type ToolKit } from "./tools";
 /** tools that only read (files, the web's search results, a skill's instructions): never ask */
 const SAFE = ["Read", "Glob", "Grep", "WebSearch", "Skill"];
 /** the --tools list: reviewers read; builders also write; the shell, web and skills when switched on */
@@ -122,6 +122,10 @@ export class ClaudeSession {
           else readyResolve();
         }
         if (e.type === "system" && e.session_id) this.sessionId = e.session_id;
+        if (e.type === "rate_limit_event") {
+          const q = claudeQuota(e.rate_limit_info);
+          if (q) usage.report("claude", q);
+        }
         if (e.type === "control_request") {
           void this.permission(e, readonly);
           return;

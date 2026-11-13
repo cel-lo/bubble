@@ -8,7 +8,9 @@ import { ENGINES_ON } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
-import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html } from "./onboarding";
+import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst } from "./onboarding";
+/** sidebar usage meter */
+const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", gemini: "Gemini" };
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
 import { t, setLocale } from "./i18n";
@@ -533,7 +535,16 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
       </div>
       <div className="row g8 s12 dim" style={{ padding: "8px 4px 0 10px", borderTop: `1px solid ${T.line2}` }}>
         <Icon n="shield" s={14} c={ready.length ? T.green : T.amber} />
-        <span className="f1">{ready.length ? t("{0} ready", ready.map((e) => ENGINE_NAME[e]).join(" + ")) : t("No AI ready · open Customize")}</span>
+        {ready.some((e) => state.usage?.[e]) ? (
+          <span className="f1 row g10" role="button" title={t("Plan usage · open AI & models")} style={{ cursor: "pointer" }} onClick={() => go({ kind: "customize", tab: "ai" })}>
+            {ready.map((e) => {
+              const q = state.usage?.[e];
+              return q && <span key={e} style={{ color: usageColor(worst(q), q.limited) }}>{SHORT[e]} {worst(q)}%</span>;
+            })}
+          </span>
+        ) : (
+          <span className="f1">{ready.length ? t("{0} ready", ready.map((e) => ENGINE_NAME[e]).join(" + ")) : t("No AI ready · open Customize")}</span>
+        )}
         <span className={`tbb ${view.kind === "settings" ? "on" : ""}`} role="button" aria-label={t("Settings")} title={t("Settings")} onClick={() => go({ kind: "settings", tab: "general" })}>
           <Icon n="gear" s={17} c={view.kind === "settings" ? T.text : T.dim} />
         </span>

@@ -117,7 +117,13 @@ export interface EngineReport {
   version: string;
   auth: string;
   detail: string;
-  quota: "unknown";
+}
+/** the plan usage the engine reported last: one bar per limit window (5 hours, a week), like the apps' usage popovers */
+export interface Quota {
+  windows: { mins: number; percent: number; resetsAt: number }[];
+  /** the plan refuses messages right now */
+  limited: boolean;
+  at: string;
 }
 /** Settings · Plugins & tools. Unset = the default (on, except browser and computer use) */
 export interface ToolSettings {
@@ -156,6 +162,8 @@ export interface State {
   teams?: TeamTemplate[];
   /** models per engine from the signed-in CLIs; refreshed with the doctor */
   catalog?: Partial<Record<Engine, ModelInfo[]>>;
+  /** plan usage per engine; Codex reports it any time, Claude with each reply */
+  usage?: Partial<Record<Engine, Quota>>;
   /** live agent processes; added to messages for the UI, never stored */
   procs?: { room: string; persona: Persona; busy: boolean }[];
   settings: {

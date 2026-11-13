@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
 import { LEVELS, type ModelInfo } from "../domain/model";
-import { NO_TOOLS, saveImage, type ToolKit } from "./tools";
+import { NO_TOOLS, saveImage, codexQuota, usage, type ToolKit } from "./tools";
 
 /** Features Walt always turns off: hooks run the user's own commands, sub-agents run outside Walt's view */
 const ALWAYS_OFF = ["hooks", "multi_agent"];
@@ -113,6 +113,7 @@ export class CodexSession {
         ? await this.call("thread/resume", { threadId: resume, ...thread }).catch(() => this.call("thread/start", thread))
         : await this.call("thread/start", thread);
       this.sessionId = r.thread.id;
+      void this.call("account/rateLimits/read", {}).then((x) => report(x?.rateLimits), () => {});
     })();
     const timer = setTimeout(() => this.fail(new Error("Codex handshake timed out")), 30000);
     this.ready.finally(() => clearTimeout(timer)).catch(() => {});
@@ -149,6 +150,7 @@ export class CodexSession {
     }
     if (m.id != null && m.method) return void this.serverRequest(m);
     const p = m.params || {};
+    if (m.method === "account/rateLimits/updated") return void report(p.rateLimits ?? p);
     if (p.threadId && p.threadId !== this.sessionId) return;
     if (m.method === "item/started" || m.method === "item/completed") this.items.set(p.item.id, p.item);
     const run = this.pending;
@@ -244,6 +246,11 @@ export class CodexSession {
   }
 }
 
+const report = (r: unknown) => {
+  const q = codexQuota(r);
+  if (q) usage.report("codex", q);
+};
+
 /** models this ChatGPT account can use in Codex (`model/list`, same list as the Codex app's picker) */
 export async function codexModels(executable: string, cwd: string): Promise<ModelInfo[]> {
   const p = spawn(executable, codexArgs(), { cwd, env: cleanEnv(), shell: false, windowsHide: true });
@@ -271,6 +278,8 @@ export async function codexModels(executable: string, cwd: string): Promise<Mode
       out.push(...r.data);
       cursor = r.nextCursor ?? null;
     } while (cursor);
+    // the same short-lived process also brings the plan usage, so it shows before the first message
+    await call("account/rateLimits/read", {}).then((x) => report(x?.rateLimits), () => {});
     return out
       .filter((m) => !m.hidden)
       .map((m) => ({

@@ -47,7 +47,6 @@ export class Supervisor {
             installed: false,
             version: "—",
             auth: "unknown",
-            quota: "unknown" as const,
             detail: "Not installed / native executable not found",
           };
         try {
@@ -72,7 +71,6 @@ export class Supervisor {
             installed: true,
             version,
             auth,
-            quota: "unknown" as const,
             detail: engine === "gemini" ? "Adapter not built yet" : "CLI subscription login",
           };
         } catch (e) {
@@ -81,7 +79,6 @@ export class Supervisor {
             installed: true,
             version: "unknown",
             auth: "unknown",
-            quota: "unknown" as const,
             detail: String(e),
           };
         }

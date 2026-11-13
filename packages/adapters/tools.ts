@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, cpSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolSettings } from "../domain/model";
+import type { Engine, Quota, ToolSettings } from "../domain/model";
 
 /** one session's tools, resolved from Settings · Plugins & tools; reviewers get NO_TOOLS */
 export interface ToolKit {
@@ -130,4 +130,22 @@ export function saveImage(name: string, base64: string, alt = "image", ext = "pn
   mkdirSync(media.dir, { recursive: true });
   writeFileSync(join(media.dir, safe), Buffer.from(base64, "base64"));
   return `![${alt.replace(/[[\]\n]/g, " ").slice(0, 200)}](walt-img://img/${safe})`;
+}
+
+/** plan usage as the engines report it; the host points report at its state */
+export const usage = { report: (_engine: Engine, _q: Quota) => {} };
+/** Codex `account/rateLimits/*`: primary / secondary windows with usedPercent (0–100) */
+export function codexQuota(r: any): Quota | undefined {
+  const windows = [r?.primary, r?.secondary]
+    .filter((w) => w && typeof w.usedPercent === "number")
+    .map((w) => ({ mins: Number(w.windowDurationMins) || 0, percent: Math.round(w.usedPercent), resetsAt: Number(w.resetsAt) || 0 }));
+  return windows.length ? { windows, limited: !!r.rateLimitReachedType, at: new Date().toISOString() } : undefined;
+}
+/** Claude's rate_limit_event: unifiedWindows with utilization (0–1) */
+const CLAUDE_WINDOWS: Record<string, number> = { five_hour: 300, seven_day: 10080 };
+export function claudeQuota(info: any): Quota | undefined {
+  const windows = Object.entries<any>(info?.unifiedWindows ?? {})
+    .filter(([k, w]) => CLAUDE_WINDOWS[k] && typeof w?.utilization === "number")
+    .map(([k, w]) => ({ mins: CLAUDE_WINDOWS[k], percent: Math.round(w.utilization * 100), resetsAt: Number(w.resetsAt) || 0 }));
+  return windows.length ? { windows, limited: !!info.status && info.status !== "allowed" && info.status !== "allowed_warning", at: new Date().toISOString() } : undefined;
 }
