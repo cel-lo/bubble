@@ -4,6 +4,7 @@ import path from "path";
 const HERE = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, "$1");
 const codexPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "codex.png")).toString("base64");
 const geminiPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "gemini.png")).toString("base64");
+const waltPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "walt.png")).toString("base64");
 
 export const T = {
   bg: "#1C1C1E", side: "#151517", rail: "#101012", card: "#28282A", card2: "#232325", line: "#323234", line2: "#29292E",
@@ -190,7 +191,7 @@ export const stack = (es, s = 26) => `<div class="row">${es.map((e, i) => av(e, 
 export const role = (e, r) => `<span class="role" style="background:${hexA(ENG[e].color, 0.16)};color:${ENG[e].color}">${r}</span>`;
 export function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 export const mention = (e, t) => `<span style="color:${ENG[e].color};font-weight:600">@${t}</span>`;
-export const wordmark = (s = 19) => `<div class="row g6" style="font-size:${s}px;font-weight:800;letter-spacing:-.02em"><span style="width:${s * 0.5}px;height:${s * 0.5}px;border-radius:${s * 0.14}px;background:${T.green};display:block"></span>Walt</div>`;
+export const wordmark = (s = 19) => `<div class="row" style="gap:${s * 0.4}px;font-size:${s}px;font-weight:800;letter-spacing:-.02em"><img src="${waltPng}" alt="" style="width:${s * 1.25}px;height:${s * 1.25}px;display:block;flex:none">Walt</div>`;
 export const dot = (c, s = 8) => `<span style="width:${s}px;height:${s}px;border-radius:${s}px;background:${c};display:block;flex:none"></span>`;
 
 // ---------- shell ----------

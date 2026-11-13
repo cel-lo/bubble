@@ -56,6 +56,17 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   return { text: text.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, ""), to, effort, model, keep };
 }
 
+/** a CLI error that means the subscription's usage limit was hit; `reset` = when it says it resets, if it does.
+ * Claude Code: "Claude AI usage limit reached|<unix time>" or "…limit reached ∙ resets 3pm"; Codex: "You've hit your
+ * usage limit… try again at 3:05 PM". shortcut: matched on wording (no CLI gives a code for it), so a new wording is
+ * shown as a plain error until it is added here. */
+export function usageLimit(text: string): { reset?: string } | undefined {
+  if (!/usage limit|hit your (usage )?limit|limit reached|rate limit|quota exceeded|too many requests|\b429\b/i.test(text)) return undefined;
+  const epoch = text.match(/limit reached\|(\d{10})/i);
+  if (epoch) return { reset: new Date(+epoch[1] * 1000).toLocaleString("sv-SE").slice(0, 16) };
+  const at = text.match(/(?:resets?|try again)(?: at| in)?\s+([^.\n(]{1,40})/i);
+  return { reset: at?.[1].trim() };
+}
 /** one line of plain text (no Markdown marks, no line breaks): how the island shows and sends back a decision */
 export const plain = (s: string, n = 200) => s.replace(/[`*_#>|]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 /** a question the AI ended its reply with: "DECISION: <question>" then 2–4 "- option" lines; undefined when there is none */

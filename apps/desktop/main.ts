@@ -16,6 +16,8 @@ let win: BrowserWindow;
 let child: ReturnType<typeof utilityProcess.fork>;
 let tray: Tray;
 let quitting = false;
+/** Settings · General · Close button, kept from the host's state */
+let closeAction: "tray" | "quit" = "tray";
 const pending = new Map<
   string,
   { resolve: (v: any) => void; reject: (e: Error) => void }
@@ -44,7 +46,10 @@ else {
       { serviceName: "Walt Host" },
     );
     child.on("message", (m: any) => {
-      if (m.type === "state") win?.webContents.send("walt:state", m.state);
+      if (m.type === "state") {
+        closeAction = m.state?.settings?.closeAction ?? "tray";
+        win?.webContents.send("walt:state", m.state);
+      }
       else if (m.type === "delta") win?.webContents.send("walt:delta", m.delta);
       else if (m.type === "open") {
         win?.show();
@@ -68,6 +73,7 @@ else {
       minWidth: 1100,
       minHeight: 700,
       frame: false,
+      icon: join(__dirname, "icon.ico"),
       // Ce:L's Start Walt runs it with --background: it waits in the tray until something opens it
       show: !process.argv.includes("--background"),
       backgroundColor: "#1C1C1E",
@@ -83,7 +89,10 @@ else {
     win.webContents.on("will-navigate", (e) => e.preventDefault());
     ipcMain.handle("walt:call", async (event, method, input) => {
       if (event.sender !== win.webContents) throw new Error("Invalid sender");
-      return call(method, input);
+      const result: any = await call(method, input);
+      // the window reads the whole state once at load: the close setting is in there before any change
+      if (method === "snapshot") closeAction = result?.settings?.closeAction ?? "tray";
+      return result;
     });
     ipcMain.handle("walt:folder", async () => {
       const r = await dialog.showOpenDialog(win, {
@@ -95,16 +104,13 @@ else {
       if (action === "minimize") win.minimize();
       if (action === "maximize")
         win.isMaximized() ? win.unmaximize() : win.maximize();
-      if (action === "close") win.hide();
+      if (action === "close") closeAction === "quit" ? app.quit() : win.hide();
       if (action === "show") (win.show(), win.focus());
       // Settings · Data & backup
       if (action === "data") void shell.openPath(app.getPath("userData"));
     });
     await win.loadFile(join(__dirname, "../ui/index.html"));
-    const icon = nativeImage.createFromDataURL(
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAE0lEQVR42mNk+M9Qz0AEYBxVSF8BAD5/Ah/5pONaAAAAAElFTkSuQmCC",
-    );
-    tray = new Tray(icon);
+    tray = new Tray(nativeImage.createFromPath(join(__dirname, "icon.ico")));
     tray.setToolTip("Walt");
     tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -135,10 +141,16 @@ else {
     );
     tray.on("double-click", () => win.show());
     win.on("close", (e) => {
-      if (!quitting) {
-        e.preventDefault();
-        win.hide();
-      }
+      if (quitting) return;
+      e.preventDefault();
+      closeAction === "quit" ? app.quit() : win.hide();
+    });
+    // Settings · General · Start with Windows: Windows' own startup list, so it is the one source of truth.
+    // Started that way Walt waits in the tray (--background) and the island connects to it.
+    const login = { path: process.execPath, args: [...(app.isPackaged ? [] : [app.getAppPath()]), "--background"] };
+    ipcMain.handle("walt:login", (_e, on?: boolean) => {
+      if (typeof on === "boolean") app.setLoginItemSettings({ ...login, openAtLogin: on });
+      return app.getLoginItemSettings(login).openAtLogin;
     });
   });
   app.on("window-all-closed", () => {});

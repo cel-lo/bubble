@@ -7,7 +7,7 @@ fs.mkdirSync("apps/ui/generated", { recursive: true });
 let kit = fs.readFileSync("design/kit.mjs", "utf8");
 const start = kit.indexOf("export const T");
 kit = kit.slice(start);
-for (const key of ["codex", "gemini"])
+for (const key of ["codex", "gemini", "walt"])
   kit =
     `const ${key}Png=${JSON.stringify("data:image/png;base64," + fs.readFileSync(`design/assets/${key}.png`).toString("base64"))};\n` +
     kit;
@@ -47,6 +47,8 @@ await build({
   format: "esm",
   outfile: "dist/host/index.mjs",
 });
+// window, taskbar and tray icon (the installer takes build/icon.ico itself)
+fs.copyFileSync("build/icon.ico", "dist/desktop/icon.ico");
 fs.writeFileSync(
   "dist/host/index.cjs",
   'import("./index.mjs").catch(e=>{console.error(e);process.exit(1)});',

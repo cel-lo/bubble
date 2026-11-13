@@ -658,3 +658,37 @@ test("diff shows what the latest revision changed; backup copies the database", 
   await host.close();
   await rm(dir, { recursive: true });
 });
+
+import { usageLimit } from "../packages/domain/command";
+test("a usage limit becomes a card, and another model takes the message again", async () => {
+  assert.deepEqual(usageLimit("You've hit your usage limit. Upgrade to Pro or try again at 3:05 PM."), { reset: "3:05 PM" });
+  assert.deepEqual(usageLimit("5-hour limit reached ∙ resets 3pm (Asia/Jakarta)"), { reset: "3pm" });
+  assert.ok(usageLimit("Claude AI usage limit reached|1763049600")?.reset?.startsWith("2025-11-"));
+  assert.equal(usageLimit("ENOENT: claude.exe not found"), undefined);
+  const dir = await mkdtemp(join(tmpdir(), "walt-limit-"));
+  const host = new Host(new Store(join(dir, "data")));
+  const r = host.newChat("");
+  host.setTarget(r.id, { engine: "claude", model: "default" });
+  const ran: string[] = [];
+  (host.supervisor as any).get = async (_room: string, def: { engine: string }) => ({
+    run: async (prompt: string) => {
+      ran.push(def.engine + ": " + prompt.split("\n").at(-1));
+      if (def.engine === "claude") throw new Error("You've hit your usage limit. Try again at 3:05 PM.");
+      return "done by codex";
+    },
+    stop: async () => {},
+  });
+  const idle = async () => { for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10)); };
+  await host.send(r.id, "write the plan");
+  await idle();
+  const card = r.messages.at(-1)!;
+  assert.equal(card.kind, "limit");
+  assert.equal(card.meta?.reset, "3:05 PM");
+  await host.handOff(r.id, "codex:default");
+  await idle();
+  assert.deepEqual(ran, ["claude: write the plan", "codex: write the plan"], "the same message, now to Codex");
+  assert.equal(r.messages.at(-1)!.text, "done by codex");
+  await assert.rejects(() => host.handOff(r.id, "claude:default"), /no usage limit/);
+  await host.close();
+  await rm(dir, { recursive: true });
+});

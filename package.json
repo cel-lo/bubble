@@ -50,7 +50,7 @@
     "asar": true,
     "win": {
       "target": "portable",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico"
     },
     "portable": {
       "artifactName": "Walt.exe"
@@ -59,7 +59,9 @@
       "artifactName": "Walt-Setup-${version}.exe",
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   },
   "allowScripts": {

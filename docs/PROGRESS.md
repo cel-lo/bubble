@@ -131,6 +131,12 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Island buttons felt slow: Pause only takes effect after the turn and Stop waits for the AI to stop, and the page showed nothing meanwhile. Now each press shows Pausing after this turn… / Stopping… / Resuming… / Opening in Walt… at once, until the feed shows the change; the snapshot carries pause, so a paused-after-turn chat says Pauses after this turn with the pause button lit.
 - Settings · Island (Ce:L): connected or not (live), Answer decisions from the island (on by default; off sends decisions without options and refuses answers), tool approvals from the island: never. Unit test for the switch.
 
+## Logo, startup, usage limits — 2026-11-13
+
+- Logo: design/assets/walt-logo.webp (from cello) → build/icon-*.png and build/icon.ico (tile from 48 px, the creature alone at 16–32 px so it reads in the tray). Used for the window, taskbar, tray, installer and Walt.exe (electron-builder now edits the exe; with no certificate it skips only the signing), and as the wordmark in the app. Checked: the packaged Walt.exe shows it.
+- Settings · General: Start with Windows (Windows' own startup list, starts Walt in the tray with --background; checked on → off, nothing left behind) and Close button (Hide to the tray, default, or Quit Walt; checked that Quit ends Walt).
+- Usage limits: a CLI error that says the subscription limit was hit (Claude Code and Codex wordings, usageLimit() in domain/command) becomes a card: who hit it, when it resets, and buttons to carry on: a plain chat continues with the other engine, a team chat hands the builder's job to another member (or drops a limited reviewer from the reviews); your last message is sent again. Unit test with fake sessions; card checked in the app (seeded message). Not seen with a real limit.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

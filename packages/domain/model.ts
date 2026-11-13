@@ -69,7 +69,7 @@ export interface Message {
   at: string;
   kind?: string;
   /** what Walt read from @mention and /commands in this message */
-  meta?: { to?: Persona; keep?: boolean; via?: "island" } & Tune;
+  meta?: { to?: Persona; keep?: boolean; via?: "island"; reset?: string } & Tune;
 }
 export interface Artifact {
   revision: number;
@@ -148,6 +148,8 @@ export interface State {
     claudeShell?: boolean;
     /** the Ce:L island may answer DECISION: questions (default on); tool approvals always open Walt */
     islandAnswers?: boolean;
+    /** the window's close button: hide to the tray (default, so the island stays connected) or quit Walt */
+    closeAction?: "tray" | "quit";
     /** Windows notifications when an AI needs you or finishes while Walt is in the background (default on) */
     notify?: boolean;
     /** onboarding (Welcome + Engines) seen */

@@ -20,7 +20,7 @@ import {
   type TeamTemplate,
   defaultStrengths,
 } from "../domain/model";
-import { parseMessage, decision, autoBuilder, plain, type Parsed } from "../domain/command";
+import { parseMessage, decision, autoBuilder, plain, usageLimit, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -487,6 +487,8 @@ export class Host extends EventEmitter {
       );
     } catch (error) {
       await session.stop();
+      const limit = usageLimit(String(error));
+      if (limit) throw Object.assign(new Error(String(error).replace(/^Error: /, "")), { limit: { persona, ...limit } });
       throw error;
     } finally {
       // keep the CLI's session id on the chat: resume after a restart, and "Continue in Claude Code / Codex"
@@ -495,6 +497,34 @@ export class Host extends EventEmitter {
     m.text = result;
     this.commit("run.finished");
     return result;
+  }
+/** a run failed: a usage limit gets its own card (who, when it resets, hand-off buttons), anything else stays an error */
+  private failed(r: Room, e: unknown) {
+    const limit = (e as { limit?: { persona: Persona; reset?: string } }).limit;
+    if (!limit) return void this.message(r, "Walt", String(e), "error");
+    const m = this.message(r, "Walt", String(e).replace(/^Error: /, ""), "limit");
+    m.meta = { to: limit.persona, reset: limit.reset };
+  }
+  /** after a usage limit: give the work to `to` and send your last message again. Plain chats switch model
+   * (`to` = "engine:model"); team chats hand the builder's job to another member (`to` = persona id), or take a
+   * reviewer that hit its limit out of the reviews for now. */
+  async handOff(roomId: string, to: string) {
+    const r = this.room(roomId);
+    const last = r.messages.at(-1);
+    if (last?.kind !== "limit" || !last.meta?.to) throw new Error("There is no usage limit to work around in this chat.");
+    const hit = last.meta.to;
+    const task = [...r.messages].reverse().find((m) => m.author === "cello" && m.kind !== "setting" && m.kind !== "queued");
+    if (!task) throw new Error("Nothing to send again.");
+    if (r.template === "direct") {
+      const i = to.indexOf(":");
+      this.setTarget(roomId, { engine: to.slice(0, i) as Engine, model: to.slice(i + 1) });
+    } else if (hit === r.builder) {
+      this.member(roomId, to, "Builder");
+    } else {
+      this.member(roomId, hit, "Member");
+    }
+    if (r.used >= r.budget) r.budget = r.used + budgets[r.template];
+    await this.send(roomId, task.text);
   }
   /** a plain chat: the message goes as written; the CLI session remembers the conversation */
   /** messages `who` has not seen: everything after its last reply, minus the message being sent now; newest kept, about 12k chars */
@@ -546,7 +576,7 @@ export class Host extends EventEmitter {
     } catch (e) {
       r.state = r.pause ? "paused" : "idle";
       r.step = "needs attention";
-      this.message(r, "Walt", String(e), "error");
+      this.failed(r, e);
     } finally {
       if (p && this.leases.get(p.root) === r.id) this.leases.delete(p.root);
       this.commit();
@@ -714,7 +744,7 @@ export class Host extends EventEmitter {
     } catch (e) {
       r.state = r.pause ? "paused" : "idle";
       r.step = "needs attention";
-      this.message(r, "Walt", String(e), "error");
+      this.failed(r, e);
     } finally {
       if (this.leases.get(p.root) === r.id) this.leases.delete(p.root);
       this.commit();

@@ -19,6 +19,7 @@ declare global {
       call: (method: string, input?: unknown) => Promise<any>;
       folder: () => Promise<string | null>;
       window: (action: string) => void;
+      login: (on?: boolean) => Promise<boolean>;
       opened: (fn: (roomId: string) => void) => () => void;
       subscribe: (fn: (s: State) => void) => () => void;
       delta: (fn: (d: { room: string; id: string; text: string }) => void) => () => void;
@@ -713,6 +714,23 @@ function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened:
   );
 }
 
+/** a usage limit: who hit it, when it resets, and who can take over (only on the last message, when idle) */
+function limitCardFor(state: State, room: Room) {
+  return (m: Room["messages"][number], live: boolean) => {
+    const who = state.personas.find((p) => p.id === m.meta?.to);
+    const name = room.template === "direct" && who ? label(state, who.engine, room.tune?.[who.id]?.model ?? who.model) : (who?.name ?? m.meta?.to ?? "");
+    const others: [string, string][] =
+      room.template === "direct"
+        ? ENGINES_ON.filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:default`, t("Continue with {0}", ENGINE_NAME[e])])
+        : m.meta?.to === room.builder
+          ? [room.builder, ...room.reviewers, ...(room.members || [])].filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
+          : [[m.meta?.to ?? "", t("Continue without {0}'s review", name)]];
+    const reset = m.meta?.reset ? t("It resets {0}.", m.meta.reset) : t("Walt cannot tell when it resets.");
+    const buttons = live && others.length ? `<div class="row g8" style="margin-top:12px;flex-wrap:wrap">${others.map(([v, l]) => `<button class="btn" data-hot="handoff:${esc(v)}" style="border:0">${esc(l)}</button>`).join("")}</div>` : "";
+    return `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("clock", 17, T.amber)}<span class="s14 b">${esc(t("{0} reached its usage limit", name))}</span></div><div class="s13 sub" style="margin-top:6px;line-height:1.5">${esc(reset)} ${esc(t("Your message was not lost: another model can take over and Walt sends it again."))}</div><div class="s12 dim mono" style="margin-top:6px;overflow-wrap:anywhere">${esc(m.text.slice(0, 200))}</div>${buttons}</div>`;
+  };
+}
+
 type Diff = { revision: number; files: { path: string; status: string; patch: string }[]; more?: number };
 /** the latest revision's changes, read-only: git diff when the project uses git, else the new text */
 function DiffView({ diff, title, onClose }: { diff: Diff; title: string; onClose: () => void }) {
@@ -811,6 +829,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   };
   // the latest AI reply may end with a DECISION; its options become buttons until you answer
   const lastAi = [...room.messages].reverse().find((m) => pd(m.author));
+  const limitCard = limitCardFor(state, room);
   const asking = lastAi && !busy(room) && lastAi === room.messages.at(-1) ? decision(lastAi.text) : undefined;
   const choices = asking
     ? `<div class="row g8" style="margin:4px 0 0 44px;flex-wrap:wrap"><span class="s12 dim">${esc(t("Your choice"))}:</span>${asking.options.map((o, i) => `<button class="btn sm" data-hot="decide:${i}" style="border:0">${esc(o)}</button>`).join("")}</div>`
@@ -822,7 +841,9 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
           : pd(m.author)
             ? personaMsg(pd(m.author)!, t(roleOf(m.author)), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta)) + (m === lastAi ? choices : "")
-            : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
+            : m.kind === "limit"
+              ? limitCard(m, m === room.messages.at(-1) && !busy(room))
+              : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
       )
       .join("") +
     asks
@@ -842,6 +863,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     if (h.startsWith("allow:") || h.startsWith("deny:")) await invoke("approval", { id: h.split(":")[1], allow: h.startsWith("allow:") });
     else if (h === "accept") await invoke("accept", room.id);
     else if (h === "diff") setDiff(await invoke("diff", room.id));
+    else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
     else if (h.startsWith("member:")) {
       const [, persona, role] = h.split(":");
@@ -1290,9 +1312,26 @@ const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[
 const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
+  const [login, setLogin] = useState<boolean | null>(null);
+  useEffect(() => void window.walt.login().then(setLogin).catch(() => setLogin(null)), []);
   const rows: [string, string, React.ReactNode][] = [
     ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{t(l)}</span>)}</div>],
     ["Notifications", "When an AI needs you or finishes while Walt is in the background.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={(s.notify !== false) === v ? "on" : ""} onClick={() => invoke("settings", { notify: v })}>{t(l)}</span>)}</div>],
+    ["Start with Windows", "Walt waits in the tray, so the Ce:L island is connected from the start.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={login === v ? "on" : ""} onClick={() => void window.walt.login(v).then(setLogin)}>{t(l)}</span>)}</div>],
+    [
+      "Close button",
+      "Hiding keeps Walt and the island running; quitting stops every AI.",
+      <Dropdown
+        label="Close button"
+        value={s.closeAction ?? "tray"}
+        width={220}
+        onChange={(v) => void invoke("settings", { closeAction: v })}
+        options={[
+          { value: "tray", label: t("Hide to the tray") },
+          { value: "quit", label: t("Quit Walt") },
+        ]}
+      />,
+    ],
     ["Theme", "", <div className="seg">{([["dark", "Dark"], ["light", "Light"]] as const).map(([v, l]) => <span key={v} className={s.theme === v ? "on" : ""} onClick={() => invoke("settings", { theme: v })}>{t(l)}</span>)}</div>],
     [
       "Default model for new chats",

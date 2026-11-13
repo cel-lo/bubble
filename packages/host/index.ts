@@ -91,6 +91,11 @@ parent.on("message", async ({ data }: any) => {
       case "island":
         result = { connected: api.clients() > 0 };
         break;
+      case "limit.handoff": {
+        const v = z.object({ roomId: z.string(), to: z.string().min(1).max(120) }).parse(input);
+        result = await host.handOff(v.roomId, v.to);
+        break;
+      }
       case "backups":
         result = { dir: host.store.dir, list: host.backups() };
         break;
@@ -112,6 +117,7 @@ parent.on("message", async ({ data }: any) => {
               onboarded: z.boolean(),
               claudeShell: z.boolean(),
               islandAnswers: z.boolean(),
+              closeAction: z.enum(["tray", "quit"]),
               notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),
