@@ -104,8 +104,12 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Review fixes found in that run: a first build that changed no files is no longer reviewed; reviewers get the builder's reply (builderReply) and are told they cannot run tests, so they judge the evidence instead of asking for a rejected command.
 - 25 unit tests.
 
+## Packaging, prototype links — 2026-11-13
+
+- npm run package (release/win-unpacked/Walt.exe) and npm run package:setup (release/Walt-Setup-0.1.0.exe, per-user NSIS installer, install folder can be changed). Both unsigned: there is no code signing certificate, and the npm electron.exe is not signed either. signAndEditExecutable stays false (no icon edit). Smart App Control read as off on this laptop (CI policy state 0); if it is turned on, unsigned builds may be blocked and the fix is a real certificate. Verified: the packaged Walt.exe opened the test data, found both CLIs, and ran a real Haiku turn with the Job Object helper up. The installer was built, not installed.
+- FigCraft: V01–V14 hotspots are linked (design-pipeline/walt/links.mjs) with 5 "Walt v2 · …" flows: main window + panel toggles, new chat + model menu, new project (folder → who joins → first chat), add a model, Settings and Customize. The Designs-CeL.figcraft file is not saved by the script.
+
 ## Found while testing (next work, in order)
 
-1. Installer and code signing (Smart App Control).
+1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
 2. Ce:L island side of the control API; Gemini adapter once cello signs in; API-key engines (Groq and others).
-3. Click-through links for the V01–V14 FigCraft frames.
