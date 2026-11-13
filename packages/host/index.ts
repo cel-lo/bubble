@@ -8,8 +8,8 @@ const dir = process.argv[2];
 const host = new Host(new Store(dir));
 const persona = z.string().min(1).max(80);
 const effort = z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]);
-const api = await controlServer(host, dir, () =>
-  parent.postMessage({ type: "open" }),
+const api = await controlServer(host, dir, (roomId) =>
+  parent.postMessage({ type: "open", roomId }),
 );
 const view = () => ({ ...host.state, procs: host.supervisor.list() });
 host.on("state", () => parent.postMessage({ type: "state", state: view() }));

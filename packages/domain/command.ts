@@ -56,6 +56,8 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   return { text: text.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, ""), to, effort, model, keep };
 }
 
+/** one line of plain text (no Markdown marks, no line breaks): how the island shows and sends back a decision */
+export const plain = (s: string, n = 200) => s.replace(/[`*_#>|]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 /** a question the AI ended its reply with: "DECISION: <question>" then 2–4 "- option" lines; undefined when there is none */
 export function decision(text: string) {
   const lines = text.trimEnd().split(/\r?\n/);

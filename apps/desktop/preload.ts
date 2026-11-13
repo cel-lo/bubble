@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld("walt", {
     ipcRenderer.on("walt:state", listener);
     return () => ipcRenderer.removeListener("walt:state", listener);
   },
+  // Ce:L asked to open a chat
+  opened: (fn: (roomId: string) => void) => {
+    const listener = (_event: unknown, id: string) => fn(id);
+    ipcRenderer.on("walt:open", listener);
+    return () => ipcRenderer.removeListener("walt:open", listener);
+  },
   // streaming text of one message: { room, id, text }
   delta: (fn: (value: unknown) => void) => {
     const listener = (_event: unknown, d: unknown) => fn(d);

@@ -20,7 +20,7 @@ import {
   type TeamTemplate,
   defaultStrengths,
 } from "../domain/model";
-import { parseMessage, decision, autoBuilder, type Parsed } from "../domain/command";
+import { parseMessage, decision, autoBuilder, plain, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -376,7 +376,24 @@ export class Host extends EventEmitter {
     this.commit();
     return m;
   }
-  async send(id: string, text: string) {
+  /** the open DECISION: question in a chat (the last message, from an AI, with the chat not working), or none */
+  decisionOf(r: Room) {
+    const last = r.messages.at(-1);
+    if (!last || this.active.has(r.id) || r.state === "running" || !this.state.personas.some((p) => p.id === last.author)) return undefined;
+    const d = decision(last.text);
+    return d && { asker: last.author, ...d };
+  }
+  /** answer a decision: back to the builder as a plain message, to anyone else as an @mention */
+  async decide(roomId: string, option: string, via?: "island") {
+    const r = this.room(roomId);
+    const d = this.decisionOf(r);
+    // the island sends the option as it showed it (plain text); match either form
+    const picked = d?.options.find((o) => o === option || plain(o) === option);
+    if (!d || !picked) throw new Error("That decision was already answered.");
+    const direct = r.template === "direct" || d.asker === r.builder;
+    await this.send(roomId, direct ? picked : `@${this.persona(d.asker).name} ${picked}`, via);
+  }
+  async send(id: string, text: string, via?: "island") {
     const r = this.room(id);
     if (r.state === "ended" || r.state === "recovery_required")
       throw new Error("Resolve recovery or create a new room first.");
@@ -408,7 +425,7 @@ export class Host extends EventEmitter {
     if (r.used >= r.budget)
       throw new Error("Budget exhausted. Add turns with Continue.");
     if (r.title === "New chat") r.title = cmd.text.replace(/\s+/g, " ").slice(0, 48);
-    this.message(r, "cello", text).meta = meta;
+    this.message(r, "cello", text).meta = via ? { ...meta, via } : meta;
     this.commit();
     this.active.add(id);
     void this.exchange(r, cmd).finally(() => this.active.delete(id));

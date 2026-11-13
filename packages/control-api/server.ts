@@ -3,38 +3,72 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Host } from "../host/service";
+import { plain as line } from "../domain/command";
 export async function controlServer(
   host: Host,
   dir: string,
-  onOpen: () => void,
+  onOpen: (roomId?: string) => void,
 ) {
   const token = randomBytes(32).toString("base64url");
   const clients = new Set<import("node:http").ServerResponse>();
   let port = 0;
-  const snapshot = () => ({
-    revision: host.state.revision,
-    walt: { status: "running", locale: host.state.settings.locale },
-    engines: host.state.engines,
-    activeRooms: host.state.rooms
-      .filter((r) => r.state !== "ended")
-      .map((r) => ({
-        roomId: r.id,
-        project: host.state.projects.find((p) => p.id === r.projectId)?.name,
-        title: r.title,
-        state: r.state,
-        template: r.template,
-        step: r.step,
-        turn: { used: r.used, max: r.budget },
-        lastLine: r.messages.at(-1)?.text.slice(0, 60) || "",
-      })),
-    needsYou: host.state.asks.map((a) => ({
-      askId: a.id,
-      roomId: a.roomId,
-      kind: a.kind,
-      title: a.title,
-      options: [],
-    })),
-  });
+  const persona = (id: string) => host.state.personas.find((p) => p.id === id);
+  // a plain chat's persona stands for whichever model it ran: name that model, as Walt's chat does
+  const who = (r: { template: string; messages: { author: string; meta?: { model?: string } }[] }, id: string) => {
+    const p = persona(id);
+    const model = r.template === "direct" ? [...r.messages].reverse().find((m) => m.author === id)?.meta?.model : undefined;
+    const label = p && model ? host.state.catalog?.[p.engine]?.find((m) => m.id === model)?.label : undefined;
+    return label && label !== "Default" ? label : (p?.name ?? id);
+  };
+  const snapshot = () => {
+    const working = new Set(host.supervisor.list().filter((p) => p.busy).map((p) => p.room + ":" + p.persona));
+    // active = something is happening or waiting on you; idle chats and finished ones stay in Walt
+    const rooms = host.state.rooms.filter(
+      (r) => r.state === "running" || r.state === "awaiting_user" || r.state === "paused" || r.state === "recovery_required" || !!host.decisionOf(r),
+    );
+    const decisions = rooms.flatMap((r) => {
+      const d = host.decisionOf(r);
+      return d ? [{ askId: "decision:" + r.id, kind: "decision", roomId: r.id, engine: persona(d.asker)?.engine, who: who(r, d.asker), title: line(d.question, 80), options: d.options.map((o) => line(o)), blocking: true }] : [];
+    });
+    return {
+      revision: host.state.revision,
+      walt: { status: "running", locale: host.state.settings.locale },
+      engines: host.state.engines.map((e) => ({ engine: e.engine, auth: e.auth, quota: e.quota })),
+      activeRooms: rooms.map((r) => {
+        const team = [r.builder, ...(r.template === "direct" ? [] : r.reviewers)];
+        // who is working now: a busy process, else the builder
+        const owner = team.find((p) => working.has(r.id + ":" + p)) ?? r.builder;
+        const last = [...r.messages].reverse().find((m) => m.author !== "cello" && m.text.trim());
+        return {
+          roomId: r.id,
+          project: host.state.projects.find((p) => p.id === r.projectId)?.name ?? "",
+          title: r.title,
+          state: r.state,
+          template: r.template,
+          step: r.step,
+          engines: team.map((p) => persona(p)?.engine ?? "claude"),
+          owner: { persona: who(r, owner), engine: persona(owner)?.engine ?? "claude", process: working.has(r.id + ":" + owner) ? "busy" : "idle" },
+          turn: { used: r.used, max: r.budget },
+          waiting: host.state.asks.filter((a) => a.roomId === r.id).length + (host.decisionOf(r) ? 1 : 0),
+          lastLine: last ? line(last.text, 60) : "",
+        };
+      }),
+      needsYou: [
+        ...host.state.asks.map((a) => ({
+          askId: a.id,
+          roomId: a.roomId,
+          kind: a.kind,
+          engine: persona(a.persona)?.engine,
+          who: persona(a.persona)?.name ?? a.persona,
+          title: a.title,
+          detail: line(typeof (a.input as any)?.command === "string" ? (a.input as any).command : typeof (a.input as any)?.file_path === "string" ? (a.input as any).file_path : "", 80),
+          options: [],
+          blocking: true,
+        })),
+        ...decisions,
+      ],
+    };
+  };
   const server = createServer(async (req, res) => {
     const respond = (code: number, value: unknown) => {
       res.writeHead(code, { "Content-Type": "application/json" });
@@ -89,10 +123,6 @@ export async function controlServer(
         }
       }
       const body = JSON.parse(raw || "{}");
-      if (/\/asks\//.test(path)) {
-        respond(403, { error: "not_allowed_from_island" });
-        return;
-      }
       if (
         typeof body.commandId !== "string" ||
         body.commandId.length > 128 ||
@@ -116,13 +146,20 @@ export async function controlServer(
         );
         return;
       }
-      if (body.expectedRevision !== host.state.revision) {
-        respond(409, { error: "revision_conflict" });
-        return;
-      }
-      const room = path.match(/^\/island\/v1\/rooms\/([^/]+)\/(pause|resume)$/);
+      // shortcut: expectedRevision is required but not compared: streaming text bumps the revision several times a
+      // second, so it would refuse nearly every click; each action checks its own target instead (room exists, decision still open)
+      const room = path.match(/^\/island\/v1\/rooms\/([^/]+)\/(pause|resume|interrupt)$/);
+      const ask = path.match(/^\/island\/v1\/asks\/([^/]+)\/answer$/);
       if (room) host.control(room[1], room[2]);
-      else if (path === "/island/v1/open") onOpen();
+      else if (ask) {
+        // only decisions are answered here; tool approvals always open Walt, so the full command is read there
+        const id = decodeURIComponent(ask[1]);
+        if (!id.startsWith("decision:") || typeof body.option !== "string") {
+          respond(403, { error: "not_allowed_from_island" });
+          return;
+        }
+        await host.decide(id.slice(9), body.option, "island");
+      } else if (path === "/island/v1/open") onOpen(typeof body.roomId === "string" ? body.roomId : undefined);
       else {
         respond(403, { error: "not_allowed_from_island" });
         return;

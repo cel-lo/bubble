@@ -73,7 +73,7 @@ test("SQLite restart preserves messages and flags unfinished runs without replay
   await host.close();
   await rm(dir, { recursive: true });
 });
-test("island rejects browser origins, bad auth and approvals; supports revisions and dedupe", async () => {
+test("island rejects browser origins, bad auth and approvals; dedupes commands; answers decisions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "walt-api-"));
   const host = new Host(new Store(dir));
   const r = host.createRoom.bind(host);
@@ -109,13 +109,13 @@ test("island rejects browser origins, bad auth and approvals; supports revisions
           }).map(([k, v]) => [k.toLowerCase(), v]),
         ),
       });
-      return await new Promise<{ status: number }>((resolve) => {
+      return await new Promise<{ status: number; json: any }>((resolve) => {
         let status = 200;
         const res = {
           writeHead: (code: number) => {
             status = code;
           },
-          end: () => resolve({ status }),
+          end: (data?: string) => resolve({ status, json: data ? JSON.parse(data) : undefined }),
         };
         api.server.emit("request", req as any, res as any);
       });
@@ -138,10 +138,11 @@ test("island rejects browser origins, bad auth and approvals; supports revisions
         await fetch(base + "/island/v1/asks/a/answer", {
           method: "POST",
           headers,
-          body: "{}",
+          body: JSON.stringify({ commandId: "ask-1", expectedRevision: 0, option: "yes" }),
         })
       ).status,
       403,
+      "tool approvals are never answered from the island",
     );
     const body = JSON.stringify({
       commandId: "pause-1",
@@ -162,11 +163,29 @@ test("island rejects browser origins, bad auth and approvals; supports revisions
         await fetch(endpoint, {
           method: "POST",
           headers,
-          body: JSON.stringify({ commandId: "pause-2", expectedRevision: 0 }),
+          body: JSON.stringify({ commandId: "pause-1", expectedRevision: 0 }),
         })
       ).status,
       409,
+      "the same command id with another body is a conflict",
     );
+    // a DECISION: question shows up as a decision the island can answer
+    host.control(room.id, "resume");
+    room.state = "idle";
+    room.messages.push({ id: "m1", author: "sonnet", at: new Date().toISOString(), text: "Two ways.\nDECISION: Which **storage**?\n- SQLite\n- JSON file" });
+    const state = (await fetch(base + "/island/v1/state", { headers })).json;
+    const d = state.needsYou.find((a: any) => a.kind === "decision");
+    assert.deepEqual([d.askId, d.title, d.options, d.who], ["decision:" + room.id, "Which storage?", ["SQLite", "JSON file"], "Claude Sonnet"]);
+    assert.equal(state.activeRooms[0].waiting, 1);
+    (host.supervisor as any).get = async () => ({ run: async () => "ok, SQLite", stop: async () => {} });
+    const answer = (option: string, id: string) =>
+      fetch(base + "/island/v1/asks/" + encodeURIComponent(d.askId) + "/answer", { method: "POST", headers, body: JSON.stringify({ commandId: id, expectedRevision: 0, option }) });
+    assert.equal((await answer("Postgres", "d-0")).status, 400, "only one of the options");
+    assert.equal((await answer("SQLite", "d-1")).status, 200);
+    const sent = room.messages.find((m) => m.author === "cello")!;
+    assert.deepEqual([sent.text, sent.meta?.via], ["SQLite", "island"], "recorded as answered from the island");
+    for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+    assert.equal((await answer("SQLite", "d-2")).status, 400, "already answered");
   } finally {
     await api.close();
     await host.close();

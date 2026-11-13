@@ -19,6 +19,7 @@ declare global {
       call: (method: string, input?: unknown) => Promise<any>;
       folder: () => Promise<string | null>;
       window: (action: string) => void;
+      opened: (fn: (roomId: string) => void) => () => void;
       subscribe: (fn: (s: State) => void) => () => void;
       delta: (fn: (d: { room: string; id: string; text: string }) => void) => () => void;
     };
@@ -120,7 +121,8 @@ function App() {
     const offDelta = window.walt.delta((d) =>
       setState((s) => s && { ...s, rooms: s.rooms.map((r) => (r.id !== d.room ? r : { ...r, messages: r.messages.map((m) => (m.id === d.id ? { ...m, text: d.text } : m)) })) }),
     );
-    return () => (off(), offDelta());
+    const offOpen = window.walt.opened((id) => setView({ kind: "chat", id }));
+    return () => (off(), offDelta(), offOpen());
   }, []);
   // a Windows notification when an AI needs you or finishes while Walt is in the background
   const seen = useRef<{ asks: Set<string>; busy: Set<string> } | null>(null);

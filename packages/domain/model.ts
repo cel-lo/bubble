@@ -69,7 +69,7 @@ export interface Message {
   at: string;
   kind?: string;
   /** what Walt read from @mention and /commands in this message */
-  meta?: { to?: Persona; keep?: boolean } & Tune;
+  meta?: { to?: Persona; keep?: boolean; via?: "island" } & Tune;
 }
 export interface Artifact {
   revision: number;

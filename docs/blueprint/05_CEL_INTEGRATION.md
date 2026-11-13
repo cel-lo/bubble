@@ -124,3 +124,16 @@ Bila beberapa event bersaing: tool approval > auth required > ask blocking > fai
 - Perubahan aditif (field baru) tidak menaikkan versi; klien wajib mengabaikan field tak dikenal.
 - Perubahan breaking → `walt-control/2`; Walt melayani versi lama minimal satu rilis.
 - Kontrak ini punya test kontrak sendiri di `packages/control-api` dengan klien contoh (mis. skrip Node kecil) agar bisa diuji sebelum Ce:L dibangun.
+
+## 10. Implementasi (2026-11-13)
+
+Yang dibangun dan berbeda dari rancangan di atas:
+
+- `needsYou` memuat tool approval (`kind: tool_approval`, plus `who`, `detail` = perintah/file) dan keputusan dari baris `DECISION:` di balasan AI (`askId: decision:<roomId>`, `options`). Opsi dikirim sebagai teks polos (`plain()` di domain/command), dan Walt menerima jawaban dalam bentuk itu.
+- `POST /island/v1/asks/:id/answer` dengan `{option}` hanya untuk keputusan; pesannya tercatat dengan `meta.via = "island"` (A59). Tool approval tetap `403 not_allowed_from_island` (A60).
+- Interrupt: `POST /island/v1/rooms/:id/interrupt` (bukan `/runs/:id`).
+- `POST /island/v1/open` menerima `{roomId}` opsional; Walt muncul dan membuka chat itu.
+- `expectedRevision` wajib tetapi tidak dibandingkan: teks streaming menaikkan revisi beberapa kali per detik, jadi setiap aksi memeriksa targetnya sendiri. `commandId` tetap idempotent.
+- `activeRooms` = chat yang running, menunggu kamu, paused, recovery, atau punya keputusan terbuka; tiap room membawa `engines`, `owner.process`, `waiting`.
+- Walt menulis `launch.json` (`exe`, `args`) di folder datanya setiap start. File ini tidak dihapus saat quit, sehingga Ce:L bisa menjalankan `Start Walt` dengan `--background` (Walt menunggu di tray).
+- Ce:L: `cel-svc/src/walt.rs` (link + SSE lewat HTTP/1.0 di TcpStream), `cel-pages/src/walt.rs` (I01, I03, I04, I07, I08, I09), `cel-app/src/walt_page.rs` (peek dari perubahan snapshot, klik). `WALT_DATA` juga dibaca Ce:L untuk tes.

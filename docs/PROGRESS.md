@@ -118,7 +118,14 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - The shell-flag test no longer leaks an EPIPE after it ends (it failed the suite now and then).
 - 26 unit tests.
 
+## Ce:L island ↔ Walt — 2026-11-13
+
+- Walt side of walt-control/1 finished: decisions as island asks with options, answered from the island (recorded as via island), interrupt, open a given chat, launch.json + --background for Start Walt. Contract notes in blueprint/05_CEL_INTEGRATION.md §10. Unit test covers auth, origin, dedupe, decision answer, approvals refused.
+- Ce:L side (D:/NEWNUSA/cel/app, not a git repo; a copy of the crates from before is in the session scratchpad): svc-walt link, Walt page (one chat / several / not running), decision and approval peeks, done peek, engine dots + turn ring in the closed notch. 5 Rust unit tests.
+- Checked live with the test Walt: the decision peek showed (I03 look), … opened Walt at that chat, Blue answered from the island reached Walt with via island and Haiku replied; the feed streams over HTTP/1.0. Walt started with --background stays in the tray.
+- Not checked on screen: the open Walt page and the closed-notch dots. Nusa sits on top of Ce:L's closed notch, and the island kept showing real WhatsApp peeks, so clicking it was not safe.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
-2. Ce:L island side of the control API; Gemini adapter once cello signs in; API-key engines (Groq and others).
+2. Gemini adapter once cello signs in; API-key engines (Groq and others).

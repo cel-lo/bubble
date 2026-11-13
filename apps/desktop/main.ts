@@ -10,6 +10,7 @@ import {
   nativeImage,
 } from "electron";
 import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 let win: BrowserWindow;
 let child: ReturnType<typeof utilityProcess.fork>;
@@ -35,6 +36,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
   app.whenReady().then(async () => {
+    // how Ce:L starts Walt while it is not running (control.json only exists while Walt runs)
+    writeFileSync(join(app.getPath("userData"), "launch.json"), JSON.stringify({ exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] }));
     child = utilityProcess.fork(
       join(__dirname, "../host/index.cjs"),
       [app.getPath("userData")],
@@ -43,7 +46,11 @@ else {
     child.on("message", (m: any) => {
       if (m.type === "state") win?.webContents.send("walt:state", m.state);
       else if (m.type === "delta") win?.webContents.send("walt:delta", m.delta);
-      else if (m.type === "open") win?.show();
+      else if (m.type === "open") {
+        win?.show();
+        win?.focus();
+        if (m.roomId) win?.webContents.send("walt:open", m.roomId);
+      }
       else if (m.id) {
         const p = pending.get(m.id);
         pending.delete(m.id);
@@ -61,6 +68,8 @@ else {
       minWidth: 1100,
       minHeight: 700,
       frame: false,
+      // Ce:L's Start Walt runs it with --background: it waits in the tray until something opens it
+      show: !process.argv.includes("--background"),
       backgroundColor: "#1C1C1E",
       title: "Walt",
       webPreferences: {
