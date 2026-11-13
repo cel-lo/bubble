@@ -31,6 +31,8 @@ export class ClaudeSession {
     resume?: string,
     /** --mcp-config value: a JSON file path with the project's servers, or none */
     mcpConfig = '{"mcpServers":{}}',
+    /** builder only: add the shell (Bash, or PowerShell on Windows without Git Bash); each call still goes through the owner's approval */
+    shell = false,
   ) {
     const args = [
       "--print",
@@ -51,7 +53,7 @@ export class ClaudeSession {
       "--setting-sources=",
       "--disable-slash-commands",
       "--tools",
-      readonly ? "Read,Glob,Grep" : "Read,Glob,Grep,Write,Edit",
+      readonly ? "Read,Glob,Grep" : shell ? "Read,Glob,Grep,Write,Edit,Bash,PowerShell" : "Read,Glob,Grep,Write,Edit",
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
       // a restarted process (new effort/model, or after sleeping) continues the same conversation

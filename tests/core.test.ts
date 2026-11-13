@@ -395,6 +395,15 @@ test("build, review, fix, review again until the reviewers approve", async () =>
   assert.deepEqual(review2.artifact.changed, [{ path: "a.txt", content: "v2" }], "and on re-review, what the fix changed");
   assert.equal(r.used, 4, "build + review + fix + review = the 4-turn budget");
   assert.match(r.messages.at(-1)!.text, /r2 approved by Claude Opus/);
+  assert.equal(review1.builderReply, "built v1", "reviewers see the builder's evidence");
+  // a build that edits nothing (ran tests, answered) is not reviewed
+  (host.supervisor as any).get = async (_room: string, def: { id: string }) => ({ run: async () => (def.id === "codex" ? "tests pass" : (reviews++, "VERDICT: APPROVE")), stop: async () => {} });
+  r.budget += 4;
+  r.step = "";
+  await host.send(r.id, "run the tests");
+  for (let i = 0; i < 200 && r.step !== "awaiting acceptance"; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(reviews, 2, "no review for an unchanged revision");
+  assert.match(r.messages.at(-1)!.text, /nothing to review/);
   await host.close();
   await rm(dir, { recursive: true });
 });
@@ -552,4 +561,31 @@ test("after an interrupted run, I checked unlocks the chat and its project", asy
   assert.equal(other.state, "idle");
   await host.close();
   await rm(dir, { recursive: true });
+});
+import { ClaudeSession } from "../packages/adapters/claude";
+test("Claude gets Bash only as a builder with the shell setting on", async () => {
+  const tools = (readonly: boolean, shell: boolean) => {
+    const s = new ClaudeSession(process.execPath, tmpdir(), "", readonly, undefined, undefined, undefined, shell);
+    (s as any).ready.catch(() => {});
+    const args: string[] = (s as any).child.spawnargs;
+    void s.stop();
+    return args[args.indexOf("--tools") + 1];
+  };
+  assert.equal(tools(false, false), "Read,Glob,Grep,Write,Edit");
+  assert.equal(tools(false, true), "Read,Glob,Grep,Write,Edit,Bash,PowerShell");
+  assert.equal(tools(true, true), "Read,Glob,Grep");
+});
+import { autoBuilder } from "../packages/domain/command";
+import { defaultStrengths } from "../packages/domain/model";
+test("Auto roles pick the builder whose Good at fits the task; ties keep the builder", () => {
+  const team = [
+    { id: "opus", strengths: defaultStrengths("claude", "opus") },
+    { id: "codex", strengths: defaultStrengths("codex", "gpt-6") },
+    { id: "sonnet", strengths: defaultStrengths("claude", "sonnet") },
+  ];
+  assert.equal(autoBuilder("add tests for the parser", team, "opus").id, "codex");
+  assert.equal(autoBuilder("plan the migration to sqlite", team, "codex").id, "opus");
+  assert.equal(autoBuilder("rewrite the README docs", team, "codex").id, "sonnet");
+  assert.equal(autoBuilder("hello there", team, "opus").id, "opus");
+  assert.equal(autoBuilder("fix the bug", team, "codex").id, "codex");
 });

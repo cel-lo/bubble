@@ -375,6 +375,12 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
                 <Icon n="plus" s={14} c={T.green} w={2} />{t("Add")}
               </span>
             </div>
+            {room.template !== "roundtable" && (
+              <div className="row g8 s12" style={{ padding: "2px 12px 6px" }} title={t("Before each task Walt makes the reviewer whose Good at fits best the builder.")}>
+                <span className="f1 dim">{t("Auto roles")}</span>
+                <div className="seg">{([[false, "Off"], [true, "On"]] as const).map(([v, l]) => <span key={l} className={!!room.auto === v ? "on" : ""} onClick={() => invoke("room.auto", { roomId: room.id, on: v })}>{t(l)}</span>)}</div>
+              </div>
+            )}
             {team(room).map((id) => {
               const p = pd(id);
               if (!p) return null;
@@ -390,6 +396,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
                   </div>
                   {r !== "Builder" && r !== "Talks" && (
                     <span className="x" role="button" aria-label={`${p.name} actions`} onClick={(e) => more(e, [
+                      { label: t("Make builder"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Builder" }) },
                       { label: t(r === "Reviewer" ? "Make member" : "Make reviewer"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: r === "Reviewer" ? "Member" : "Reviewer" }) },
                       { label: t("Remove from chat"), danger: true, onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Remove" }) },
                     ])}>
@@ -1228,6 +1235,13 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
               <div><b>{t("Team chats")}</b> · {t("one builder writes at a time; reviewers are read-only.")}</div>
               <div><b>{t("Ce:L island")}</b> · {t("can pause and answer questions; tool approvals always open Walt.")}</div>
               <div className="dim">{t("Waiting never counts as allow. Walt does not use API keys or your passwords.")}</div>
+            </div>
+            <div className="card row g16" style={{ padding: "14px 16px", marginTop: 14, maxWidth: 720 }}>
+              <div className="f1">
+                <div className="s14">{t("Let Claude builders run commands")}</div>
+                <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{t("Tests, builds, git. Each command still asks you first, and every process ends when Walt closes. Codex builders always have this. Reviewers never do.")}</div>
+              </div>
+              <div className="seg">{([[false, "Off"], [true, "On"]] as const).map(([v, l]) => <span key={l} className={!!s.claudeShell === v ? "on" : ""} onClick={() => invoke("settings", { claudeShell: v })}>{t(l)}</span>)}</div>
             </div>
           </>
         )}

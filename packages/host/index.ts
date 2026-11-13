@@ -98,6 +98,7 @@ parent.on("message", async ({ data }: any) => {
               theme: z.enum(["dark", "light"]),
               idleMinutes: z.number().int().min(5).max(60),
               onboarded: z.boolean(),
+              claudeShell: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),
             })
@@ -179,8 +180,13 @@ parent.on("message", async ({ data }: any) => {
         result = host.personaFor(v);
         break;
       }
+      case "room.auto": {
+        const v = z.object({ roomId: z.string(), on: z.boolean() }).parse(input);
+        result = host.setAuto(v.roomId, v.on);
+        break;
+      }
       case "member": {
-        const v = z.object({ roomId: z.string(), persona, role: z.enum(["Reviewer", "Member", "Remove"]) }).parse(input);
+        const v = z.object({ roomId: z.string(), persona, role: z.enum(["Builder", "Reviewer", "Member", "Remove"]) }).parse(input);
         result = host.member(v.roomId, v.persona, v.role);
         break;
       }

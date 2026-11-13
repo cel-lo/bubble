@@ -276,4 +276,11 @@ export const ID: Record<string, string> = {
   "I checked, continue": "Sudah dicek, lanjut",
   "Walt starts every AI without your MCP servers. Turn one on for a project when a task needs it. A change applies from the next message.": "Walt menjalankan setiap AI tanpa server MCP kamu. Nyalakan satu untuk sebuah project saat tugasnya butuh. Perubahan berlaku mulai pesan berikutnya.",
   "Claude asks you before each tool call. Codex runs MCP tools without asking, so only a Codex builder or chat gets them; Codex reviewers never do.": "Claude minta izin sebelum setiap pemakaian tool. Codex menjalankan tool MCP tanpa bertanya, jadi hanya builder atau chat Codex yang mendapatkannya; reviewer Codex tidak pernah.",
+  "Let Claude builders run commands": "Izinkan builder Claude menjalankan perintah",
+  "Tests, builds, git. Each command still asks you first, and every process ends when Walt closes. Codex builders always have this. Reviewers never do.": "Test, build, git. Setiap perintah tetap minta izin kamu dulu, dan semua proses berhenti saat Walt ditutup. Builder Codex selalu punya ini. Reviewer tidak pernah.",
+  "Off": "Mati",
+  "On": "Nyala",
+  "Make builder": "Jadikan builder",
+  "Auto roles": "Peran otomatis",
+  "Before each task Walt makes the reviewer whose Good at fits best the builder.": "Sebelum tiap tugas, Walt menjadikan reviewer yang keahliannya paling cocok sebagai builder.",
 };

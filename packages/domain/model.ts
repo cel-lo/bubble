@@ -100,6 +100,8 @@ export interface Room {
   tune?: Record<Persona, Tune>;
   /** CLI session / thread id per "persona:readonly", so a chat resumes after a restart and can continue in the CLI */
   sessions?: Record<string, string>;
+  /** Auto roles: before each build task Walt makes the best-fitting reviewer the builder */
+  auto?: boolean;
 }
 export interface Ask {
   id: string;
@@ -142,6 +144,8 @@ export interface State {
     idleMinutes: number;
     /** model the next new chat starts with */
     lastTarget?: { engine: Engine; model: string; effort?: Effort };
+    /** Claude builders get Bash; every command still asks the owner first (Codex always has its shell) */
+    claudeShell?: boolean;
     /** onboarding (Welcome + Engines) seen */
     onboarded?: boolean;
   };
@@ -161,4 +165,11 @@ export function takeTurn(room: Room) {
   if (room.used >= room.budget)
     throw new Error("Turn budget exhausted. Continue from Walt to add turns.");
   room.used++;
+}
+/** "Good at" for a persona Walt makes from a model pick, so Auto roles has something to go on */
+export function defaultStrengths(engine: Engine, model: string) {
+  if (engine === "codex") return ["Code changes", "Tests", "Refactors"];
+  if (/opus|fable/i.test(model)) return ["Planning", "Hard reviews", "Architecture"];
+  if (/haiku/i.test(model)) return ["Quick features", "Docs", "Fix small bugs"];
+  return ["Quick features", "Docs", "UI copy"];
 }

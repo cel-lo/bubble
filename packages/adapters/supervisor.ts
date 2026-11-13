@@ -17,6 +17,8 @@ export class Supervisor {
   /** last session/thread id per room:persona:readonly, to resume after a restart */
   private resumeIds = new Map<string, string>();
   claude = join(homedir(), ".local", "bin", "claude.exe");
+  /** Settings · Permissions: Claude builders get Bash (approval per command) */
+  claudeShell = false;
   codex = "";
   /** the native codex.exe behind npm's codex.cmd shim (Node cannot spawn .cmd without a shell) */
   codexExe(found = this.find("codex")) {
@@ -119,7 +121,8 @@ export class Supervisor {
     let s = this.sessions.get(key);
     // Codex runs MCP tools without an approval request, so a read-only Codex session (a reviewer) never gets any
     if (p.engine === "codex" && readonly) mcp = [];
-    const mcpKey = [...mcp].sort().join(",");
+    const shell = p.engine === "claude" && !readonly && this.claudeShell;
+    const mcpKey = [...mcp].sort().join(",") + (shell ? "+sh" : "");
     if (s?.alive && (s.model !== model || s.effort !== effort || (this.mcpOf.get(key) ?? "") !== mcpKey)) {
       if (s.busy) throw new Error(`${p.name} is busy; change model or effort after this turn.`);
       await this.retire(key, s);
@@ -129,7 +132,7 @@ export class Supervisor {
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
       s = p.engine === "codex"
         ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, mcp)
-        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(mcp));
+        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(mcp), shell);
       this.mcpOf.set(key, mcpKey);
       this.sessions.set(key, s);
       this.job.add(s.pid);

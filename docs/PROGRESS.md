@@ -85,7 +85,7 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Bahasa Indonesia: every interface string goes through t() (apps/ui/i18n.ts) with apps/ui/id.ts; missing entries fall back to English. Checked on chat, team panel, Settings, Permissions.
 - Continue in Claude Code / Codex (chat … menu): opens a terminal in the chat's folder running claude --resume <id> or codex resume <id>. Session ids are now kept on the chat, so a chat also resumes its CLI memory after Walt restarts. Verified: the terminal ran claude --resume with the chat's id.
 - Export context (chat … menu): writes WALT.md into the project (only over a WALT.md Walt wrote) with project, team, latest revision and the last 40 messages; chats without a project copy it to the clipboard instead. 18 unit tests.
-- Not changed on purpose: Claude builders still have no shell (COMPATIBILITY.md: no Bash until process-tree containment is proven), so a Claude builder cannot run tests; a Codex builder can, with approval.
+- Not changed on purpose (then): Claude builders had no shell yet; see the next round.
 
 ## Containment, decisions, team templates, MCP per project — 2026-11-13
 
@@ -96,10 +96,16 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Recovery: a chat cut off by a crash used to lock its project for good (no way out). It now shows "The last run stopped before it finished" with "I checked, continue", which unlocks the chat and project without replaying anything. Unit test + checked in the app.
 - 23 unit tests.
 
+## Claude shell, Auto roles, review fixes — 2026-11-13
+
+- Claude builders can run commands: Settings · Permissions · "Let Claude builders run commands" (off by default). Walt then names the shell in --tools (Bash, and PowerShell, which is what the Claude CLI offers on Windows without Git Bash); every call still waits for Allow. Reviewers never get it. Verified: a Haiku builder ran node --test after two approvals, inside the Job Object.
+- Auto roles (Team panel toggle, per chat): before each build task Walt makes the team member whose Good at best fits the task the builder; the old builder reviews. A Walt note says who and why before the turn starts. Personas made from a model pick now get default Good at (Codex: code/tests/refactors; Opus: planning/reviews/architecture; Sonnet/Haiku: quick features/docs). Verified: "add a test" moved GPT-6-Luna in as builder, then build, review, r1 approved.
+- Make builder (team member … menu): swap builder by hand.
+- Review fixes found in that run: a first build that changed no files is no longer reviewed; reviewers get the builder's reply (builderReply) and are told they cannot run tests, so they judge the evidence instead of asking for a rejected command.
+- 25 unit tests.
+
 ## Found while testing (next work, in order)
 
-1. Decide: give Claude builders a shell (Bash, each command still asks first). Process containment, the condition in COMPATIBILITY.md, now exists.
-2. Walt picking roles per task (Auto mode from the blueprint).
-3. Installer and code signing (Smart App Control).
-4. Ce:L island side of the control API; Gemini adapter once cello signs in; API-key engines (Groq and others).
-5. Click-through links for the V01–V14 FigCraft frames.
+1. Installer and code signing (Smart App Control).
+2. Ce:L island side of the control API; Gemini adapter once cello signs in; API-key engines (Groq and others).
+3. Click-through links for the V01–V14 FigCraft frames.

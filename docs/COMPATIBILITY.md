@@ -31,4 +31,4 @@ Electron binary workaround (only when `node_modules/electron/dist/electron.exe` 
 cd node_modules/electron && rm -rf dist && unzip -q "$LOCALAPPDATA/electron/Cache/<hash>/electron-v39.8.10-win32-x64.zip" -d dist && printf electron.exe > path.txt
 ```
 
-Builder tools expose Read/Glob/Grep/Write/Edit only. Shell execution stays disabled until Windows process-tree containment is proven (a Job Object now holds every CLI, see PROGRESS.md; enabling Bash is the owner's call). Reviewer tools expose only Read/Glob/Grep. Do not silently enable Bash or bypass flags.
+Builder tools expose Read/Glob/Grep/Write/Edit. The shell (Bash, or PowerShell where the CLI offers that instead) is added only when the owner turns on Settings · Permissions · "Let Claude builders run commands" (off by default); every shell call still goes through the approval prompt, and the Job Object ends every process tree with Walt. Reviewer tools expose only Read/Glob/Grep. Do not silently enable Bash or bypass flags.

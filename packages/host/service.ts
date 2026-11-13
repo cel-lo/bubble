@@ -18,8 +18,9 @@ import {
   type Engine,
   type Effort,
   type TeamTemplate,
+  defaultStrengths,
 } from "../domain/model";
-import { parseMessage, decision, type Parsed } from "../domain/command";
+import { parseMessage, decision, autoBuilder, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -120,7 +121,7 @@ export class Host extends EventEmitter {
     const base = (info && info.label !== "Default" ? info.label : `${t.engine === "codex" ? "Codex" : "Claude"} default`) + (t.effort ? ` ${t.effort}` : "");
     let name = base;
     for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
-    return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: [], avatar: t.engine === "codex" ? "codex" : "claude" });
+    return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: defaultStrengths(t.engine, t.model), avatar: t.engine === "codex" ? "codex" : "claude" });
   }
   /** MCP servers found in the user's Claude Code and Codex configs, and which projects turned each on */
   mcpServers() {
@@ -166,16 +167,32 @@ export class Host extends EventEmitter {
     this.commit("persona.deleted");
   }
   /** add a persona to a room as reviewer or plain member (answers when mentioned), or take it out */
-  member(roomId: string, persona: string, role: "Reviewer" | "Member" | "Remove") {
+  member(roomId: string, persona: string, role: "Builder" | "Reviewer" | "Member" | "Remove") {
     const r = this.room(roomId);
     if (this.active.has(roomId)) throw new Error("Change the team after this run.");
     this.persona(persona);
     if (persona === r.builder) throw new Error("Pick another builder before moving this persona.");
+    if (role === "Builder" && r.template === "roundtable") throw new Error("A roundtable has no builder.");
     r.reviewers = r.reviewers.filter((p) => p !== persona);
     r.members = (r.members || []).filter((p) => p !== persona);
+    if (role === "Builder") this.swapBuilder(r, persona);
     if (role === "Reviewer") r.reviewers.push(persona);
     if (role === "Member") r.members.push(persona);
     this.commit("room.members");
+    return r;
+  }
+  /** `persona` builds; the old builder reviews in its place */
+  private swapBuilder(r: Room, persona: string) {
+    const old = r.builder;
+    r.reviewers = r.reviewers.map((p) => (p === persona ? old : p));
+    if (!r.reviewers.includes(old)) r.reviewers.unshift(old);
+    r.members = (r.members || []).filter((p) => p !== persona);
+    r.builder = persona;
+  }
+  setAuto(roomId: string, on: boolean) {
+    const r = this.room(roomId);
+    r.auto = on;
+    this.commit("room.auto");
     return r;
   }
   async doctor() {
@@ -408,6 +425,7 @@ export class Host extends EventEmitter {
     const def = this.persona(persona);
     const tune = this.tune(r, def, msg);
     const slot = `${persona}:${readonly}`;
+    this.supervisor.claudeShell = !!this.state.settings.claudeShell;
     const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune, r.sessions?.[slot], this.projectOf(r)?.mcp);
     takeTurn(r);
     r.step = step;
@@ -557,6 +575,16 @@ export class Host extends EventEmitter {
         // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
         await this.turn(r, mention, JSON.stringify(packet), true, msg);
       } else {
+        if (r.auto) {
+          const team = [r.builder, ...r.reviewers].map((id) => ({ id, strengths: ((p) => (p?.strengths.length ? p.strengths : p ? defaultStrengths(p.engine, p.model) : []))(this.state.personas.find((p) => p.id === id)) }));
+          const pick = autoBuilder(goal, team, r.builder);
+          if (pick.id !== r.builder) {
+            const name = (id: string) => this.state.personas.find((p) => p.id === id)?.name ?? id;
+            const old = r.builder;
+            this.swapBuilder(r, pick.id);
+            this.message(r, "Walt", `Auto roles: ${name(pick.id)} builds this one (good at ${pick.why}); ${name(old)} reviews. Stop now if you want it the other way.`);
+          }
+        }
         // build → review → (fix → review again) until every reviewer approves, the budget runs out, or a verdict is missing
         let findings: { reviewer: string; text: string }[] = [];
         let prevFiles = before.files;
@@ -586,17 +614,22 @@ export class Host extends EventEmitter {
             asked = true;
             break;
           }
+          // what changed since the last revision
+          const changed = Object.keys(artifact.files).filter((f) => prevFiles[f] !== artifact.files[f]);
+          const deleted = Object.keys(prevFiles).filter((f) => !(f in artifact.files));
+          prevFiles = artifact.files;
           if (mention || r.pause) break;
+          // a first build that edited nothing (it ran tests, answered, planned) has nothing to review
+          if (!round && !changed.length && !deleted.length) {
+            this.message(r, "Walt", "No files changed, so there is nothing to review.");
+            break;
+          }
           // every reviewer in the team reviews (members added later included); the template only set the first team
           const reviewers = r.reviewers;
           if (!reviewers.length) throw new Error("Add a reviewer to this chat.");
           if (r.budget - r.used < reviewers.length)
             throw new Error("Budget insufficient for review round. Add turns.");
-          // what changed since the last revision, with the text of each changed file, so every reviewer can check it
-          // even when its CLI reads files only through commands (Codex)
-          const changed = Object.keys(artifact.files).filter((f) => prevFiles[f] !== artifact.files[f]);
-          const deleted = Object.keys(prevFiles).filter((f) => !(f in artifact.files));
-          prevFiles = artifact.files;
+          // the text of each changed file, so every reviewer can check it even when its CLI reads files only through commands (Codex)
           let room = 60_000;
           const contents = changed.map((path) => {
             if (artifact.files[path].startsWith("size:")) return { path, content: "(over 20 MB, not included)" };
@@ -616,8 +649,9 @@ export class Host extends EventEmitter {
             ...packet,
             role: "Independent read-only reviewer",
             artifact: { revision: artifact.revision, hash: artifact.hash, changed: contents, deleted },
+            builderReply: said.slice(0, 8000),
             instruction:
-              "Review this exact revision. The changed files are included above; you may read other files too (read-only commands such as cat, type, rg or git diff are fine), but do not edit anything. Report findings with file, line, severity and evidence. Other reviewers are independent. End with one line: VERDICT: APPROVE if nothing must change, or VERDICT: CHANGES if something must be fixed.",
+              "Review this exact revision. The changed files are included above; you may read other files too (read-only commands such as cat, type, rg or git diff are fine), but do not edit anything. Reviewers cannot run tests or builds: judge the test evidence in builderReply, and say so if it is missing. Report findings with file, line, severity and evidence. Other reviewers are independent. End with one line: VERDICT: APPROVE if nothing must change, or VERDICT: CHANGES if something must be fixed.",
           });
           const results = await Promise.allSettled(
             reviewers.map(async (persona) => ({

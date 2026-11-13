@@ -66,3 +66,29 @@ export function decision(text: string) {
   if (!question || options.length < 2 || options.length > 4 || options.some((o) => !o)) return undefined;
   return { question, options: options as string[] };
 }
+/** what a task asks for, and which "Good at" words answer it */
+const NEEDS: [task: RegExp, good: RegExp][] = [
+  [/\b(tests?|specs?|coverage|failing|flaky)\b/i, /test/i],
+  [/\b(implement|add|build|feature|endpoint|function|fix|bug|crash|error)\b/i, /code|feature|fix/i],
+  [/\b(refactor|clean ?up|rename|simplify|split|merge)\b/i, /refactor|code/i],
+  [/\b(plan|design|architect\w*|structure|approach|migrat\w*|why)\b/i, /plan|architect/i],
+  [/\b(review|audit|check|security|risk)\b/i, /review|audit/i],
+  [/\b(docs?|readme|copy|wording|text|translat\w*|comment|explain)\b/i, /doc|copy|writ/i],
+  [/\b(ui|ux|css|layout|button|page|screen|style|design)\b/i, /\bui\b|front|copy|design/i],
+  [/\b(research|compare|investigate|long|big file)\b/i, /research|long|opinion/i],
+];
+/** Auto roles: the team member whose "Good at" best fits the task; ties keep the current builder */
+export function autoBuilder(task: string, team: { id: string; strengths: string[] }[], current: string) {
+  let best = { id: current, score: 0, why: "" };
+  const score = (s: string[]) => {
+    const hit = NEEDS.filter(([t, g]) => t.test(task) && s.some((x) => g.test(x)));
+    return { score: hit.length, why: s.find((x) => hit.some(([, g]) => g.test(x))) ?? "" };
+  };
+  const cur = team.find((p) => p.id === current);
+  if (cur) best = { id: current, ...score(cur.strengths) };
+  for (const p of team) {
+    const s = score(p.strengths);
+    if (s.score > best.score) best = { id: p.id, ...s };
+  }
+  return best;
+}
