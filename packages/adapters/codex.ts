@@ -42,6 +42,10 @@ export function codexArgs(servers = userMcpServers(), skills = userSkills()) {
 type Pending = { resolve: (text: string) => void; reject: (e: Error) => void; delta: (t: string) => void; approve: Approval; text: string; last: string };
 export class CodexSession {
   private child: ChildProcessWithoutNullStreams;
+  /** the CLI process id, for the Job Object */
+  get pid() {
+    return this.child.pid;
+  }
   private ready: Promise<void>;
   private closed = false;
   private stderr = "";
@@ -60,8 +64,10 @@ export class CodexSession {
     private readonly readonly: boolean,
     readonly effort?: string,
     resume?: string,
+    /** MCP servers this project turned on; every other server in ~/.codex/config.toml stays off */
+    mcp: string[] = [],
   ) {
-    this.child = spawn(executable, codexArgs(), { cwd, env: cleanEnv(), shell: false, windowsHide: true });
+    this.child = spawn(executable, codexArgs(userMcpServers().filter((s) => !mcp.includes(s))), { cwd, env: cleanEnv(), shell: false, windowsHide: true });
     this.child.stderr.on("data", (b) => (this.stderr = (this.stderr + b).slice(-4000)));
     this.child.on("error", (e) => this.fail(e));
     this.child.on("close", (code) => {

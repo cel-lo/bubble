@@ -59,6 +59,8 @@ export interface Project {
   root: string;
   goal: string;
   constraints: string;
+  /** MCP servers (by name, from the user's Claude Code / Codex config) turned on for this project; all others stay off */
+  mcp?: string[];
 }
 export interface Message {
   id: string;
@@ -96,6 +98,8 @@ export interface Room {
   members?: Persona[];
   /** room defaults set with `/effort … keep` or `/model … keep`; key "*" = everyone */
   tune?: Record<Persona, Tune>;
+  /** CLI session / thread id per "persona:readonly", so a chat resumes after a restart and can continue in the CLI */
+  sessions?: Record<string, string>;
 }
 export interface Ask {
   id: string;
@@ -113,6 +117,13 @@ export interface EngineReport {
   detail: string;
   quota: "unknown";
 }
+/** a saved team: which models join a new team chat, in which role, and whether they build or just talk */
+export interface TeamTemplate {
+  id: string;
+  name: string;
+  talk: boolean;
+  picks: { engine: Engine; model: string; role: "Builder" | "Reviewer" | "Member"; effort?: Effort }[];
+}
 export interface State {
   revision: number;
   projects: Project[];
@@ -120,6 +131,7 @@ export interface State {
   asks: Ask[];
   engines: EngineReport[];
   personas: PersonaDef[];
+  teams?: TeamTemplate[];
   /** models per engine from the signed-in CLIs; refreshed with the doctor */
   catalog?: Partial<Record<Engine, ModelInfo[]>>;
   /** live agent processes; added to messages for the UI, never stored */

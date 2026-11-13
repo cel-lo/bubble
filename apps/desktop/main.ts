@@ -39,6 +39,7 @@ else {
     );
     child.on("message", (m: any) => {
       if (m.type === "state") win?.webContents.send("walt:state", m.state);
+      else if (m.type === "delta") win?.webContents.send("walt:delta", m.delta);
       else if (m.type === "open") win?.show();
       else if (m.id) {
         const p = pending.get(m.id);
@@ -126,8 +127,19 @@ else {
     });
   });
   app.on("window-all-closed", () => {});
-  app.on("before-quit", () => {
+  let stopped = false;
+  app.on("before-quit", (e) => {
     quitting = true;
-    child?.kill();
+    if (stopped || !child) return;
+    // let the host stop every AI process tree (taskkill /T also ends the commands they started) and close the
+    // database before Walt exits; give it 5 s, then kill it anyway
+    e.preventDefault();
+    const exited = new Promise((ok) => child.once("exit", ok));
+    void call("quit").catch(() => {});
+    void Promise.race([exited, new Promise((ok) => setTimeout(ok, 5000))]).then(() => {
+      stopped = true;
+      child.kill();
+      app.quit();
+    });
   });
 }

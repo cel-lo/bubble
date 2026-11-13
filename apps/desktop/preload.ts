@@ -9,4 +9,10 @@ contextBridge.exposeInMainWorld("walt", {
     ipcRenderer.on("walt:state", listener);
     return () => ipcRenderer.removeListener("walt:state", listener);
   },
+  // streaming text of one message: { room, id, text }
+  delta: (fn: (value: unknown) => void) => {
+    const listener = (_event: unknown, d: unknown) => fn(d);
+    ipcRenderer.on("walt:delta", listener);
+    return () => ipcRenderer.removeListener("walt:delta", listener);
+  },
 });

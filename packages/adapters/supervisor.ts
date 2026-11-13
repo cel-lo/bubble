@@ -1,15 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, delimiter, isAbsolute, dirname } from "node:path";
 import type { EngineReport, PersonaDef, Tune } from "../domain/model";
 import { capture } from "./environment";
 import { ClaudeSession, claudeModels } from "./claude";
 import { CodexSession, codexModels } from "./codex";
+import { Job } from "./job";
 import { tmpdir } from "node:os";
 import type { Engine, ModelInfo } from "../domain/model";
 type Session = ClaudeSession | CodexSession;
 export class Supervisor {
   sessions = new Map<string, Session>();
+  /** every CLI process goes in here, so a crash of Walt still ends them and what they started */
+  readonly job = new Job();
   /** last session/thread id per room:persona:readonly, to resume after a restart */
   private resumeIds = new Map<string, string>();
   claude = join(homedir(), ".local", "bin", "claude.exe");
@@ -81,7 +85,30 @@ export class Supervisor {
       }),
     );
   }
-  async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}) {
+  /** MCP set each live session was started with, so a change restarts it */
+  private mcpOf = new Map<string, string>();
+  /** the user's Claude Code MCP servers (~/.claude.json, user scope): name -> definition */
+  claudeMcp(file = join(homedir(), ".claude.json")): Record<string, unknown> {
+    try {
+      return JSON.parse(readFileSync(file, "utf8")).mcpServers ?? {};
+    } catch {
+      return {};
+    }
+  }
+  /** a --mcp-config file holding only the servers this project turned on (a file, so their env secrets stay off the command line) */
+  private claudeMcpFile(names: string[]) {
+    const all = this.claudeMcp();
+    const mcpServers = Object.fromEntries(names.filter((n) => n in all).map((n) => [n, all[n]]));
+    if (!Object.keys(mcpServers).length) return undefined;
+    const json = JSON.stringify({ mcpServers });
+    const dir = join(tmpdir(), "walt-mcp");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, createHash("sha256").update(json).digest("hex").slice(0, 16) + ".json");
+    writeFileSync(file, json);
+    return file;
+  }
+  /** `resume`: the id saved on the chat, used when this process has none of its own (first turn after a restart); `mcp`: servers the project turned on */
+  async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, mcp: string[] = []) {
     if (p.engine === "gemini")
       throw new Error(`${p.name} runs on gemini, and Walt's gemini adapter is not built yet.`);
     if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
@@ -90,7 +117,10 @@ export class Supervisor {
     const model = tune.model ?? p.model;
     const effort = tune.effort ?? p.effort;
     let s = this.sessions.get(key);
-    if (s?.alive && (s.model !== model || s.effort !== effort)) {
+    // Codex runs MCP tools without an approval request, so a read-only Codex session (a reviewer) never gets any
+    if (p.engine === "codex" && readonly) mcp = [];
+    const mcpKey = [...mcp].sort().join(",");
+    if (s?.alive && (s.model !== model || s.effort !== effort || (this.mcpOf.get(key) ?? "") !== mcpKey)) {
       if (s.busy) throw new Error(`${p.name} is busy; change model or effort after this turn.`);
       await this.retire(key, s);
     }
@@ -98,9 +128,11 @@ export class Supervisor {
       if ([...this.sessions.values()].filter((s) => s.alive).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
       s = p.engine === "codex"
-        ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key))
-        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key));
+        ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, mcp)
+        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(mcp));
+      this.mcpOf.set(key, mcpKey);
       this.sessions.set(key, s);
+      this.job.add(s.pid);
     }
     return s;
   }
@@ -137,5 +169,6 @@ export class Supervisor {
   async stop() {
     await Promise.all([...this.sessions.values()].map((s) => s.stop()));
     this.sessions.clear();
+    this.job.close();
   }
 }

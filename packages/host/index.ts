@@ -13,6 +13,7 @@ const api = await controlServer(host, dir, () =>
 );
 const view = () => ({ ...host.state, procs: host.supervisor.list() });
 host.on("state", () => parent.postMessage({ type: "state", state: view() }));
+host.on("delta", (delta) => parent.postMessage({ type: "delta", delta }));
 const timer = setInterval(
   async () => {
     const before = host.supervisor.list().length;
@@ -73,7 +74,7 @@ parent.on("message", async ({ data }: any) => {
         const v = z
           .object({
             roomId: z.string(),
-            action: z.enum(["pause", "interrupt", "resume", "continue", "end"]),
+            action: z.enum(["pause", "interrupt", "resume", "continue", "end", "recovered"]),
           })
           .parse(input);
         result = host.control(v.roomId, v.action);
@@ -139,8 +140,38 @@ parent.on("message", async ({ data }: any) => {
             .parse(input),
         );
         break;
+      case "mcp.list":
+        result = host.mcpServers();
+        break;
+      case "mcp.set": {
+        const v = z.object({ projectId: z.string(), name: z.string().regex(/^[\w.-]{1,80}$/), on: z.boolean() }).parse(input);
+        result = host.setMcp(v.projectId, v.name, v.on);
+        break;
+      }
+      case "team.save":
+        result = host.saveTeam(
+          z
+            .object({
+              name: z.string().min(1).max(60),
+              talk: z.boolean(),
+              picks: z.array(z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID).or(z.literal("")), role: z.enum(["Builder", "Reviewer", "Member"]), effort: effort.optional() })).min(2).max(8),
+            })
+            .parse(input),
+        );
+        break;
+      case "team.delete":
+        result = host.deleteTeam(z.string().parse(input));
+        break;
       case "persona.delete":
         result = host.deletePersona(z.string().parse(input));
+        break;
+      case "cli.continue": {
+        const v = z.object({ roomId: z.string(), persona: persona.optional() }).parse(input);
+        result = host.continueInCli(v.roomId, v.persona);
+        break;
+      }
+      case "context.export":
+        result = host.exportContext(z.string().parse(input));
         break;
       case "persona.for": {
         // a model picked from a list (Add model, new project): reuse or make its persona

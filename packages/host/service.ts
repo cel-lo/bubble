@@ -17,11 +17,23 @@ import {
   EFFORTS,
   type Engine,
   type Effort,
+  type TeamTemplate,
 } from "../domain/model";
-import { parseMessage, type Parsed } from "../domain/command";
+import { parseMessage, decision, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { cleanEnv } from "../adapters/environment";
+import { userMcpServers } from "../adapters/codex";
+
+const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
+
+/** a reviewer's last "VERDICT: APPROVE | CHANGES" line: true, false, or undefined when it gave none */
+export function verdict(text: string) {
+  const v = [...text.matchAll(/VERDICT:\s*\**\s*(APPROVE|CHANGES)/gi)].at(-1)?.[1].toUpperCase();
+  return v === "APPROVE" ? true : v === "CHANGES" ? false : undefined;
+}
 export class Host extends EventEmitter {
   state: State;
   readonly supervisor = new Supervisor();
@@ -110,6 +122,42 @@ export class Host extends EventEmitter {
     for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
     return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: [], avatar: t.engine === "codex" ? "codex" : "claude" });
   }
+  /** MCP servers found in the user's Claude Code and Codex configs, and which projects turned each on */
+  mcpServers() {
+    const claude = Object.keys(this.supervisor.claudeMcp());
+    const codex = userMcpServers();
+    return [...new Set([...claude, ...codex])].sort().map((name) => ({
+      name,
+      engines: [claude.includes(name) && "claude", codex.includes(name) && "codex"].filter(Boolean) as Engine[],
+      projects: this.state.projects.filter((p) => p.mcp?.includes(name)).map((p) => p.id),
+    }));
+  }
+  /** turn one MCP server on or off for a project; live sessions pick it up on their next turn (restart + resume) */
+  setMcp(projectId: string, name: string, on: boolean) {
+    const p = this.state.projects.find((x) => x.id === projectId);
+    if (!p) throw new Error("Project not found");
+    if (on && !this.mcpServers().some((s) => s.name === name)) throw new Error(`No MCP server called ${name} in your Claude Code or Codex config.`);
+    p.mcp = [...new Set([...(p.mcp ?? []).filter((n) => n !== name), ...(on ? [name] : [])])];
+    this.commit("project.mcp");
+    return p;
+  }
+  /** save a team template; a template with the same name is replaced */
+  saveTeam(input: Omit<TeamTemplate, "id">) {
+    const name = input.name.trim();
+    if (!name) throw new Error("Give the template a name.");
+    if (input.picks.length < 2) throw new Error("A team template needs at least two models.");
+    if (!input.talk && input.picks.filter((p) => p.role === "Builder").length !== 1) throw new Error("A build team needs exactly one builder.");
+    const teams = (this.state.teams ??= []);
+    const old = teams.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    const t: TeamTemplate = { ...input, name, id: old?.id ?? randomUUID() };
+    this.state.teams = old ? teams.map((x) => (x === old ? t : x)) : [...teams, t];
+    this.commit("team.saved");
+    return t;
+  }
+  deleteTeam(id: string) {
+    this.state.teams = (this.state.teams ?? []).filter((x) => x.id !== id);
+    this.commit("team.deleted");
+  }
   deletePersona(id: string) {
     const used = this.state.rooms.filter((r) => r.state !== "ended" && this.inRoom(r).includes(id));
     if (used.length) throw new Error(`Remove it from ${used.map((r) => r.title).join(", ")} first.`);
@@ -180,6 +228,69 @@ export class Host extends EventEmitter {
     r.tune = { [builder]: { model: t.model, ...(t.effort && { effort: t.effort }) } };
     this.commit();
     return r;
+  }
+  /** starts a command line in a new terminal window (tests replace it) */
+  launch = (cmdline: string) =>
+    spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdline], { windowsVerbatimArguments: true, detached: true, stdio: "ignore", env: cleanEnv() }).unref();
+  /** open a terminal in the chat's folder that resumes the CLI session, so the conversation continues outside Walt */
+  continueInCli(roomId: string, persona?: Persona) {
+    const r = this.room(roomId);
+    const who = persona ?? r.builder;
+    const p = this.persona(who);
+    const id = r.sessions?.[`${who}:false`] ?? r.sessions?.[`${who}:true`];
+    if (!id) throw new Error(`${p.name} has not answered in this chat yet, so there is nothing to continue.`);
+    if (!/^[\w-]{1,100}$/.test(id)) throw new Error("This chat's session id looks wrong; Walt will not pass it to a terminal.");
+    const dir = this.rootOf(r);
+    // inside "…" cmd takes & | ^ < > literally, but still expands %VAR%
+    if (/["%]/.test(dir)) throw new Error("The folder name has a % or quote, which the terminal cannot take. Open it yourself and resume there.");
+    const exe = p.engine === "codex" ? this.supervisor.codex || this.supervisor.codexExe() : this.supervisor.claude;
+    if (!exe || /["%]/.test(exe)) throw new Error(`${p.engine === "codex" ? "Codex CLI" : "Claude Code"} was not found.`);
+    const args = p.engine === "codex" ? `resume ${id}` : `--resume ${id}`;
+    const cmdline = `start "Walt" /D "${dir}" "${exe}" ${args}`;
+    this.launch(cmdline);
+    return { command: `${p.engine === "codex" ? "codex" : "claude"} ${args}`, dir };
+  }
+  /** the chat as Markdown: project, team, latest revision and the recent conversation (last 40 messages) */
+  contextMarkdown(r: Room) {
+    const p = this.projectOf(r);
+    const name = (id: string, model?: string) => {
+      const d = this.state.personas.find((x) => x.id === id);
+      const m = model ?? r.tune?.[id]?.model ?? (d?.model || "default");
+      const list = (d && this.state.catalog?.[d.engine]) || [];
+      const label = (list.find((x) => x.id === m) ?? (m === "default" ? list.find((x) => x.isDefault) : undefined))?.label;
+      if (id === "cello") return "You";
+      if (!d) return id;
+      if (r.template === "direct" && label && label !== "Default") return label;
+      return label && label !== "Default" && label !== d.name ? `${d.name} (${label})` : d.name;
+    };
+    const role = (id: string) => (id === r.builder ? "builder, can edit files" : r.reviewers.includes(id) ? "reviewer, read-only" : "member, answers when @mentioned");
+    const a = r.artifacts.at(-1);
+    return [
+      WALT_MD,
+      `# ${p ? p.name + " · " : ""}${r.title}`,
+      `Exported ${new Date().toLocaleString("sv-SE").slice(0, 16)} from Walt.`, // sv-SE gives local time as YYYY-MM-DD HH:MM
+      p && `## Project\n\n- Folder: ${p.root}\n- Goal: ${p.goal || "-"}\n- Rules: ${p.constraints.trim().replace(/\n+/g, "; ") || "-"}`,
+      r.template !== "direct" && `## Team\n\n${[r.builder, ...r.reviewers, ...(r.members || [])].map((id) => `- ${name(id)}: ${role(id)}`).join("\n")}`,
+      a && `## Latest revision\n\nr${a.revision} · ${a.accepted ? "accepted" : "not accepted yet"} · reviewed by ${a.reviews.map((v) => name(v.persona)).join(", ") || "nobody"}`,
+      `## Conversation (last ${Math.min(40, r.messages.length)} messages)`,
+      ...r.messages
+        .filter((m) => m.text.trim() && m.kind !== "setting")
+        .slice(-40)
+        .map((m) => `**${m.author === "Walt" ? "Walt" : name(m.author, m.meta?.model)}:** ${m.text.trim().slice(0, 4000)}`),
+    ]
+      .filter(Boolean)
+      .join("\n\n") + "\n";
+  }
+  /** write WALT.md into the project (only over a WALT.md Walt wrote); a chat without a project gets the text back */
+  exportContext(roomId: string) {
+    const r = this.room(roomId);
+    const text = this.contextMarkdown(r);
+    const p = this.projectOf(r);
+    if (!p) return { text };
+    const file = join(p.root, "WALT.md");
+    if (existsSync(file) && !readFileSync(file, "utf8").startsWith(WALT_MD)) throw new Error("This project already has a WALT.md that Walt did not write. Rename it, then export again.");
+    writeFileSync(file, text);
+    return { path: file, text };
   }
   rename(roomId: string, title: string) {
     this.room(roomId).title = title.trim().slice(0, 80) || "New chat";
@@ -291,26 +402,34 @@ export class Host extends EventEmitter {
     prompt: string,
     readonly: boolean,
     msg: Tune = {},
+    step = readonly ? "review" : "build",
   ) {
     if (r.pause) throw new Error("Paused before dispatch");
     const def = this.persona(persona);
     const tune = this.tune(r, def, msg);
-    const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune);
+    const slot = `${persona}:${readonly}`;
+    const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune, r.sessions?.[slot], this.projectOf(r)?.mcp);
     takeTurn(r);
-    r.step = readonly ? "review" : "build";
+    r.step = step;
     this.commit("run.started");
     const m = this.message(r, persona, "");
     // remember which model answered, so switching models later does not relabel old replies
     m.meta = { model: tune.model ?? def.model, effort: tune.effort ?? def.effort };
-    let flush = 0;
+    let flush = 0,
+      saved = Date.now();
     let result: string;
     try {
       result = await session.run(
         prompt,
         (delta) => {
           m.text += delta;
+          // the window gets only the new text 5x a second; disk and the full state follow every 2 s
           if (Date.now() - flush > 200) {
             flush = Date.now();
+            this.emit("delta", { room: r.id, id: m.id, text: m.text });
+          }
+          if (Date.now() - saved > 2000) {
+            saved = Date.now();
             this.commit("output.delta");
           }
         },
@@ -334,6 +453,9 @@ export class Host extends EventEmitter {
     } catch (error) {
       await session.stop();
       throw error;
+    } finally {
+      // keep the CLI's session id on the chat: resume after a restart, and "Continue in Claude Code / Codex"
+      if (session.sessionId) (r.sessions ??= {})[slot] = session.sessionId;
     }
     m.text = result;
     this.commit("run.finished");
@@ -419,7 +541,10 @@ export class Host extends EventEmitter {
         budget: { max: r.budget, remaining: r.budget - r.used },
         acceptance:
           "Explain changes and provide actual test evidence. Never claim a test ran without executing it.",
+        decisions:
+          "If you need the user to choose before you can continue, stop and end your reply with one line 'DECISION: <question>' followed by 2 to 4 lines that start with '- ', one option each. Walt shows them as buttons.",
       };
+      let asked = false;
       r.packet = packet;
       this.commit("handoff");
       const mention = cmd.to;
@@ -432,33 +557,67 @@ export class Host extends EventEmitter {
         // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
         await this.turn(r, mention, JSON.stringify(packet), true, msg);
       } else {
-        await this.turn(r, r.builder, JSON.stringify(packet), false, msg);
-        const after = await manifest(p.root);
-        for (const a of r.artifacts) a.accepted = false;
-        const artifact = {
-          revision: r.artifacts.length + 1,
-          ...after,
-          reviews: [] as { persona: Persona; text: string; hash: string }[],
-          accepted: false,
-        };
-        r.artifacts.push(artifact);
-        this.commit("artifact.registered");
-        if (!mention && !r.pause) {
+        // build → review → (fix → review again) until every reviewer approves, the budget runs out, or a verdict is missing
+        let findings: { reviewer: string; text: string }[] = [];
+        let prevFiles = before.files;
+        for (let round = 0; ; round++) {
+          const prompt = round
+            ? JSON.stringify({
+                ...packet,
+                role: `Builder · fix round ${round}`,
+                findings,
+                instruction:
+                  "Reviewers asked for changes on your last revision. Fix the findings that are correct; if you disagree with one, say why instead of changing it. The same reviewers check the new revision.",
+              })
+            : JSON.stringify(packet);
+          const said = await this.turn(r, r.builder, prompt, false, msg, round ? "fix" : "build");
+          const after = await manifest(p.root);
+          for (const a of r.artifacts) a.accepted = false;
+          const artifact = {
+            revision: r.artifacts.length + 1,
+            ...after,
+            reviews: [] as { persona: Persona; text: string; hash: string }[],
+            accepted: false,
+          };
+          r.artifacts.push(artifact);
+          this.commit("artifact.registered");
+          // the builder asked you to choose: wait for the answer instead of reviewing a half-done revision
+          if (decision(said)) {
+            asked = true;
+            break;
+          }
+          if (mention || r.pause) break;
           // every reviewer in the team reviews (members added later included); the template only set the first team
           const reviewers = r.reviewers;
           if (!reviewers.length) throw new Error("Add a reviewer to this chat.");
           if (r.budget - r.used < reviewers.length)
             throw new Error("Budget insufficient for review round. Add turns.");
+          // what changed since the last revision, with the text of each changed file, so every reviewer can check it
+          // even when its CLI reads files only through commands (Codex)
+          const changed = Object.keys(artifact.files).filter((f) => prevFiles[f] !== artifact.files[f]);
+          const deleted = Object.keys(prevFiles).filter((f) => !(f in artifact.files));
+          prevFiles = artifact.files;
+          let room = 60_000;
+          const contents = changed.map((path) => {
+            if (artifact.files[path].startsWith("size:")) return { path, content: "(over 20 MB, not included)" };
+            let text: string;
+            try {
+              text = readFileSync(join(p.root, path), "utf8");
+            } catch {
+              return { path, content: "(could not be read)" };
+            }
+            if (text.includes("\0")) return { path, content: "(binary file)" };
+            const cap = Math.max(0, Math.min(20_000, room));
+            if (text.length > cap) text = text.slice(0, cap) + "\n… (cut here; read the file for the rest)";
+            room -= text.length;
+            return { path, content: text };
+          });
           const reviewPacket = JSON.stringify({
             ...packet,
             role: "Independent read-only reviewer",
-            artifact: {
-              revision: artifact.revision,
-              hash: artifact.hash,
-              files: artifact.files,
-            },
+            artifact: { revision: artifact.revision, hash: artifact.hash, changed: contents, deleted },
             instruction:
-              "Review this exact revision. Report findings with file, line, severity and evidence. Do not edit files or run commands. Other reviewers are independent.",
+              "Review this exact revision. The changed files are included above; you may read other files too (read-only commands such as cat, type, rg or git diff are fine), but do not edit anything. Report findings with file, line, severity and evidence. Other reviewers are independent. End with one line: VERDICT: APPROVE if nothing must change, or VERDICT: CHANGES if something must be fixed.",
           });
           const results = await Promise.allSettled(
             reviewers.map(async (persona) => ({
@@ -479,10 +638,27 @@ export class Host extends EventEmitter {
           const current = await manifest(p.root);
           if (current.hash !== artifact.hash)
             throw new Error("Files changed during review. Reviews are stale.");
+          if (artifact.reviews.length < reviewers.length || r.pause) break;
+          const name = (id: string) => this.persona(id).name;
+          const unclear = artifact.reviews.filter((v) => verdict(v.text) === undefined);
+          if (unclear.length) {
+            this.message(r, "Walt", `${unclear.map((v) => name(v.persona)).join(", ")} gave no verdict on r${artifact.revision}. Read the review and decide: accept, or ask the builder for a fix.`);
+            break;
+          }
+          findings = artifact.reviews.filter((v) => verdict(v.text) === false).map((v) => ({ reviewer: name(v.persona), text: v.text }));
+          if (!findings.length) {
+            this.message(r, "Walt", `r${artifact.revision} approved by ${artifact.reviews.map((v) => name(v.persona)).join(" and ")}. Your acceptance is next.`);
+            break;
+          }
+          if (r.budget - r.used < 1 + reviewers.length) {
+            this.message(r, "Walt", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, but the budget has no room for a fix round. Continue adds turns; then send "fix the review findings".`);
+            break;
+          }
+          this.message(r, "Walt", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(r.builder)} fixes them.`);
         }
       }
       r.state = r.pause ? "paused" : "idle";
-      r.step = r.pause ? "paused" : "awaiting acceptance";
+      r.step = r.pause ? "paused" : asked ? "awaiting decision" : "awaiting acceptance";
       this.commit("room.done");
     } catch (e) {
       r.state = r.pause ? "paused" : "idle";
@@ -496,9 +672,17 @@ export class Host extends EventEmitter {
   control(id: string, action: string) {
     const r = this.room(id);
     if (r.state === "recovery_required") {
-      throw new Error(
-        "Recovery requires inspection before this project can run again. No automatic retry is available.",
-      );
+      if (action !== "recovered")
+        throw new Error("Check the project files, then press I checked, continue. Walt never retries an interrupted run on its own.");
+      // you looked at the files after the interrupted run: unlock the chat and its project; nothing is replayed
+      r.state = "idle";
+      r.pause = false;
+      r.step = "ready";
+      const p = this.projectOf(r);
+      if (p && this.leases.get(p.root) === r.id) this.leases.delete(p.root);
+      this.message(r, "Walt", "You checked the project after the interrupted run. The chat can continue.");
+      this.commit("recovery.done");
+      return;
     }
     if (action === "pause") {
       r.pause = true;

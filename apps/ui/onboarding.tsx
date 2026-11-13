@@ -5,6 +5,7 @@ import type { State, EngineReport, PersonaDef, Engine } from "../../packages/dom
 import { ENGINES_ON } from "../../packages/domain/model";
 import { T, ic, av, wordmark } from "./generated/kit.mjs";
 import { Dropdown } from "./menu";
+import { t } from "./i18n";
 
 type Invoke = (method: string, input?: unknown) => Promise<any>;
 export const Html = ({ h }: { h: string }) => <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: h }} />;
@@ -15,10 +16,10 @@ export const ENGINE_NAME: Record<string, string> = { codex: "ChatGPT · Codex", 
 /** whether a persona on this engine can run here right now */
 export function personaStatus(engine: string, engines: EngineReport[]) {
   const e = engines.find((x) => x.engine === engine);
-  if (!e || !e.installed) return { ready: false, label: "Not installed", color: T.dim };
-  if (!ADAPTERS.has(e.engine)) return { ready: false, label: "Adapter not built yet", color: T.dim };
-  if (e.auth !== "ok") return { ready: false, label: "Login needed", color: T.amber };
-  return { ready: true, label: "Ready", color: T.green };
+  if (!e || !e.installed) return { ready: false, label: t("Not installed"), color: T.dim };
+  if (!ADAPTERS.has(e.engine)) return { ready: false, label: t("Adapter not built yet"), color: T.dim };
+  if (e.auth !== "ok") return { ready: false, label: t("Login needed"), color: T.amber };
+  return { ready: true, label: t("Ready"), color: T.green };
 }
 /** the account's name for a model id, e.g. "opus" -> "Opus 5.5" */
 /** catalog label; "" or "default" means the CLI's own default (Codex has no "default" entry, so name its default model) */
@@ -28,11 +29,11 @@ export function modelLabel(state: State, engine: Engine, id: string) {
   if (hit) return hit.label;
   if (id && id !== "default") return id;
   const d = list.find((m) => m.isDefault);
-  return d ? `Default (${d.label})` : "Default";
+  return d ? t("Default ({0})", d.label) : t("Default");
 }
 /** "Claude Code · Opus 5.5 · effort high" */
 export const personaLine = (p: PersonaDef, state?: State) =>
-  [ENGINE_LABEL[p.engine], state ? modelLabel(state, p.engine, p.model || "default") : p.model || "CLI default model", p.effort && `effort ${p.effort}`].filter(Boolean).join(" · ");
+  [ENGINE_LABEL[p.engine], state ? modelLabel(state, p.engine, p.model || "default") : p.model || t("CLI default model"), p.effort && t("effort {0}", p.effort)].filter(Boolean).join(" · ");
 const INSTALL: Record<string, string> = { codex: "npm install -g @openai/codex", claude: "npm install -g @anthropic-ai/claude-code", gemini: "npm install -g @google/gemini-cli" };
 const LOGIN: Record<string, string> = { codex: "codex login", claude: "claude  →  /login", gemini: "gemini" };
 
@@ -43,7 +44,7 @@ export function TitleBar() {
       <span style={{ flex: 1 }} />
       <div className="wctl">
         {(["min", "max", "x"] as const).map((n, i) => (
-          <span key={n} role="button" aria-label={["Minimize", "Maximize", "Close"][i]} style={{ height: 36 }} onClick={() => window.walt.window(["minimize", "maximize", "close"][i])}>
+          <span key={n} role="button" aria-label={t(["Minimize", "Maximize", "Close"][i])} style={{ height: 36 }} onClick={() => window.walt.window(["minimize", "maximize", "close"][i])}>
             <Html h={ic(n, 14, T.dim, 1.4)} />
           </span>
         ))}
@@ -63,7 +64,7 @@ function Frame({ steps, at, children, footer, bare }: { steps?: string[]; at?: n
               {i > 0 && <span style={{ width: 40, height: 1, background: "#3A3A3C", display: "block" }} />}
               <div className={`row g8 s13 ${i === at ? "b" : i < at! ? "sub" : "dim"}`}>
                 <span style={{ width: 22, height: 22, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, ...(i < at! ? { background: T.green, color: "#04170B" } : i === at ? { background: "#fff", color: "#000" } : { background: "#2C2C2E", color: T.dim }) }}>{i < at! ? "✓" : i + 1}</span>
-                {s}
+                {t(s)}
               </div>
             </React.Fragment>
           ))}
@@ -92,10 +93,10 @@ export function Welcome({ state, invoke, go }: { state: State; invoke: Invoke; g
   const set = (locale: "en" | "id") => invoke("settings", { locale });
   const system = navigator.language.toLowerCase().startsWith("id") ? "id" : "en";
   return (
-    <Frame steps={STEPS} at={0} footer={<><span className="s13 dim">No Walt account needed. Everything stays on this laptop.</span><Btn kind="g" onClick={go}>Continue{next}</Btn></>}>
+    <Frame steps={STEPS} at={0} footer={<><span className="s13 dim">{t("No Walt account needed. Everything stays on this laptop.")}</span><Btn kind="g" onClick={go}>{t("Continue")}{next}</Btn></>}>
       <div className="col" style={{ alignItems: "center", textAlign: "center", paddingTop: 40 }}>
         <Html h={wordmark(44)} />
-        <div className="s24 b" style={{ marginTop: 26 }}>One project. Your AI team. You lead.</div>
+        <div className="s24 b" style={{ marginTop: 26 }}>{t("One project. Your AI team. You lead.")}</div>
         <div className="s15 dim" style={{ marginTop: 10, maxWidth: 560, lineHeight: 1.55 }}>
           Walt puts your AI models in one place with you. Chat with one, or let them build and review each other's work, and follow it from the Ce:L island.
         </div>
@@ -104,13 +105,13 @@ export function Welcome({ state, invoke, go }: { state: State; invoke: Invoke; g
             <div key={e} className="col g8" style={{ alignItems: "center" }}><Html h={av(e, 64)} /><span className="s13 sub">{ENGINE_NAME[e]}</span></div>
           ))}
         </div>
-        <div className="lbl" style={{ marginTop: 44 }}>Language · Bahasa</div>
+        <div className="lbl" style={{ marginTop: 44 }}>{t("Language · Bahasa")}</div>
         <div className="seg" style={{ padding: 3 }}>
           {([["English", "en"], ["Bahasa Indonesia", "id"], ["Follow Windows", system]] as const).map(([label, value], i) => (
-            <span key={label} className={i < 2 && state.settings.locale === value ? "on" : ""} style={{ padding: "7px 18px", fontSize: 14 }} onClick={() => set(value as "en" | "id")}>{label}</span>
+            <span key={label} className={i < 2 && state.settings.locale === value ? "on" : ""} style={{ padding: "7px 18px", fontSize: 14 }} onClick={() => set(value as "en" | "id")}>{t(label)}</span>
           ))}
         </div>
-        <div className="s12 dim" style={{ marginTop: 10 }}>You can change this later in Customize.</div>
+        <div className="s12 dim" style={{ marginTop: 10 }}>{t("You can change this later in Customize.")}</div>
       </div>
     </Frame>
   );
@@ -129,12 +130,12 @@ export function EngineCards({ state, invoke }: { state: State; invoke: Invoke })
         return (
           <div key={e} className="card f1" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12, minWidth: 320 }}>
             <div className="row g12"><Html h={av(e, 44)} /><div className="f1"><div className="s16 b">{ENGINE_LABEL[e]}</div><div className="s12 dim" style={{ marginTop: 2 }}>{r ? (r.installed ? r.version : "not found on PATH") : checking ? "checking…" : "not checked"}</div></div>{pill(checking ? "Checking" : s.label, checking ? T.dim : s.color)}</div>
-            {r && !r.installed && <><div className="s13 sub">Install it, then sign in once in a terminal.</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{INSTALL[e]}</div></>}
-            {r?.installed && r.auth === "required" && <><div className="s13 sub">Sign in once in a terminal. Walt uses the same login afterwards.</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
-            {s.ready && <div className="s13 sub">{models.length ? `Signed in. ${models.length} models on this account.` : "Signed in. Model list loads with the next check."}</div>}
+            {r && !r.installed && <><div className="s13 sub">{t("Install it, then sign in once in a terminal.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{INSTALL[e]}</div></>}
+            {r?.installed && r.auth === "required" && <><div className="s13 sub">{t("Sign in once in a terminal. Walt uses the same login afterwards.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
+            {s.ready && <div className="s13 sub">{models.length ? t("Signed in. {0} models on this account.", models.length) : t("Signed in. Model list loads with the next check.")}</div>}
             {!!models.length && <div className="row g6" style={{ flexWrap: "wrap" }}>{models.filter((m) => !m.more).map((m) => <span key={m.id} className="chip" style={{ fontSize: 12 }}>{m.label}</span>)}</div>}
             <div className="f1" />
-            <div className="row sb s12 dim"><span>{r ? "Checked this session" : ""}</span><span className="row g6" style={{ color: T.blue, cursor: "pointer" }} onClick={check}><Html h={ic("refresh", 14, T.blue)} />Check again</span></div>
+            <div className="row sb s12 dim"><span>{r ? t("Checked this session") : ""}</span><span className="row g6" style={{ color: T.blue, cursor: "pointer" }} onClick={check}><Html h={ic("refresh", 14, T.blue)} />{t("Check again")}</span></div>
           </div>
         );
       })}
@@ -146,12 +147,12 @@ export function Engines({ state, invoke, back: goBack, go }: { state: State; inv
   useEffect(() => { void invoke("doctor"); }, []);
   const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready).length;
   return (
-    <Frame steps={STEPS} at={1} footer={<><Btn kind="o" onClick={goBack}>{back}Back</Btn><div className="row g12"><span className="s13 dim">{ready} of {ENGINES_ON.length} ready · you can start with one</span><Btn kind="g" disabled={!ready} onClick={go}>Start chatting{next}</Btn></div></>}>
+    <Frame steps={STEPS} at={1} footer={<><Btn kind="o" onClick={goBack}>{back}{t("Back")}</Btn><div className="row g12"><span className="s13 dim">{t("{0} of {1} ready · you can start with one", ready, ENGINES_ON.length)}</span><Btn kind="g" disabled={!ready} onClick={go}>Start chatting{next}</Btn></div></>}>
       <div className="s24 b">Connect your AI</div>
-      <div className="s14 dim" style={{ marginTop: 6, marginBottom: 26 }}>Walt runs the official apps you are already signed in to. No API keys, and Walt never sees your password. More AI can be added later in Customize.</div>
+      <div className="s14 dim" style={{ marginTop: 6, marginBottom: 26 }}>{t("Walt runs the official apps you are already signed in to. No API keys, and Walt never sees your password. More AI can be added later in Customize.")}</div>
       <EngineCards state={state} invoke={invoke} />
       <div className="row g10 s13" style={{ marginTop: 22, padding: "12px 14px", background: "#202022", borderRadius: 12 }}>
-        <Html h={ic("shield", 17, T.green)} /><span className="sub">API key variables are removed before Walt starts an engine, so your subscription is always the one used.</span>
+        <Html h={ic("shield", 17, T.green)} /><span className="sub">{t("API key variables are removed before Walt starts an engine, so your subscription is always the one used.")}</span>
       </div>
     </Frame>
   );
@@ -166,21 +167,21 @@ export function NewProject({ invoke, back: goBack, done }: { invoke: Invoke; bac
     <Frame bare footer={<><Btn kind="o" onClick={goBack}>{back}Cancel</Btn><Btn kind="g" disabled={!f.name.trim() || !f.root} onClick={create}>Create project{next}</Btn></>}>
       <div className="row g20" style={{ alignItems: "flex-start" }}>
         <div className="f1 col g16">
-          <div className="s24 b">New project</div>
-          <div className="s13 dim" style={{ marginTop: -8 }}>A project is a folder on this laptop. Its chats can read it, and builders can edit it with your approval.</div>
+          <div className="s24 b">{t("New project")}</div>
+          <div className="s13 dim" style={{ marginTop: -8 }}>{t("A project is a folder on this laptop. Its chats can read it, and builders can edit it with your approval.")}</div>
           <label><div className="s13 dim" style={{ marginBottom: 6 }}>Name</div><input aria-label="Project name" style={{ width: "100%" }} value={f.name} onChange={set("name")} /></label>
           <div>
-            <div className="s13 dim" style={{ marginBottom: 6 }}>Folder</div>
+            <div className="s13 dim" style={{ marginBottom: 6 }}>{t("Folder")}</div>
             <div className="card" style={{ padding: "12px 14px", borderColor: f.root ? T.green : undefined }}>
-              <div className="row g10"><Html h={ic("folder", 16, T.sub)} /><span className={`mono s13 ${f.root ? "" : "dim"}`}>{f.root || "No folder chosen yet"}</span><span className="f1" /><Btn kind="sm" onClick={choose}>Choose…</Btn></div>
-              <div className="s12 dim" style={{ marginTop: 8 }}>Walt checks the folder when you continue. It is never moved.</div>
+              <div className="row g10"><Html h={ic("folder", 16, T.sub)} /><span className={`mono s13 ${f.root ? "" : "dim"}`}>{f.root || "No folder chosen yet"}</span><span className="f1" /><Btn kind="sm" onClick={choose}>{t("Choose…")}</Btn></div>
+              <div className="s12 dim" style={{ marginTop: 8 }}>{t("Walt checks the folder when you continue. It is never moved.")}</div>
             </div>
           </div>
           <label><div className="s13 dim" style={{ marginBottom: 6 }}>Goal</div><textarea aria-label="Project goal" rows={3} style={{ width: "100%", resize: "vertical" }} value={f.goal} onChange={set("goal")} /></label>
           <label><div className="s13 dim" style={{ marginBottom: 6 }}>Constraints</div><textarea aria-label="Constraints" rows={2} style={{ width: "100%", resize: "vertical" }} placeholder="One per line, e.g. Keep the API contract" value={f.constraints} onChange={set("constraints")} /></label>
         </div>
         <div className="card" style={{ width: 340, padding: 18, marginTop: 52 }}>
-          <div className="s14 b">What Walt saves</div>
+          <div className="s14 b">{t("What Walt saves")}</div>
           {[["file", "Project brief", "goal, constraints, folder"], ["shield", "One writer at a time", "AI never edit this folder together"], ["db", "History on this laptop", "%APPDATA%\\Walt · nothing in the cloud"], ["eye", "Your folder is not moved", "Walt only reads and edits inside it"]].map(([i, t, d]) => (
             <div key={t} className="row g10" style={{ marginTop: 14, alignItems: "flex-start" }}><Html h={ic(i, 17, T.sub)} /><div><div className="s13 b">{t}</div><div className="s12 dim" style={{ marginTop: 2 }}>{d}</div></div></div>
           ))}

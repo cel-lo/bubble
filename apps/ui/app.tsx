@@ -5,11 +5,13 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
 import { ENGINES_ON } from "../../packages/domain/model";
+import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc } from "./markdown";
 import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html } from "./onboarding";
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
+import { t, setLocale } from "./i18n";
 
 declare global {
   interface Window {
@@ -18,6 +20,7 @@ declare global {
       folder: () => Promise<string | null>;
       window: (action: string) => void;
       subscribe: (fn: (s: State) => void) => () => void;
+      delta: (fn: (d: { room: string; id: string; text: string }) => void) => () => void;
     };
   }
 }
@@ -47,7 +50,7 @@ function label(state: State, engine: Engine, id?: string) {
   const plain = !id || id === "default";
   const m = plain ? list.find((x) => x.isDefault) ?? list.find((x) => x.id === "default") : list.find((x) => x.id === id);
   if (m?.label && m.label !== "Default") return m.label;
-  return plain ? `${ENGINE_NAME[engine]} default` : id!;
+  return plain ? t("{0} default", ENGINE_NAME[engine]) : id!;
 }
 /** what a plain chat talks to right now: its builder persona plus the chat's overrides */
 function target(state: State, r: Room): Target {
@@ -104,7 +107,12 @@ function App() {
         void window.walt.call("doctor").catch(() => {});
       })
       .catch((e) => setError(String(e)));
-    return window.walt.subscribe(setState);
+    const off = window.walt.subscribe(setState);
+    // streaming text: patch just that message instead of receiving the whole state
+    const offDelta = window.walt.delta((d) =>
+      setState((s) => s && { ...s, rooms: s.rooms.map((r) => (r.id !== d.room ? r : { ...r, messages: r.messages.map((m) => (m.id === d.id ? { ...m, text: d.text } : m)) })) }),
+    );
+    return () => (off(), offDelta());
   }, []);
   useEffect(() => {
     if (!error) return;
@@ -120,7 +128,8 @@ function App() {
       return null;
     }
   };
-  if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Walt · {error || "Starting…"}</div>;
+  setLocale(state?.settings.locale ?? "en");
+  if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Walt · {error || t("Starting…")}</div>;
   // data from before the onboarded flag already has projects: do not walk that user through setup again
   if (!state.settings.onboarded && !state.projects.length) {
     if (step === "welcome") return <Welcome state={state} invoke={invoke} go={() => setStep("engines")} />;
@@ -135,14 +144,14 @@ function App() {
   let main: React.ReactNode;
   let crumb = "";
   if (view.kind === "chat" && room) {
-    crumb = `${room.projectId ? state.projects.find((p) => p.id === room.projectId)?.name ?? "" : "Chats"}  ›  ${room.title}`;
+    crumb = `${room.projectId ? state.projects.find((p) => p.id === room.projectId)?.name ?? "" : t("Chats")}  ›  ${room.title}`;
     main = <ChatView key={room.id} state={state} room={room} invoke={invoke} panel={panels.right ? panels.rw : 0} setRw={(rw) => setP({ rw })} />;
-  } else if (view.kind === "customize") (crumb = "Customize"), (main = <Customize state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "customize", tab })} />);
-  else if (view.kind === "settings") (crumb = "Settings"), (main = <Settings state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "settings", tab })} />);
-  else if (view.kind === "project-new") (crumb = "New project"), (main = <NewProject invoke={invoke} back={() => setView({ kind: "home" })} done={(id) => setView({ kind: "join", projectId: id, first: true })} />);
-  else if (view.kind === "join") (crumb = view.first ? "New project" : "New team chat"), (main = <Joins key={view.projectId} state={state} invoke={invoke} projectId={view.projectId} first={view.first} back={() => (view.first ? newChat(view.projectId) : setView({ kind: "home" }))} done={open} />);
-  else if (view.kind === "search") (crumb = "Search"), (main = <Search state={state} open={open} />);
-  else (crumb = "New chat"), (main = <Home state={state} invoke={invoke} opened={open} />);
+  } else if (view.kind === "customize") (crumb = t("Customize")), (main = <Customize state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "customize", tab })} />);
+  else if (view.kind === "settings") (crumb = t("Settings")), (main = <Settings state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "settings", tab })} />);
+  else if (view.kind === "project-new") (crumb = t("New project")), (main = <NewProject invoke={invoke} back={() => setView({ kind: "home" })} done={(id) => setView({ kind: "join", projectId: id, first: true })} />);
+  else if (view.kind === "join") (crumb = t(view.first ? "New project" : "New team chat")), (main = <Joins key={view.projectId} state={state} invoke={invoke} projectId={view.projectId} first={view.first} back={() => (view.first ? newChat(view.projectId) : setView({ kind: "home" }))} done={open} />);
+  else if (view.kind === "search") (crumb = t("Search")), (main = <Search state={state} open={open} />);
+  else (crumb = t("New chat")), (main = <Home state={state} invoke={invoke} opened={open} />);
   return (
     <div style={{ width: "100%", height: "100%" }}>
       <div className="win">
@@ -170,19 +179,19 @@ function App() {
 function Bar({ crumb, panels, right, toggle }: { crumb: string; panels: Panels; right: boolean; toggle: (side: "left" | "right") => void }) {
   return (
     <div className="tb" style={{ height: 40, gap: 6, paddingLeft: 8 }}>
-      <span className={`tbb ${panels.left ? "on" : ""}`} role="button" aria-label="Show or hide the sidebar (Ctrl+B)" title="Sidebar (Ctrl+B)" aria-pressed={panels.left} onClick={() => toggle("left")}>
+      <span className={`tbb ${panels.left ? "on" : ""}`} role="button" aria-label={t("Show or hide the sidebar (Ctrl+B)")} title={t("Sidebar (Ctrl+B)")} aria-pressed={panels.left} onClick={() => toggle("left")}>
         <Icon n="sidebar" s={17} c={panels.left ? T.text : T.dim} />
       </span>
       <span className="s13 dim" style={{ marginLeft: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{crumb}</span>
       <span style={{ flex: 1 }} />
       {right && (
-        <span className={`tbb ${panels.right ? "on" : ""}`} role="button" aria-label="Show or hide the side panel (Ctrl+Alt+B)" title="Side panel (Ctrl+Alt+B)" aria-pressed={panels.right} onClick={() => toggle("right")}>
+        <span className={`tbb ${panels.right ? "on" : ""}`} role="button" aria-label={t("Show or hide the side panel (Ctrl+Alt+B)")} title={t("Side panel (Ctrl+Alt+B)")} aria-pressed={panels.right} onClick={() => toggle("right")}>
           <Icon n="panel" s={17} c={panels.right ? T.text : T.dim} />
         </span>
       )}
       <div className="wctl">
         {(["min", "max", "x"] as const).map((n, i) => (
-          <span key={n} role="button" aria-label={["Minimize", "Maximize", "Close"][i]} style={{ height: 40 }} onClick={() => window.walt.window(["minimize", "maximize", "close"][i])}>
+          <span key={n} role="button" aria-label={t(["Minimize", "Maximize", "Close"][i])} style={{ height: 40 }} onClick={() => window.walt.window(["minimize", "maximize", "close"][i])}>
             <Icon n={n} s={14} w={1.4} />
           </span>
         ))}
@@ -198,7 +207,7 @@ function Grip({ side, width, min, max, def, set }: { side: "left" | "right"; wid
       className="grip"
       role="separator"
       aria-orientation="vertical"
-      aria-label={side === "left" ? "Resize sidebar" : "Resize side panel"}
+      aria-label={t(side === "left" ? "Resize sidebar" : "Resize side panel")}
       aria-valuenow={width}
       aria-valuemin={min}
       aria-valuemax={max}
@@ -251,18 +260,18 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
   };
   const preview = (r: Room) => {
     const m = [...r.messages].reverse().find((m) => m.text.trim());
-    if (!m) return "No messages yet";
-    const who = m.author === "cello" ? "You" : m.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, pd(m.author)?.engine ?? "claude", m.meta?.model) : pd(m.author)?.name ?? m.author;
+    if (!m) return t("No messages yet");
+    const who = m.author === "cello" ? t("You") : m.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, pd(m.author)?.engine ?? "claude", m.meta?.model) : pd(m.author)?.name ?? m.author;
     return `${who}: ${m.text.replace(/\s+/g, " ").slice(0, 90)}`;
   };
   const actions = (r: Room): Item[] => [
-    { label: "Rename", onSelect: () => setRenaming(r.id) },
+    { label: t("Rename"), onSelect: () => setRenaming(r.id) },
     {
-      label: "Delete",
+      label: t("Delete"),
       danger: true,
       disabled: busy(r),
       onSelect: () => {
-        if (!confirm(`Delete "${r.title}"? Its messages are removed from Walt. Project files are not touched.`)) return;
+        if (!confirm(t('Delete "{0}"? Its messages are removed from Walt. Project files are not touched.', r.title))) return;
         void invoke("chat.delete", r.id).then(() => sel === r.id && go({ kind: "home" }));
       },
     },
@@ -271,7 +280,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
     <div key={r.id} className="navi on">
       <input
         autoFocus
-        aria-label="Chat name"
+        aria-label={t("Chat name")}
         defaultValue={r.title}
         style={{ width: "100%", padding: "2px 6px", fontSize: 13.5 }}
         onKeyDown={(e) => {
@@ -297,7 +306,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
           </div>
           <div className="pv">{preview(r)}</div>
         </div>
-        <span className="x" role="button" aria-label="Chat actions" onClick={(e) => more(e, actions(r))}>
+        <span className="x" role="button" aria-label={t("Chat actions")} onClick={(e) => more(e, actions(r))}>
           <Icon n="more" s={15} />
         </span>
       </div>
@@ -311,7 +320,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
         <span className="t">{r.title}</span>
         {busy(r) && <span style={{ width: 7, height: 7, borderRadius: 7, background: r.state === "awaiting_user" ? T.amber : T.green, flex: "none" }} />}
         <span className="s12 dim when">{when(lastAt(r))}</span>
-        <span className="x" role="button" aria-label="Chat actions" onClick={(e) => more(e, actions(r))}>
+        <span className="x" role="button" aria-label={t("Chat actions")} onClick={(e) => more(e, actions(r))}>
           <Icon n="more" s={15} />
         </span>
       </div>
@@ -320,17 +329,17 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
   const loose = sorted.filter((r) => !r.projectId);
   const proc = (p: Persona) => state.procs?.find((x) => x.room === sel && x.persona === p);
   return (
-    <nav className="nav" aria-label="Walt" style={{ width }}>
+    <nav className="nav" aria-label={t("Walt")} style={{ width }}>
       <div style={{ padding: "4px 10px 12px" }}><Html h={wordmark(19)} /></div>
-      <div className={`navi ${view.kind === "home" ? "on" : ""}`} role="button" onClick={() => newChat("")}><Icon n="plus" /><span className="t">New chat</span></div>
-      <div className={`navi ${view.kind === "search" ? "on" : ""}`} role="button" onClick={() => go({ kind: "search" })}><Icon n="search" /><span className="t">Search</span></div>
-      <div className={`navi ${view.kind === "customize" ? "on" : ""}`} role="button" onClick={() => go({ kind: "customize", tab: "ai" })}><Icon n="sparkle" /><span className="t">Customize</span></div>
+      <div className={`navi ${view.kind === "home" ? "on" : ""}`} role="button" onClick={() => newChat("")}><Icon n="plus" /><span className="t">{t("New chat")}</span></div>
+      <div className={`navi ${view.kind === "search" ? "on" : ""}`} role="button" onClick={() => go({ kind: "search" })}><Icon n="search" /><span className="t">{t("Search")}</span></div>
+      <div className={`navi ${view.kind === "customize" ? "on" : ""}`} role="button" onClick={() => go({ kind: "customize", tab: "ai" })}><Icon n="sparkle" /><span className="t">{t("Customize")}</span></div>
       <div className="scroll">
         <div className="nhead">
-          Projects
-          <span className="add" role="button" aria-label="New project" title="New project" onClick={() => go({ kind: "project-new" })}><Icon n="plus" s={15} /></span>
+          {t("Projects")}
+          <span className="add" role="button" aria-label={t("New project")} title={t("New project")} onClick={() => go({ kind: "project-new" })}><Icon n="plus" s={15} /></span>
         </div>
-        {!state.projects.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }} onClick={() => go({ kind: "project-new" })}>Add a project folder</div>}
+        {!state.projects.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }} onClick={() => go({ kind: "project-new" })}>{t("Add a project folder")}</div>}
         {state.projects.map((p) => {
           const chats = sorted.filter((r) => r.projectId === p.id);
           const open = !closed[p.id];
@@ -340,49 +349,49 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
                 <Icon n={open ? "chevd" : "chevr"} s={14} />
                 <span className="t b">{p.name}</span>
                 {!open && <span className="s12 dim">{chats.length}</span>}
-                <span className="x" role="button" aria-label="New chat in project" title="New chat" onClick={(e) => { e.stopPropagation(); newChat(p.id); }}>
+                <span className="x" role="button" aria-label={t("New chat in project")} title={t("New chat")} onClick={(e) => { e.stopPropagation(); newChat(p.id); }}>
                   <Icon n="plus" s={15} />
                 </span>
-                <span className="x" role="button" aria-label="Project actions" onClick={(e) => more(e, [
-                  { label: "New chat", onSelect: () => newChat(p.id) },
-                  { label: "New team chat", hint: "pick the models", onSelect: () => go({ kind: "join", projectId: p.id, first: false }) },
+                <span className="x" role="button" aria-label={t("Project actions")} onClick={(e) => more(e, [
+                  { label: t("New chat"), onSelect: () => newChat(p.id) },
+                  { label: t("New team chat"), hint: "pick the models", onSelect: () => go({ kind: "join", projectId: p.id, first: false }) },
                 ])}>
                   <Icon n="more" s={15} />
                 </span>
               </div>
               {open && chats.map(richRow)}
-              {open && !chats.length && <div className="navi sub" style={{ color: T.dim }} onClick={() => newChat(p.id)}>No chats yet</div>}
+              {open && !chats.length && <div className="navi sub" style={{ color: T.dim }} onClick={() => newChat(p.id)}>{t("No chats yet")}</div>}
             </React.Fragment>
           );
         })}
-        <div className="nhead">Chats</div>
+        <div className="nhead">{t("Chats")}</div>
         {loose.map(plainRow)}
-        {!loose.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }}>No chats yet</div>}
+        {!loose.length && <div className="navi sub" style={{ paddingLeft: 10, color: T.dim }}>{t("No chats yet")}</div>}
         {room && room.template !== "direct" && (
           <>
             <div className="nhead" style={{ marginTop: 6 }}>
-              Team · {room.title}
-              <span className="add row g4" role="button" aria-label="Add a model to this chat" style={{ color: T.green, fontSize: 12 }} onClick={(e) => setAdding(e.currentTarget.getBoundingClientRect())}>
-                <Icon n="plus" s={14} c={T.green} w={2} />Add
+              {t("Team")} · {room.title}
+              <span className="add row g4" role="button" aria-label={t("Add a model to this chat")} style={{ color: T.green, fontSize: 12 }} onClick={(e) => setAdding(e.currentTarget.getBoundingClientRect())}>
+                <Icon n="plus" s={14} c={T.green} w={2} />{t("Add")}
               </span>
             </div>
             {team(room).map((id) => {
               const p = pd(id);
               if (!p) return null;
               const pr = proc(id);
-              const [st, c] = pr ? (pr.busy ? ["Working", T.green] : ["Ready", T.blue]) : ["Asleep", T.faint];
+              const [st, c] = pr ? (pr.busy ? [t("Working"), T.green] : [t("Ready"), T.blue]) : [t("Asleep"), T.faint];
               const r = roleIn(room, id);
               return (
                 <div key={id} className="navi rich" title={`${p.name} · ${label(state, p.engine, p.model)}`}>
                   <Html h={av(p.avatar, 30)} />
                   <div className="f1" style={{ minWidth: 0 }}>
-                    <div className="row g6"><span className="t b">{p.name}</span><Html h={roleTag(p.avatar, r)} /></div>
+                    <div className="row g6"><span className="t b">{p.name}</span><Html h={roleTag(p.avatar, t(r))} /></div>
                     <div className="pv row g6"><span style={{ width: 7, height: 7, borderRadius: 7, background: c, flex: "none" }} />{st} · {label(state, p.engine, room.tune?.[id]?.model ?? p.model)}</div>
                   </div>
                   {r !== "Builder" && r !== "Talks" && (
                     <span className="x" role="button" aria-label={`${p.name} actions`} onClick={(e) => more(e, [
-                      { label: r === "Reviewer" ? "Make member" : "Make reviewer", onSelect: () => invoke("member", { roomId: room.id, persona: id, role: r === "Reviewer" ? "Member" : "Reviewer" }) },
-                      { label: "Remove from chat", danger: true, onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Remove" }) },
+                      { label: t(r === "Reviewer" ? "Make member" : "Make reviewer"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: r === "Reviewer" ? "Member" : "Reviewer" }) },
+                      { label: t("Remove from chat"), danger: true, onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Remove" }) },
                     ])}>
                       <Icon n="more" s={15} />
                     </span>
@@ -395,8 +404,8 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
       </div>
       <div className="row g8 s12 dim" style={{ padding: "8px 4px 0 10px", borderTop: `1px solid ${T.line2}` }}>
         <Icon n="shield" s={14} c={ready.length ? T.green : T.amber} />
-        <span className="f1">{ready.length ? `${ready.map((e) => ENGINE_NAME[e]).join(" + ")} ready` : "No AI ready · open Customize"}</span>
-        <span className={`tbb ${view.kind === "settings" ? "on" : ""}`} role="button" aria-label="Settings" title="Settings" onClick={() => go({ kind: "settings", tab: "general" })}>
+        <span className="f1">{ready.length ? t("{0} ready", ready.map((e) => ENGINE_NAME[e]).join(" + ")) : t("No AI ready · open Customize")}</span>
+        <span className={`tbb ${view.kind === "settings" ? "on" : ""}`} role="button" aria-label={t("Settings")} title={t("Settings")} onClick={() => go({ kind: "settings", tab: "general" })}>
           <Icon n="gear" s={17} c={view.kind === "settings" ? T.text : T.dim} />
         </span>
       </div>
@@ -445,12 +454,12 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
         ref={ref}
         className="menu col"
         role="dialog"
-        aria-label={`Add a model to ${room.title}`}
+        aria-label={t("Add a model to {0}", room.title)}
         style={{ position: "fixed", left, width: W, zIndex: 60, padding: 10, overflow: "hidden", ...place }}
         onKeyDown={(e) => e.key === "Enter" && pick && (e.preventDefault(), void add())}
       >
-        <div className="row sb" style={{ padding: "2px 4px 8px" }}><span className="s15 b">Add a model to {room.title}</span><span role="button" aria-label="Close" onClick={onClose}><Icon n="x" s={15} /></span></div>
-        <input autoFocus aria-label="Search models" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", padding: "7px 10px", fontSize: 13.5 }} />
+        <div className="row sb" style={{ padding: "2px 4px 8px" }}><span className="s15 b">{t("Add a model to {0}", room.title)}</span><span role="button" aria-label={t("Close")} onClick={onClose}><Icon n="x" s={15} /></span></div>
+        <input autoFocus aria-label={t("Search models")} placeholder={t("Search models")} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", padding: "7px 10px", fontSize: 13.5 }} />
         <div style={{ overflow: "auto", minHeight: 0, flex: 1, marginTop: 6 }}>
           {ENGINES_ON.map((e) => {
             const all = (state.catalog?.[e] ?? []).filter((m) => m.id !== "default" && (!q || m.label.toLowerCase().includes(q.toLowerCase())));
@@ -458,7 +467,7 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
             return (
               <React.Fragment key={e}>
                 <div className="mlabel">{ENGINE_NAME[e]}</div>
-                {!all.length && <div className="mi" style={{ opacity: 0.5 }}>{personaStatus(e, state.engines).ready ? (q ? "No match" : "Loading models…") : personaStatus(e, state.engines).label}</div>}
+                {!all.length && <div className="mi" style={{ opacity: 0.5 }}>{personaStatus(e, state.engines).ready ? t(q ? "No match" : "Loading models…") : personaStatus(e, state.engines).label}</div>}
                 {list.map((m) => {
                   const has = inTeam(e, m.id);
                   const on = pick?.engine === e && pick.model === m.id;
@@ -466,7 +475,7 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
                     <div key={m.id} className={`mi ${on ? "act" : ""}`} role="option" aria-selected={on} aria-disabled={has} style={{ opacity: has ? 0.45 : 1, gap: 10 }} onClick={() => !has && (setPick({ engine: e, model: m.id }), setEffort(""))}>
                       <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 22)} />
                       <span className="b f1">{m.label}</span>
-                      {has ? <span className="h">In this chat</span> : on && <Icon n="checkc" s={16} c={T.green} />}
+                      {has ? <span className="h">{t("In this chat")}</span> : on && <Icon n="checkc" s={16} c={T.green} />}
                     </div>
                   );
                 })}
@@ -477,17 +486,17 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
         </div>
         <div className="msep" />
         <div className="row g10" style={{ padding: "4px 4px" }}>
-          <span className="s13 dim f1">Joins as</span>
+          <span className="s13 dim f1">{t("Joins as")}</span>
           <div className="seg">{(["Reviewer", "Member"] as const).map((r) => <span key={r} className={as === r ? "on" : ""} onClick={() => setAs(r)}>{r}</span>)}</div>
         </div>
         <div className="row g10" style={{ padding: "6px 4px" }}>
-          <span className="s13 dim f1">Effort</span>
-          <Dropdown label="Effort" value={effort} width={140} disabled={!info?.efforts.length} onChange={setEffort} options={[{ value: "", label: "Default" }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
+          <span className="s13 dim f1">{t("Effort")}</span>
+          <Dropdown label={t("Effort")} value={effort} width={140} disabled={!info?.efforts.length} onChange={setEffort} options={[{ value: "", label: t("Default") }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
         </div>
         <div className="s12 dim" style={{ padding: "4px 4px 0", lineHeight: 1.5 }}>{as === "Member" ? "Members answer only when you @mention them." : "Reviewers read every new revision, read-only."} The builder stays the only one who edits files.</div>
         <div className="row g8" style={{ padding: "10px 4px 2px", justifyContent: "flex-end" }}>
-          <button type="button" className="btn" style={{ border: 0 }} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn g" style={{ border: 0, opacity: pick ? 1 : 0.4 }} disabled={!pick} onClick={add}>{info ? `Add ${info.label}` : "Pick a model"}</button>
+          <button type="button" className="btn" style={{ border: 0 }} onClick={onClose}>{t("Cancel")}</button>
+          <button type="button" className="btn g" style={{ border: 0, opacity: pick ? 1 : 0.4 }} disabled={!pick} onClick={add}>{info ? t("Add {0}", info.label) : t("Pick a model")}</button>
         </div>
       </div>
     </>
@@ -505,7 +514,7 @@ function ModelChip({ state, value, pick }: { state: State; value: Target; pick: 
     items.push({ kind: "label", label: ENGINE_NAME[e] });
     if (!list.length) {
       const s = personaStatus(e, state.engines);
-      items.push({ label: s.ready ? "Loading models…" : s.label, disabled: true });
+      items.push({ label: s.ready ? t("Loading models…") : s.label, disabled: true });
       continue;
     }
     const opt = (m: (typeof list)[number]): Item => ({
@@ -515,18 +524,18 @@ function ModelChip({ state, value, pick }: { state: State; value: Target; pick: 
     });
     items.push(...list.filter((m) => !m.more).map(opt));
     const older = list.filter((m) => m.more);
-    if (older.length) items.push({ label: "More models", submenu: older.map(opt) });
+    if (older.length) items.push({ label: t("More models"), submenu: older.map(opt) });
   }
   const levels = info?.efforts ?? [];
   items.push({ kind: "sep" }, {
-    label: "Effort",
-    hint: value.effort ? cap(value.effort) : "Default",
+    label: t("Effort"),
+    hint: value.effort ? cap(value.effort) : t("Default"),
     disabled: !levels.length,
-    submenu: [{ label: "Default", checked: !value.effort, onSelect: () => pick({ ...value, effort: undefined }) }, ...levels.map((l) => ({ label: cap(l), checked: value.effort === l, onSelect: () => pick({ ...value, effort: l }) }))],
+    submenu: [{ label: t("Default"), checked: !value.effort, onSelect: () => pick({ ...value, effort: undefined }) }, ...levels.map((l) => ({ label: cap(l), checked: value.effort === l, onSelect: () => pick({ ...value, effort: l }) }))],
   });
   return (
     <>
-      <button type="button" className="mchip" aria-label="Model and effort" aria-haspopup="menu" onClick={(e) => setAt(at ? null : e.currentTarget.getBoundingClientRect())}>
+      <button type="button" className="mchip" aria-label={t("Model and effort")} aria-haspopup="menu" onClick={(e) => setAt(at ? null : e.currentTarget.getBoundingClientRect())}>
         <span>{label(state, value.engine, value.model)}</span>
         {value.effort && <span style={{ color: T.dim }}>{cap(value.effort)}</span>}
         <Icon n="chevd" s={14} />
@@ -597,7 +606,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
           rows={1}
           value={text}
           placeholder={placeholder}
-          aria-label="Message"
+          aria-label={t("Message")}
           onChange={(e) => {
             setText(e.target.value);
             refresh(e.target.value, e.target.selectionStart);
@@ -622,9 +631,9 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
         />
         {chip}
         {working && onStop ? (
-          <button type="button" className="send" aria-label="Stop" style={{ border: 0, background: "#FF453A33", cursor: "pointer" }} onClick={onStop}><Icon n="stop" s={16} c="#FF6961" w={2.2} /></button>
+          <button type="button" className="send" aria-label={t("Stop")} style={{ border: 0, background: "#FF453A33", cursor: "pointer" }} onClick={onStop}><Icon n="stop" s={16} c="#FF6961" w={2.2} /></button>
         ) : (
-          <button type="button" className="send" aria-label="Send" disabled={!can} style={{ border: 0, cursor: can ? "pointer" : "default", opacity: can ? 1 : 0.4 }} onClick={send}><Icon n="up" s={18} c="#04170B" w={2.2} /></button>
+          <button type="button" className="send" aria-label={t("Send")} disabled={!can} style={{ border: 0, cursor: can ? "pointer" : "default", opacity: can ? 1 : 0.4 }} onClick={send}><Icon n="up" s={18} c="#04170B" w={2.2} /></button>
         )}
       </div>
       {footer && <div className="route" style={{ maxWidth: 760 }}>{footer}</div>}
@@ -635,24 +644,24 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
 /** start screen: type and pick a model; the chat is created on send (like the Claude app) */
 function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened: (id: string) => void }) {
   const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready);
-  const [t, setT] = useState<Target>(state.settings.lastTarget ?? { engine: ready[0] ?? "claude", model: "default" });
+  const [tg, setT] = useState<Target>(state.settings.lastTarget ?? { engine: ready[0] ?? "claude", model: "default" });
   const hour = new Date().getHours();
   return (
     <div className="col" style={{ flex: 1, minHeight: 0 }}>
       <div className="empty">
         <Html h={wordmark(34)} />
-        <div className="s24 b" style={{ color: T.text, marginTop: 12 }}>{hour < 11 ? "Good morning" : hour < 15 ? "Good afternoon" : hour < 19 ? "Good evening" : "Good night"}</div>
-        <div className="s14">{ready.length ? "Ask anything, or open a project on the left to work on its files." : "No AI is ready yet. Open Customize · AI & models."}</div>
+        <div className="s24 b" style={{ color: T.text, marginTop: 12 }}>{t(hour < 11 ? "Good morning" : hour < 15 ? "Good afternoon" : hour < 19 ? "Good evening" : "Good night")}</div>
+        <div className="s14">{t(ready.length ? "Ask anything, or open a project on the left to work on its files." : "No AI is ready yet. Open Customize · AI & models.")}</div>
       </div>
       <Composer
         state={state}
-        placeholder="How can Walt help today?"
-        chip={<ModelChip state={state} value={t} pick={setT} />}
-        footer={<span className="dim">A chat without a project can read and talk, not edit files.</span>}
+        placeholder={t("How can Walt help today?")}
+        chip={<ModelChip state={state} value={tg} pick={setT} />}
+        footer={<span className="dim">{t("A chat without a project can read and talk, not edit files.")}</span>}
         onSend={async (text) => {
           const r = await invoke("chat.new", "");
           if (!r) return false;
-          if ((await invoke("chat.target", { roomId: r.id, ...t })) === null) return false;
+          if ((await invoke("chat.target", { roomId: r.id, ...tg })) === null) return false;
           opened(r.id);
           await invoke("send", { roomId: r.id, text });
           return true;
@@ -666,13 +675,44 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const direct = room.template === "direct";
   const [adding, setAdding] = useState<DOMRect | null>(null);
   const [tab, setTab] = useState(direct ? "Files" : "Task");
+  const [menuAt, setMenuAt] = useState<DOMRect | null>(null);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    if (!note) return;
+    const id = setTimeout(() => setNote(""), 6000);
+    return () => clearTimeout(id);
+  }, [note]);
+  const cli = (e: string) => (e === "codex" ? "Codex" : "Claude Code");
+  const resume = async (persona: string) => {
+    const r = await invoke("cli.continue", { roomId: room.id, persona });
+    if (r) setNote(t("Opened a terminal: {0}", r.command));
+  };
+  const exportIt = async () => {
+    const r = await invoke("context.export", room.id);
+    if (!r) return;
+    if (r.path) return setNote(t("Saved {0}", r.path));
+    await navigator.clipboard.writeText(r.text).then(() => setNote(t("Context copied")), () => setNote(t("Could not reach the clipboard")));
+  };
+  // "…" in the header: carry the chat on outside Walt
+  const chatMenu = (): Item[] => [
+    room.template === "direct"
+      ? { label: t("Continue in {0}", cli(pd(room.builder)?.engine ?? "claude")), hint: t("terminal"), onSelect: () => void resume(room.builder) }
+      : {
+          label: t("Continue in the CLI"),
+          submenu: team(room).flatMap((id) => {
+            const p = pd(id);
+            return p ? [{ label: p.name, hint: cli(p.engine), onSelect: () => void resume(id) }] : [];
+          }),
+        },
+    { label: project ? t("Export context to WALT.md") : t("Copy context"), hint: project ? project.name : "Markdown", onSelect: () => void exportIt() },
+  ];
   const tl = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const project = room.projectId ? state.projects.find((p) => p.id === room.projectId) : undefined;
   const pd = (id: string) => state.personas.find((p) => p.id === id);
   const asks = state.asks.filter((a) => a.roomId === room.id);
   const last = room.messages.at(-1);
-  const t = target(state, room);
+  const tg = target(state, room);
   useLayoutEffect(() => {
     if (stick.current && tl.current) tl.current.scrollTop = tl.current.scrollHeight;
   }, [room.messages.length, last?.text.length, asks.length]);
@@ -681,25 +721,35 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const nameOf = (id: string, meta?: { model?: string }) => {
     const p = pd(id);
     if (!p) return id;
-    return direct ? label(state, p.engine, meta?.model ?? t.model) : p.name;
+    return direct ? label(state, p.engine, meta?.model ?? tg.model) : p.name;
   };
+  // the latest AI reply may end with a DECISION; its options become buttons until you answer
+  const lastAi = [...room.messages].reverse().find((m) => pd(m.author));
+  const asking = lastAi && !busy(room) && lastAi === room.messages.at(-1) ? decision(lastAi.text) : undefined;
+  const choices = asking
+    ? `<div class="row g8" style="margin:4px 0 0 44px;flex-wrap:wrap"><span class="s12 dim">${esc(t("Your choice"))}:</span>${asking.options.map((o, i) => `<button class="btn sm" data-hot="decide:${i}" style="border:0">${esc(o)}</button>`).join("")}</div>`
+    : "";
   const html =
     room.messages
       .map((m) =>
         m.author === "cello"
           ? mine(new Date(m.at).toLocaleTimeString(), esc(m.text)) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
           : pd(m.author)
-            ? personaMsg(pd(m.author)!, roleOf(m.author), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta))
+            ? personaMsg(pd(m.author)!, t(roleOf(m.author)), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta)) + (m === lastAi ? choices : "")
             : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
       )
       .join("") +
     asks
       .map(
         (a) =>
-          `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${esc(nameOf(a.persona))} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto">${esc(askBody(a.input))}</pre><div class="row g8"><button class="btn g" data-hot="allow:${a.id}" style="border:0">Allow once</button><button class="btn" data-hot="deny:${a.id}" style="border:0">Deny</button></div></div>`,
+          `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${t("{0} wants to use {1}", esc(nameOf(a.persona)), esc(a.title))}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto">${esc(askBody(a.input))}</pre><div class="row g8"><button class="btn g" data-hot="allow:${a.id}" style="border:0">${t("Allow once")}</button><button class="btn" data-hot="deny:${a.id}" style="border:0">${t("Deny")}</button></div></div>`,
       )
       .join("") +
-    (room.artifacts.length && !busy(room) ? (direct ? changed(room) : deliverable(state, room, room.artifacts.at(-1)!)) : "");
+    (room.artifacts.length && !busy(room) ? (direct ? changed(room) : deliverable(state, room, room.artifacts.at(-1)!)) : "") +
+    // a run cut off by a crash or a forced close: the project stays locked until you have looked at the files
+    (room.state === "recovery_required"
+      ? `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${esc(t("The last run stopped before it finished"))}</span></div><div class="s13 sub" style="margin:8px 0 12px;line-height:1.5">${esc(t("Walt closed or crashed while an AI was working. Check the project files (some edits may be half done); Walt does not retry on its own."))}</div><button class="btn g" data-hot="control:recovered" style="border:0">${esc(t("I checked, continue"))}</button></div>`
+      : "");
   const act = async (e: React.MouseEvent) => {
     const h = (e.target as HTMLElement).closest<HTMLElement>("[data-hot]")?.dataset.hot;
     if (!h) return;
@@ -710,8 +760,13 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
       const [, persona, role] = h.split(":");
       await invoke("member", { roomId: room.id, persona, role });
     } else if (h.startsWith("tab:")) setTab(h.slice(4));
+    else if (h.startsWith("decide:") && asking && lastAi) {
+      // the builder's question goes back as a plain message (build, then review); anyone else's as an @mention
+      const o = asking.options[Number(h.slice(7))];
+      await invoke("send", { roomId: room.id, text: direct || lastAi.author === room.builder ? o : `@${pd(lastAi.author)!.name} ${o}` });
+    }
   };
-  const status = room.state === "awaiting_user" ? "Waiting for your approval" : busy(room) ? (room.step === "review" ? "Reviewing" : "Working") : "";
+  const status = t(room.state === "awaiting_user" ? "Waiting for your approval" : busy(room) ? (room.step === "review" ? "Reviewing" : room.step === "fix" ? "Fixing review findings" : "Working") : room.step === "awaiting decision" ? "Waiting for your choice" : "");
   return (
     <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
       <div className="col" style={{ flex: 1, minWidth: 0 }}>
@@ -719,23 +774,33 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           <div className="f1" style={{ minWidth: 0 }}>
             <div className="s16 b" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{room.title}</div>
             <div className="s12 dim" style={{ marginTop: 2 }}>
-              {project ? `${project.name} · ${project.root}` : "Chat · no project folder"}
-              {status && <span style={{ color: room.state === "awaiting_user" ? T.amber : T.green }}> · {status}</span>}
+              {note ? (
+                <span style={{ color: T.green }}>{note}</span>
+              ) : (
+                <>
+                  {project ? `${project.name} · ${project.root}` : t("Chat · no project folder")}
+                  {status && <span style={{ color: room.state === "awaiting_user" ? T.amber : T.green }}> · {status}</span>}
+                </>
+              )}
             </div>
           </div>
           {!direct && (
             <>
               <Html h={stack(team(room).map((p) => pd(p)?.avatar ?? "claude"), 26)} />
               <button type="button" className="btn sm" style={{ border: 0 }} aria-haspopup="dialog" aria-expanded={!!adding} onClick={(e) => setAdding(adding ? null : e.currentTarget.getBoundingClientRect())}>
-                <Icon n="plus" s={14} c={T.text} w={2} />Add model
+                <Icon n="plus" s={14} c={T.text} w={2} />{t("Add model")}
               </button>
             </>
           )}
+          <span className="tbb" role="button" aria-label={t("Chat menu")} aria-haspopup="menu" onClick={(e) => setMenuAt(e.currentTarget.getBoundingClientRect())}>
+            <Icon n="more" s={17} />
+          </span>
         </div>
+        {menuAt && <Menu at={menuAt} width={280} items={chatMenu()} onClose={() => setMenuAt(null)} />}
         {adding && <AddModel state={state} room={room} invoke={invoke} at={new DOMRect(adding.right - 360, adding.y, 360, adding.height)} onClose={() => setAdding(null)} />}
         {!direct && (
           <div
-            dangerouslySetInnerHTML={{ __html: workflow({ mode: TEMPLATE[room.template], steps: room.template === "roundtable" ? ["Answer"] : ["Build", "Review"], stepIdx: room.step === "review" ? 1 : room.step === "build" ? 0 : -1, done: room.step === "awaiting acceptance", status: STATE[room.state] ?? room.state, turn: `${room.used} of ${room.budget}`, controls: busy(room) } as any) }}
+            dangerouslySetInnerHTML={{ __html: workflow({ mode: t(TEMPLATE[room.template]), steps: (room.template === "roundtable" ? ["Answer"] : ["Build", "Review", "Fix"]).map((s) => t(s)), stepIdx: room.step === "fix" ? 2 : room.step === "review" ? 1 : room.step === "build" ? 0 : -1, done: room.step === "awaiting acceptance", status: t(STATE[room.state] ?? room.state), turn: t("{0} of {1}", room.used, room.budget), controls: busy(room) } as any).replace(">Turn ", `>${t("Turn")} `).replace("Pause after turn", t("Pause after turn")).replace(/(#FF6961[^>]*>[^<]*<\/svg>)Stop</, `$1${t("Stop")}<`) }}
             onClick={(e) => {
               const b = (e.target as HTMLElement).closest(".btn");
               if (b) void invoke("control", { roomId: room.id, action: /stop/i.test(b.textContent || "") ? "interrupt" : "pause" });
@@ -755,21 +820,21 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
             <div className="tli" dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <div className="empty" style={{ height: "100%" }}>
-              <div className="s16 b" style={{ color: T.text }}>{direct ? `Chat with ${label(state, t.engine, t.model)}` : `${TEMPLATE[room.template]} · ${project?.name ?? ""}`}</div>
-              <div className="s13">{project ? (direct ? "It can read this project and edit files after you allow each change." : "Describe the task. The builder works, then the reviewers check the same revision.") : "It can talk and read, but cannot edit files in a chat without a project."}</div>
+              <div className="s16 b" style={{ color: T.text }}>{direct ? t("Chat with {0}", label(state, tg.engine, tg.model)) : `${t(TEMPLATE[room.template])} · ${project?.name ?? ""}`}</div>
+              <div className="s13">{t(project ? (direct ? "It can read this project and edit files after you allow each change." : "Describe the task. The builder works, then the reviewers check the same revision.") : "It can talk and read, but cannot edit files in a chat without a project.")}</div>
             </div>
           )}
         </div>
         <Composer
           state={state}
           room={room}
-          placeholder={direct ? `Message ${label(state, t.engine, t.model)}` : `Message ${room.title}, or @mention someone`}
+          placeholder={direct ? t("Message {0}", label(state, tg.engine, tg.model)) : t("Message {0}, or @mention someone", room.title)}
           working={busy(room)}
           onStop={() => invoke("control", { roomId: room.id, action: "interrupt" })}
-          chip={direct ? <ModelChip state={state} value={t} pick={(v) => invoke("chat.target", { roomId: room.id, ...v })} /> : undefined}
+          chip={direct ? <ModelChip state={state} value={tg} pick={(v) => invoke("chat.target", { roomId: room.id, ...v })} /> : undefined}
           footer={
             <span className="dim">
-              {direct ? (project ? `Edits in ${project.name} need your approval` : "Chat only · the AI cannot edit files here") : `${TEMPLATE[room.template]} · one writer at a time · @name to talk to one`}
+              {direct ? (project ? t("Edits in {0} need your approval", project.name) : t("Chat only · the AI cannot edit files here")) : t("{0} · one writer at a time · @name to talk to one", t(TEMPLATE[room.template]))}
             </span>
           }
           onSend={async (text) => (await invoke("send", { roomId: room.id, text })) !== null}
@@ -798,7 +863,7 @@ function askBody(input: any): string {
 /** result card for a plain chat in a project: which files changed (no reviews there) */
 function changed(room: Room) {
   const a = room.artifacts.at(-1)!;
-  return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">Files changed · r${a.revision}</span><span class="f1"></span>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">Accepted</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">Accept</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${Object.keys(a.files).length} files tracked</div></div>`;
+  return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">${t("Files changed · r{0}", a.revision)}</span><span class="f1"></span>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">${t("Accepted")}</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">${t("Accept")}</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${t("{0} files tracked", Object.keys(a.files).length)}</div></div>`;
 }
 
 // W09 result card: only facts Walt holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
@@ -809,16 +874,16 @@ function deliverable(state: State, room: Room, a: Room["artifacts"][number]) {
   const reviews = room.reviewers.map((p) => {
     const v = a.reviews.find((x) => x.persona === p);
     const ok = v?.hash === a.hash;
-    return box("Source review", `${av(pd(p)?.avatar ?? "claude", 20)}<span class="s13 b">${esc(pd(p)?.name ?? p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? `read r${a.revision} · same hash` : v ? "stale: files changed after review" : "no review");
+    return box(t("Source review"), `${av(pd(p)?.avatar ?? "claude", 20)}<span class="s13 b">${esc(pd(p)?.name ?? p)}</span>${ok ? ic("check", 15, T.green) : ""}`, ok ? t("read r{0} · same hash", a.revision) : t(v ? "stale: files changed after review" : "no review"));
   });
-  const accept = a.accepted ? box("Your acceptance", '<span class="s13 b">Accepted</span>', "by you") : box("Your acceptance", '<span class="s13 b">Waiting for you</span>', "Not implied by reviews", true);
-  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · result</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}Accept</button>`}<button class="btn" data-hot="control:continue" style="border:0">Continue with a new budget</button></div></div>`;
+  const accept = a.accepted ? box(t("Your acceptance"), `<span class="s13 b">${t("Accepted")}</span>`, t("by you")) : box(t("Your acceptance"), `<span class="s13 b">${t("Waiting for you")}</span>`, t("Not implied by reviews"), true);
+  return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · ${t("result")}</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}${t("Accept")}</button>`}<button class="btn" data-hot="control:continue" style="border:0">${t("Continue with a new budget")}</button></div></div>`;
 }
 
 function inspectorHtml(state: State, room: Room, tab: string) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
-  const files = room.artifacts.map((a) => `<div class="card" style="padding:12px;margin:10px 0">r${a.revision} · ${a.accepted ? "Accepted" : "Awaiting acceptance"}<div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${a.reviews.length} reviews · ${Object.keys(a.files).length} files</div></div>`).join("") || '<div class="s13 dim">No changes yet.</div>';
+  const files = room.artifacts.map((a) => `<div class="card" style="padding:12px;margin:10px 0">r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}<div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
   // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
   const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
   const team = (direct ? [] : [room.builder, ...room.reviewers, ...(room.members || [])])
@@ -826,18 +891,18 @@ function inspectorHtml(state: State, room: Room, tab: string) {
       const p = state.personas.find((x) => x.id === id);
       if (!p) return "";
       const r = roleIn(room, id);
-      return `<div class="row g8 s13" style="margin:8px 0">${av(p.avatar, 22)}<span>${esc(p.name)}</span>${roleTag(p.avatar, r)}<span class="f1"></span><span class="s12 dim">${can[r]}</span></div>`;
+      return `<div class="row g8 s13" style="margin:8px 0">${av(p.avatar, 22)}<span>${esc(p.name)}</span>${roleTag(p.avatar, t(r))}<span class="f1"></span><span class="s12 dim">${t(can[r])}</span></div>`;
     })
     .join("");
   const body =
     tab === "Context"
-      ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || "No packet yet")}</pre>`
+      ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || t("No packet yet"))}</pre>`
       : tab === "Files"
         ? files
         : tab === "Activity"
-          ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || '<div class="s13 dim">Nothing yet.</div>'
-          : `<div class="lbl">Who does what</div>${team}<div class="lbl">Budget</div><div>${room.used} of ${room.budget} turns used</div><div class="col g8" style="margin-top:20px">${btn("Continue · +2 turns", "control:continue")}${btn("Resume", "control:resume")}${btn("End chat", "control:end")}</div>`;
-  const tabs = (direct ? ["Files", "Activity"] : ["Task", "Files", "Context", "Activity"]).map((t) => `<span class="tab ${tab === t ? "on" : ""}" data-hot="tab:${t}">${t}</span>`).join("");
+          ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
+          : `<div class="lbl">${t("Who does what")}</div>${team}<div class="lbl">${t("Budget")}</div><div>${t("{0} of {1} turns used", room.used, room.budget)}</div><div class="col g8" style="margin-top:20px">${btn(t("Continue · +2 turns"), "control:continue")}${btn(t("Resume"), "control:resume")}${btn(t("End chat"), "control:end")}</div>`;
+  const tabs = (direct ? ["Files", "Activity"] : ["Task", "Files", "Context", "Activity"]).map((x) => `<span class="tab ${tab === x ? "on" : ""}" data-hot="tab:${x}">${t(x)}</span>`).join("");
   return `<div class="tabs">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
 }
 
@@ -848,6 +913,7 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
   const [talk, setTalk] = useState(false);
   const [older, setOlder] = useState(false);
   const [busyNow, setBusy] = useState(false);
+  const [tplName, setTplName] = useState("");
   const project = state.projects.find((p) => p.id === projectId);
   const key = (p: { engine: Engine; model: string }) => p.engine + ":" + p.model;
   const toggle = (engine: Engine, model: string) => {
@@ -863,11 +929,11 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
     setPicks(picks.map((p, j) => (j === i ? { ...p, ...v } : v.role === "Builder" && p.role === "Builder" ? { ...p, role: "Reviewer" } : p)));
   const reviewers = picks.filter((p) => p.role === "Reviewer").length;
   const why =
-    !picks.length ? "Pick at least one model." :
-    picks.length === 1 ? "One model: this starts a plain chat in the project." :
-    talk ? (picks.length > 4 ? "A roundtable takes up to 4 models." : "") :
-    !reviewers ? "Make at least one model a reviewer, or switch to Roundtable." :
-    reviewers > 3 ? "Up to 3 reviewers." : "";
+    !picks.length ? t("Pick at least one model.") :
+    picks.length === 1 ? t("One model: this starts a plain chat in the project.") :
+    talk ? (picks.length > 4 ? t("A roundtable takes up to 4 models.") : "") :
+    !reviewers ? t("Make at least one model a reviewer, or switch to Roundtable.") :
+    reviewers > 3 ? t("Up to 3 reviewers.") : "";
   const ok = picks.length > 0 && (picks.length === 1 || !why);
   const start = async () => {
     setBusy(true);
@@ -897,8 +963,18 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
   };
   return (
     <div className="col" style={{ flex: 1, minHeight: 0, padding: "28px 40px 0", overflow: "auto" }}>
-      <div className="s24 b">Who joins {project?.name ?? "this project"}?</div>
-      <div className="s13 dim" style={{ marginTop: 6 }}>Only models your signed-in accounts can use are listed. You can add more later with Add model in any team chat.</div>
+      <div className="s24 b">{t("Who joins {0}?", project?.name ?? t("this project"))}</div>
+      <div className="s13 dim" style={{ marginTop: 6 }}>{t("Only models your signed-in accounts can use are listed. You can add more later with Add model in any team chat.")}</div>
+      {!!state.teams?.length && (
+        <div className="row g8" style={{ marginTop: 14, flexWrap: "wrap" }}>
+          <span className="s12 dim">{t("Start from a template")}:</span>
+          {state.teams.map((tm) => (
+            <span key={tm.id} className="chip" role="button" style={{ cursor: "pointer", fontSize: 13, padding: "5px 10px" }} onClick={() => (setPicks(tm.picks.map((p) => ({ ...p }))), setTalk(tm.talk))}>
+              {tm.name}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="row" style={{ gap: 24, marginTop: 20, alignItems: "flex-start" }}>
         <div className="card f1" style={{ padding: 8, minWidth: 0 }}>
           {ENGINES_ON.map((e) => {
@@ -907,14 +983,14 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
             return (
               <React.Fragment key={e}>
                 <div className="mlabel" style={{ padding: "10px 12px 6px" }}>{ENGINE_NAME[e]}</div>
-                {!all.length && <div className="s13 dim" style={{ padding: "6px 12px" }}>{personaStatus(e, state.engines).ready ? "Loading models…" : personaStatus(e, state.engines).label}</div>}
+                {!all.length && <div className="s13 dim" style={{ padding: "6px 12px" }}>{personaStatus(e, state.engines).ready ? t("Loading models…") : personaStatus(e, state.engines).label}</div>}
                 {list.map((m) => {
                   const i = picks.findIndex((p) => key(p) === key({ engine: e, model: m.id }));
                   return (
                     <div key={m.id} className={`navi ${i >= 0 ? "on" : ""}`} role="checkbox" aria-checked={i >= 0} onClick={() => toggle(e, m.id)} style={{ padding: "8px 12px" }}>
                       <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 28)} />
                       <span className="t b">{m.label}</span>
-                      {i >= 0 && !talk && <span className="s12" style={{ color: T.green }}>{picks[i].role}</span>}
+                      {i >= 0 && !talk && <span className="s12" style={{ color: T.green }}>{t(picks[i].role)}</span>}
                       <span style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", ...(i >= 0 ? { background: T.green } : { border: "1.5px solid #48484A" }) }}>{i >= 0 && <Icon n="check" s={13} c="#04170B" w={2.6} />}</span>
                     </div>
                   );
@@ -922,41 +998,47 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
               </React.Fragment>
             );
           })}
-          {!older && <div className="navi" style={{ color: T.dim, padding: "8px 12px" }} onClick={() => setOlder(true)}><Icon n="plus" s={15} />More models</div>}
+          {!older && <div className="navi" style={{ color: T.dim, padding: "8px 12px" }} onClick={() => setOlder(true)}><Icon n="plus" s={15} />{t("More models")}</div>}
         </div>
         <div className="col g12" style={{ width: 460, flex: "none" }}>
           <div className="card" style={{ padding: 16 }}>
-            <div className="s14 b">Team</div>
-            {!picks.length && <div className="s13 dim" style={{ marginTop: 8 }}>Tick models on the left.</div>}
+            <div className="s14 b">{t("Team")}</div>
+            {!picks.length && <div className="s13 dim" style={{ marginTop: 8 }}>{t("Tick models on the left.")}</div>}
             {picks.map((p, i) => {
               const info = state.catalog?.[p.engine]?.find((m) => m.id === p.model);
               return (
                 <div key={key(p)} className="row g10" style={{ padding: "10px 0", borderBottom: `1px solid ${T.line2}` }}>
                   <Html h={av(p.engine === "codex" ? "codex" : /sonnet/i.test(info?.label ?? "") ? "sonnet" : "claude", 28)} />
                   <div className="f1" style={{ minWidth: 0 }}><div className="s13 b" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info?.label ?? p.model}</div><div className="s12 dim">{ENGINE_NAME[p.engine]}</div></div>
-                  <Dropdown label={`Effort for ${info?.label}`} value={(p.effort ?? "") as string} width={112} disabled={!info?.efforts.length} onChange={(v) => set(i, { effort: (v || undefined) as Effort | undefined })} options={[{ value: "", label: "Default" }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
-                  {!talk && <Dropdown label={`Role for ${info?.label}`} value={p.role} width={112} onChange={(v) => set(i, { role: v })} options={(["Builder", "Reviewer", "Member"] as const).map((r) => ({ value: r, label: r }))} />}
+                  <Dropdown label={t("Effort for {0}", info?.label ?? "")} value={(p.effort ?? "") as string} width={112} disabled={!info?.efforts.length} onChange={(v) => set(i, { effort: (v || undefined) as Effort | undefined })} options={[{ value: "", label: t("Default") }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
+                  {!talk && <Dropdown label={t("Role for {0}", info?.label ?? "")} value={p.role} width={112} onChange={(v) => set(i, { role: v })} options={(["Builder", "Reviewer", "Member"] as const).map((r) => ({ value: r, label: t(r) }))} />}
                 </div>
               );
             })}
-            <div className="s12 dim" style={{ marginTop: 10, lineHeight: 1.5 }}>{talk ? "Everyone answers in turn and reads the project; nobody edits files." : "One builder edits files after you allow each change; reviewers read the same revision; members answer when @mentioned."}</div>
+            <div className="s12 dim" style={{ marginTop: 10, lineHeight: 1.5 }}>{t(talk ? "Everyone answers in turn and reads the project; nobody edits files." : "One builder edits files after you allow each change; reviewers read the same revision; members answer when @mentioned.")}</div>
           </div>
           <div className="card" style={{ padding: 16 }}>
-            <div className="s14 b">How they work together</div>
+            <div className="s14 b">{t("How they work together")}</div>
             <div className="seg" style={{ marginTop: 10 }}>
-              <span className={talk ? "" : "on"} onClick={() => setTalk(false)}>Build & review</span>
-              <span className={talk ? "on" : ""} onClick={() => setTalk(true)}>Roundtable</span>
+              <span className={talk ? "" : "on"} onClick={() => setTalk(false)}>{t("Build & review")}</span>
+              <span className={talk ? "on" : ""} onClick={() => setTalk(true)}>{t("Roundtable")}</span>
             </div>
-            <div className="s12 dim" style={{ marginTop: 10 }}>{talk ? "Roundtable: 4 turns per message." : reviewers >= 2 ? `Triad: ${reviewers} reviewers in parallel, 6 turns per task.` : "Build & Review: 4 turns per task."}</div>
+            <div className="s12 dim" style={{ marginTop: 10 }}>{talk ? t("Roundtable: 4 turns per message.") : reviewers >= 2 ? t("Triad: {0} reviewers in parallel, 6 turns per task.", reviewers) : t("Build & Review: 4 turns per task.")}</div>
+            <div className="row g8" style={{ marginTop: 14 }}>
+              <input aria-label={t("Template name")} placeholder={t("Save this team as a template…")} value={tplName} maxLength={60} onChange={(e) => setTplName(e.target.value)} style={{ flex: 1, minWidth: 0, padding: "6px 10px", fontSize: 13 }} />
+              <button type="button" className="btn sm" style={{ border: 0, opacity: tplName.trim() && picks.length >= 2 ? 1 : 0.4 }} disabled={!tplName.trim() || picks.length < 2} onClick={async () => (await invoke("team.save", { name: tplName, talk, picks })) && setTplName("")}>
+                {t("Save template")}
+              </button>
+            </div>
           </div>
         </div>
       </div>
       <div className="f1" />
       <div className="row sb" style={{ padding: "18px 0 24px", marginTop: 20, borderTop: `1px solid ${T.line2}` }}>
-        <button type="button" className="btn o" onClick={back}>{first ? "Skip · plain chat" : "Cancel"}</button>
+        <button type="button" className="btn o" onClick={back}>{t(first ? "Skip · plain chat" : "Cancel")}</button>
         <span className="row g12">
-          <span className={`s12 ${ok ? "dim" : ""}`} style={ok ? {} : { color: T.amber }}>{why || `${picks.length} models`}</span>
-          <button type="button" className="btn g" style={{ border: 0, opacity: ok && !busyNow ? 1 : 0.4 }} disabled={!ok || busyNow} onClick={start}>{first ? "Create team chat" : "Start team chat"}</button>
+          <span className={`s12 ${ok ? "dim" : ""}`} style={ok ? {} : { color: T.amber }}>{why || t("{0} models", picks.length)}</span>
+          <button type="button" className="btn g" style={{ border: 0, opacity: ok && !busyNow ? 1 : 0.4 }} disabled={!ok || busyNow} onClick={start}>{t(first ? "Create team chat" : "Start team chat")}</button>
         </span>
       </div>
     </div>
@@ -974,20 +1056,20 @@ function Search({ state, open }: { state: State; open: (id: string) => void }) {
     : [];
   return (
     <div className="panel">
-      <h2>Search</h2>
-      <input autoFocus aria-label="Search chats" placeholder="Search chats and messages" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", maxWidth: 640, marginTop: 12 }} />
+      <h2>{t("Search")}</h2>
+      <input autoFocus aria-label={t("Search chats")} placeholder={t("Search chats and messages")} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", maxWidth: 640, marginTop: 12 }} />
       <div className="col g8" style={{ marginTop: 18, maxWidth: 640 }}>
         {hits.map(({ r, snip }) => {
           const i = snip.toLowerCase().indexOf(needle);
           return (
             <div key={r.id} className="card" style={{ padding: "12px 14px", cursor: "pointer" }} onClick={() => open(r.id)}>
               <div className="s14 b">{r.title}</div>
-              <div className="s12 dim" style={{ marginTop: 2 }}>{r.projectId ? state.projects.find((p) => p.id === r.projectId)?.name : "Chat"}</div>
+              <div className="s12 dim" style={{ marginTop: 2 }}>{r.projectId ? state.projects.find((p) => p.id === r.projectId)?.name : t("Chat")}</div>
               {snip && <div className="s13 sub" style={{ marginTop: 6 }}>…{snip.slice(Math.max(0, i - 50), i + 90)}…</div>}
             </div>
           );
         })}
-        {needle && !hits.length && <div className="dim s13">Nothing found.</div>}
+        {needle && !hits.length && <div className="dim s13">{t("Nothing found.")}</div>}
       </div>
     </div>
   );
@@ -999,15 +1081,52 @@ const PLANNED: [string, string, string][] = [
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
   ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
+/** MCP servers from the user's Claude Code / Codex config, turned on per project */
+function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
+  const [list, setList] = useState<{ name: string; engines: Engine[]; projects: string[] }[] | null>(null);
+  const load = () => void invoke("mcp.list").then((l) => l && setList(l));
+  useEffect(load, [state.revision]);
+  return (
+    <>
+      <h2>{t("Plugins & tools")}</h2>
+      <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>{t("Walt starts every AI without your MCP servers. Turn one on for a project when a task needs it. A change applies from the next message.")}<br />{t("Claude asks you before each tool call. Codex runs MCP tools without asking, so only a Codex builder or chat gets them; Codex reviewers never do.")}</div>
+      <div className="col g8" style={{ marginTop: 18, maxWidth: 820 }}>
+        {list && !list.length && <div className="s13 dim">{t("No MCP servers found in your Claude Code or Codex config.")}</div>}
+        {list?.map((m) => (
+          <div key={m.name} className="card" style={{ padding: "12px 16px" }}>
+            <div className="row g8">
+              <span className="s14 b mono">{m.name}</span>
+              {m.engines.map((e) => <span key={e} className="chip">{ENGINE_LABEL[e]}</span>)}
+            </div>
+            <div className="row g6" style={{ marginTop: 10, flexWrap: "wrap" }}>
+              <span className="s12 dim">{t("On in")}:</span>
+              {!state.projects.length && <span className="s12 dim">{t("No projects yet")}</span>}
+              {state.projects.map((p) => {
+                const on = m.projects.includes(p.id);
+                return (
+                  <span key={p.id} className="chip" role="switch" aria-checked={on} style={{ cursor: "pointer", ...(on ? { background: T.green + "29", color: T.green } : {}) }} onClick={() => void invoke("mcp.set", { projectId: p.id, name: m.name, on: !on }).then(load)}>
+                    {on && <Icon n="check" s={12} c={T.green} w={2.4} />}
+                    {p.name}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
 /** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
-const Customize = (p: PageProps) => <Pages {...p} title="Customize" tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"]]} />;
-const Settings = (p: PageProps) => <Pages {...p} title="Settings" tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["about", "About", "eye"]]} />;
+const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
   const rows: [string, string, React.ReactNode][] = [
-    ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{l}</span>)}</div>],
-    ["Theme", "", <div className="seg">{([["dark", "Dark"], ["light", "Light"]] as const).map(([v, l]) => <span key={v} className={s.theme === v ? "on" : ""} onClick={() => invoke("settings", { theme: v })}>{l}</span>)}</div>],
+    ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{t(l)}</span>)}</div>],
+    ["Theme", "", <div className="seg">{([["dark", "Dark"], ["light", "Light"]] as const).map(([v, l]) => <span key={v} className={s.theme === v ? "on" : ""} onClick={() => invoke("settings", { theme: v })}>{t(l)}</span>)}</div>],
     [
       "Default model for new chats",
       "Picking a model in a chat changes this too.",
@@ -1020,34 +1139,61 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
           void invoke("settings", { lastTarget: { engine: v.slice(0, i), model: v.slice(i + 1) } });
         }}
         options={[
-          ...(s.lastTarget ? [] : [{ value: "", label: "Claude default" }]),
-          ...ENGINES_ON.flatMap((e) => (state.catalog?.[e] ?? []).filter((m) => !m.more).map((m) => ({ value: `${e}:${m.id}`, label: m.label === "Default" ? `${ENGINE_NAME[e]} default` : m.label, hint: ENGINE_NAME[e] }))),
+          ...(s.lastTarget ? [] : [{ value: "", label: t("{0} default", "Claude") }]),
+          ...ENGINES_ON.flatMap((e) => (state.catalog?.[e] ?? []).filter((m) => !m.more).map((m) => ({ value: `${e}:${m.id}`, label: m.label === "Default" ? t("{0} default", ENGINE_NAME[e]) : m.label, hint: ENGINE_NAME[e] }))),
         ]}
       />,
     ],
-    ["Keep AI ready for", "After that its process sleeps and wakes in a few seconds when needed.", <Dropdown label="Keep AI ready for" value={String(s.idleMinutes)} width={140} onChange={(v) => invoke("settings", { idleMinutes: Number(v) })} options={[5, 10, 15, 30, 60].map((m) => ({ value: String(m), label: `${m} minutes` }))} />],
+    ["Keep AI ready for", "After that its process sleeps and wakes in a few seconds when needed.", <Dropdown label="Keep AI ready for" value={String(s.idleMinutes)} width={140} onChange={(v) => invoke("settings", { idleMinutes: Number(v) })} options={[5, 10, 15, 30, 60].map((m) => ({ value: String(m), label: t("{0} minutes", m) }))} />],
   ];
   return (
     <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
       <div className="col g4" style={{ width: 210, padding: "26px 12px", borderRight: `1px solid ${T.line2}`, flex: "none" }}>
-        <div className="s18 b" style={{ padding: "0 10px 12px" }}>{title}</div>
+        <div className="s18 b" style={{ padding: "0 10px 12px" }}>{t(title)}</div>
         {tabs.map(([k, l, i]) => (
-          <div key={k} role="button" className={`navi ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}><Icon n={i} /><span className="t">{l}</span></div>
+          <div key={k} role="button" className={`navi ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}><Icon n={i} /><span className="t">{t(l)}</span></div>
         ))}
       </div>
       <div className="panel">
         {tab === "ai" && (
           <>
-            <h2>AI & models</h2>
-            <div className="s13 dim" style={{ marginBottom: 20 }}>Walt uses the apps you are signed in to. The models in each chat's menu come from your account.</div>
+            <h2>{t("AI & models")}</h2>
+            <div className="s13 dim" style={{ marginBottom: 20 }}>{t("Walt uses the apps you are signed in to. The models in each chat's menu come from your account.")}</div>
             <EngineCards state={state} invoke={invoke} />
-            <div className="lbl" style={{ marginTop: 30 }}>More AI · planned</div>
+            <div className="lbl" style={{ marginTop: 30 }}>{t("More AI · planned")}</div>
             <div className="col g8">
               {PLANNED.map(([title, d, i]) => (
                 <div key={title} className="card row g12" style={{ padding: "12px 16px", opacity: 0.85 }}>
                   {i === "gemini" ? <Html h={av("gemini", 30)} /> : <Icon n={i} s={20} c={T.sub} />}
-                  <div className="f1"><div className="s14 b">{title}</div><div className="s12 dim" style={{ marginTop: 2 }}>{d}</div></div>
-                  <span className="pill" style={{ background: "#3A3A3C", color: T.sub }}>Planned</span>
+                  <div className="f1"><div className="s14 b">{t(title)}</div><div className="s12 dim" style={{ marginTop: 2 }}>{t(d)}</div></div>
+                  <span className="pill" style={{ background: "#3A3A3C", color: T.sub }}>{t("Planned")}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {tab === "plugins" && <Plugins state={state} invoke={invoke} />}
+        {tab === "teams" && (
+          <>
+            <h2>{t("Team templates")}</h2>
+            <div className="col g8" style={{ marginTop: 14, maxWidth: 760 }}>
+              {!state.teams?.length && <div className="s13 dim">{t("No team templates yet. Make one in New team chat: pick the models, then Save template.")}</div>}
+              {state.teams?.map((tm) => (
+                <div key={tm.id} className="card row g12" style={{ padding: "12px 16px" }}>
+                  <div className="f1" style={{ minWidth: 0 }}>
+                    <div className="s14 b">{tm.name}</div>
+                    <div className="s12 dim" style={{ marginTop: 2 }}>{t(tm.talk ? "Roundtable team" : "Build & review team")}</div>
+                    <div className="row g6" style={{ marginTop: 8, flexWrap: "wrap" }}>
+                      {tm.picks.map((p) => (
+                        <span key={p.engine + p.model} className="chip">
+                          {label(state, p.engine, p.model)}
+                          {!tm.talk && <span className="dim"> · {t(p.role)}</span>}
+                          {p.effort && <span className="dim"> · {p.effort}</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <button type="button" className="btn sm r" style={{ border: 0 }} onClick={() => confirm(t("Delete {0}?", tm.name)) && invoke("team.delete", tm.id)}>{t("Delete")}</button>
                 </div>
               ))}
             </div>
@@ -1055,18 +1201,18 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         )}
         {tab === "personas" && (
           <>
-            <h2>Personas</h2>
+            <h2>{t("Personas")}</h2>
             <div style={{ marginTop: 14 }}><PersonaSettings state={state} invoke={invoke} /></div>
           </>
         )}
         {tab === "general" && (
           <>
-            <h2>General</h2>
-            <div className="s13 dim">How Walt behaves on this laptop. What the AI can do lives in Customize.</div>
+            <h2>{t("General")}</h2>
+            <div className="s13 dim">{t("How Walt behaves on this laptop. What the AI can do lives in Customize.")}</div>
             <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
               {rows.map(([title, d, c], i) => (
                 <div key={title} className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
-                  <div className="f1"><div className="s14">{title}</div>{d && <div className="s12 dim" style={{ marginTop: 2 }}>{d}</div>}</div>
+                  <div className="f1"><div className="s14">{t(title)}</div>{d && <div className="s12 dim" style={{ marginTop: 2 }}>{t(d)}</div>}</div>
                   {c}
                 </div>
               ))}
@@ -1075,21 +1221,21 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         )}
         {tab === "permissions" && (
           <>
-            <h2>Permissions</h2>
+            <h2>{t("Permissions")}</h2>
             <div className="card col g12 s13" style={{ padding: 18, marginTop: 18, maxWidth: 720, lineHeight: 1.6 }}>
-              <div><b>Chats without a project</b> · the AI can talk and read, never edit.</div>
-              <div><b>Chats in a project</b> · every file edit and command asks you first, with the full command or diff.</div>
-              <div><b>Team chats</b> · one builder writes at a time; reviewers are read-only.</div>
-              <div><b>Ce:L island</b> · can pause and answer questions; tool approvals always open Walt.</div>
-              <div className="dim">Waiting never counts as allow. Walt does not use API keys or your passwords.</div>
+              <div><b>{t("Chats without a project")}</b> · {t("the AI can talk and read, never edit.")}</div>
+              <div><b>{t("Chats in a project")}</b> · {t("every file edit and command asks you first, with the full command or diff.")}</div>
+              <div><b>{t("Team chats")}</b> · {t("one builder writes at a time; reviewers are read-only.")}</div>
+              <div><b>{t("Ce:L island")}</b> · {t("can pause and answer questions; tool approvals always open Walt.")}</div>
+              <div className="dim">{t("Waiting never counts as allow. Walt does not use API keys or your passwords.")}</div>
             </div>
           </>
         )}
         {tab === "about" && (
           <>
-            <h2>About Walt</h2>
+            <h2>{t("About Walt")}</h2>
             <div className="s13 dim" style={{ marginTop: 8, lineHeight: 1.7 }}>
-              Version 0.1.0 · child app of Ce:L<br />History and settings stay on this laptop.<br />Engines: {ENGINES_ON.map((e) => ENGINE_LABEL[e]).join(", ")}
+              Version 0.1.0 · child app of Ce:L<br />{t("History and settings stay on this laptop.")}<br />Engines: {ENGINES_ON.map((e) => ENGINE_LABEL[e]).join(", ")}
             </div>
           </>
         )}

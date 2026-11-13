@@ -7,6 +7,7 @@ import { aliases } from "../../packages/domain/command";
 import { T, av, ic, role as roleTag, dot } from "./generated/kit.mjs";
 import { esc } from "./markdown";
 import { personaStatus, personaLine, modelLabel, ENGINE_LABEL } from "./onboarding";
+import { t } from "./i18n";
 
 type Invoke = (method: string, input?: unknown) => Promise<any>;
 const Html = ({ h }: { h: string }) => <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: h }} />;
@@ -14,15 +15,15 @@ const Html = ({ h }: { h: string }) => <span style={{ display: "contents" }} dan
 // ---------- HTML helpers for the room (the room view is built from design-kit HTML strings) ----------
 const PROC: Record<string, [string, string]> = { busy: ["Working", T.green], warm: ["Ready", T.blue], cold: ["Asleep", T.faint], wait: ["Waiting", T.amber] };
 export const personaItem = (p: PersonaDef, r: string, st: string, detail: string) =>
-  `<div class="item" data-hot="persona:${esc(p.id)}">${av(p.avatar, 36)}<div class="f1"><div class="row sb"><span class="t">${esc(p.name)}</span>${roleTag(p.avatar, r)}</div><div class="p row g6">${dot(PROC[st][1], 7)}<span>${PROC[st][0]} · ${esc(detail)}</span></div></div></div>`;
+  `<div class="item" data-hot="persona:${esc(p.id)}">${av(p.avatar, 36)}<div class="f1"><div class="row sb"><span class="t">${esc(p.name)}</span>${roleTag(p.avatar, r)}</div><div class="p row g6">${dot(PROC[st][1], 7)}<span>${t(PROC[st][0])} · ${esc(detail)}</span></div></div></div>`;
 /** an AI message; `name` overrides the persona name (plain chats show the model, e.g. "Opus 5.5"); an empty role hides the tag */
 export const personaMsg = (p: PersonaDef, r: string, time: string, body: string, name = p.name) =>
   `<div class="msg">${av(p.avatar, 32)}<div class="col" style="min-width:0"><div class="mh"><span class="n">${esc(name)}</span>${r ? roleTag(p.avatar, r) : ""}<span>${time}</span></div><div class="bub">${body}</div></div></div>`;
 /** the chip under cello's message that shows what Walt read from @mention and /commands */
 export function metaChip(meta: NonNullable<Room["messages"][number]["meta"]>, name: (id: string) => string, setting: boolean) {
-  const who = meta.to ? name(meta.to) : "everyone";
-  const what = [meta.effort && `effort ${meta.effort}`, meta.model && `model ${esc(meta.model)}`].filter(Boolean).join(" · ");
-  const text = setting ? `${who} now uses ${what} in this room` : [`→ ${who}`, what, meta.keep && "kept for this room"].filter(Boolean).join(" · ");
+  const who = meta.to ? name(meta.to) : t("everyone");
+  const what = [meta.effort && t("effort {0}", meta.effort), meta.model && t("model {0}", esc(meta.model))].filter(Boolean).join(" · ");
+  const text = setting ? t("{0} now uses {1} in this room", who, what) : [`→ ${who}`, what, meta.keep && t("kept for this room")].filter(Boolean).join(" · ");
   return `<div class="row" style="justify-content:flex-end;margin:-8px 0 10px"><span class="chip">${ic("steer", 13, T.sub)}${text}</span></div>`;
 }
 
@@ -85,35 +86,35 @@ export function PersonaSettings({ state, invoke }: { state: State; invoke: Invok
   return (
     <div className="col g12">
       <div className="row sb">
-        <div className="s13 dim">A persona is an AI + model + effort, saved under a name. Mention it in a chat with @name.</div>
-        <button className="btn g" style={{ border: 0 }} onClick={() => open(blank())}>New persona</button>
+        <div className="s13 dim">{t("A persona is an AI + model + effort, saved under a name. Mention it in a chat with @name.")}</div>
+        <button className="btn g" style={{ border: 0 }} onClick={() => open(blank())}>{t("New persona")}</button>
       </div>
       {edit && (
         <div className="card col g12" style={{ padding: 18, borderColor: T.green }}>
-          <div className="s15 b">{edit.id ? `Edit ${edit.name}` : "New persona"}</div>
+          <div className="s15 b">{edit.id ? t("Edit {0}", edit.name) : t("New persona")}</div>
           <div className="row g12" style={{ alignItems: "flex-end" }}>
-            <label className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>Name (used for @mention)</div><input aria-label="Persona name" style={{ width: "100%" }} value={edit.name} maxLength={40} placeholder="e.g. GPT Builder" onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
+            <label className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Name (used for @mention)")}</div><input aria-label={t("Persona name")} style={{ width: "100%" }} value={edit.name} maxLength={40} placeholder={t("e.g. GPT Builder")} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
             <div><div className="s12 dim" style={{ marginBottom: 4 }}>AI</div>
               <Dropdown label="AI" value={edit.engine} width={170} onChange={(engine) => { setCustom(false); setEdit({ ...edit, engine, model: "default", effort: undefined, avatar: engine === "claude" ? "claude" : engine }); }} options={ENGINES_ON.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))} /></div>
           </div>
           <div className="row g12" style={{ alignItems: "flex-end" }}>
-            <div className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>Model</div>
+            <div className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Model")}</div>
               {models.length && !custom ? (
                 <Dropdown label="Model" value={edit.model || "default"} width={320} onChange={(v) => (v === "__custom" ? setCustom(true) : setEdit({ ...edit, model: v, effort: undefined }))}
-                  options={[...(models.some((m) => m.id === "default") ? [] : [{ value: "default", label: modelLabel(state, edit.engine, "default") }]), ...models.map((m) => ({ value: m.id, label: m.label, hint: m.more ? "older" : undefined })), { value: "__custom", label: "Other id…" }]} />
+                  options={[...(models.some((m) => m.id === "default") ? [] : [{ value: "default", label: modelLabel(state, edit.engine, "default") }]), ...models.map((m) => ({ value: m.id, label: m.label, hint: m.more ? "older" : undefined })), { value: "__custom", label: t("Other id…") }]} />
               ) : (
-                <input aria-label="Model id" style={{ width: "100%" }} value={edit.model} maxLength={80} placeholder="the model id the CLI accepts" onChange={(e) => setEdit({ ...edit, model: e.target.value.trim() })} />
+                <input aria-label={t("Model id")} style={{ width: "100%" }} value={edit.model} maxLength={80} placeholder={t("the model id the CLI accepts")} onChange={(e) => setEdit({ ...edit, model: e.target.value.trim() })} />
               )}
             </div>
-            <div><div className="s12 dim" style={{ marginBottom: 4 }}>Effort</div>
+            <div><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Effort")}</div>
               <Dropdown label="Effort" value={(edit.effort ?? "") as string} width={150} disabled={!levels.length} onChange={(v) => setEdit({ ...edit, effort: (v || undefined) as Effort | undefined })}
-                options={[{ value: "", label: levels.length ? "Default" : "Not supported" }, ...levels.map((l) => ({ value: l as string, label: l[0].toUpperCase() + l.slice(1) }))]} /></div>
-            <div><div className="s12 dim" style={{ marginBottom: 4 }}>Avatar</div>
+                options={[{ value: "", label: t(levels.length ? "Default" : "Not supported") }, ...levels.map((l) => ({ value: l as string, label: l[0].toUpperCase() + l.slice(1) }))]} /></div>
+            <div><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Avatar")}</div>
               <Dropdown label="Avatar" value={edit.avatar} width={130} onChange={(v) => setEdit({ ...edit, avatar: v as PersonaDef["avatar"] })} options={(["claude", "sonnet", "codex"] as const).map((a) => ({ value: a, label: a === "sonnet" ? "Claude (S)" : a === "claude" ? "Claude" : "Codex" }))} /></div>
           </div>
-          <label><div className="s12 dim" style={{ marginBottom: 4 }}>Good at (comma separated, up to 6)</div><input aria-label="Strengths" style={{ width: "100%" }} value={strengths} onChange={(e) => setStrengths(e.target.value)} placeholder="Code changes, Tests" /></label>
+          <label><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Good at (comma separated, up to 6)")}</div><input aria-label={t("Strengths")} style={{ width: "100%" }} value={strengths} onChange={(e) => setStrengths(e.target.value)} placeholder={t("Code changes, Tests")} /></label>
           <div className="s12 dim">{personaStatus(edit.engine, state.engines).ready ? "This AI is ready on this laptop." : `${ENGINE_LABEL[edit.engine]}: ${personaStatus(edit.engine, state.engines).label}.`}</div>
-          <div className="row g8"><button className="btn g" style={{ border: 0 }} onClick={save}>Save persona</button><button className="btn" style={{ border: 0 }} onClick={() => setEdit(null)}>Cancel</button></div>
+          <div className="row g8"><button className="btn g" style={{ border: 0 }} onClick={save}>{t("Save persona")}</button><button className="btn" style={{ border: 0 }} onClick={() => setEdit(null)}>{t("Cancel")}</button></div>
         </div>
       )}
       {shown.map((p) => {
@@ -127,8 +128,8 @@ export function PersonaSettings({ state, invoke }: { state: State; invoke: Invok
               <div className="row g6" style={{ marginTop: 6, flexWrap: "wrap" }}>{p.strengths.map((t) => <span key={t} className="chip" style={{ fontSize: 11, padding: "2px 7px" }}>{t}</span>)}</div>
             </div>
             <span className="row g6 s12" style={{ width: 150 }}><span style={{ width: 7, height: 7, borderRadius: 7, background: s.color, display: "block" }} />{s.label}</span>
-            <button className="btn sm" style={{ border: 0 }} onClick={() => open(p)}>Edit</button>
-            <button className="btn sm r" style={{ border: 0 }} onClick={() => confirm(`Delete ${p.name}? Chats that use it must drop it first.`) && invoke("persona.delete", p.id)}>Delete</button>
+            <button className="btn sm" style={{ border: 0 }} onClick={() => open(p)}>{t("Edit")}</button>
+            <button className="btn sm r" style={{ border: 0 }} onClick={() => confirm(t("Delete {0}? Chats that use it must drop it first.", p.name)) && invoke("persona.delete", p.id)}>{t("Delete")}</button>
           </div>
         );
       })}

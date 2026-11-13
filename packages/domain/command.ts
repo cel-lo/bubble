@@ -55,3 +55,14 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   });
   return { text: text.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, ""), to, effort, model, keep };
 }
+
+/** a question the AI ended its reply with: "DECISION: <question>" then 2–4 "- option" lines; undefined when there is none */
+export function decision(text: string) {
+  const lines = text.trimEnd().split(/\r?\n/);
+  const at = lines.map((l) => /^\s*\**DECISION:?\**\s*/i.test(l)).lastIndexOf(true);
+  if (at < 0) return undefined;
+  const question = lines[at].replace(/^\s*\**DECISION:?\**\s*/i, "").trim();
+  const options = lines.slice(at + 1).filter((l) => l.trim()).map((l) => l.match(/^\s*[-*•]\s+(.+)$/)?.[1]?.trim());
+  if (!question || options.length < 2 || options.length > 4 || options.some((o) => !o)) return undefined;
+  return { question, options: options as string[] };
+}

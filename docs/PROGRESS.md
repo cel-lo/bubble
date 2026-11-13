@@ -77,10 +77,29 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Add model: the whole popover scrolled, so the Add / Cancel row was cut off on short windows. Now only the model list scrolls, the popover opens upward from the sidebar's Team · Add when there is more room above, Enter adds, and the button reads "Pick a model" until one is chosen. Checked on a 1500×700 window from both buttons; GPT-6-Astra added.
 - Thin scrollbars everywhere (no arrow buttons, rounded thumb), light and dark.
 
+## Toward 100% for Claude + GPT — 2026-11-13
+
+- Storage: messages have their own table and only changed ones are written; the state row no longer carries history. Older data moves over on the first save. While a reply streams, the window gets only the new text 5x a second; disk and the full state follow every 2 s. Unit test (legacy load, no rewrite of unchanged messages, order and streamed text after restart, deleted chats leave no rows).
+- Fix + re-review loop: reviewers end with VERDICT: APPROVE or VERDICT: CHANGES. On changes, the builder gets the findings and makes a fix round (new revision), then the same reviewers check again, until all approve, the budget is used, or a verdict is missing (Walt says which). Reviewers now get the text of every changed file (60 KB cap) and may use read-only commands, so a Codex reviewer can review. Workflow strip shows Build, Review, Fix. Unit test with fake sessions; real run: Haiku fixed math.js, GPT-6-Luna asked for changes once (before the file text was included), the fix round ran, then the budget stop message; after the change GPT-6-Luna approved r1 from the file text.
+- Quit: Walt asks the host to stop every AI process tree (taskkill /T, so commands they started end too) and close the database before exiting, 5 s at most. Verified: quit closed Walt in 0.8 s and its claude.exe ended. Shortcut: a hard crash still leaves no Job Object; tool processes started by a CLI can outlive a crash.
+- Bahasa Indonesia: every interface string goes through t() (apps/ui/i18n.ts) with apps/ui/id.ts; missing entries fall back to English. Checked on chat, team panel, Settings, Permissions.
+- Continue in Claude Code / Codex (chat … menu): opens a terminal in the chat's folder running claude --resume <id> or codex resume <id>. Session ids are now kept on the chat, so a chat also resumes its CLI memory after Walt restarts. Verified: the terminal ran claude --resume with the chat's id.
+- Export context (chat … menu): writes WALT.md into the project (only over a WALT.md Walt wrote) with project, team, latest revision and the last 40 messages; chats without a project copy it to the clipboard instead. 18 unit tests.
+- Not changed on purpose: Claude builders still have no shell (COMPATIBILITY.md: no Bash until process-tree containment is proven), so a Claude builder cannot run tests; a Codex builder can, with approval.
+
+## Containment, decisions, team templates, MCP per project — 2026-11-13
+
+- Job Object (packages/adapters/job.ts): every claude.exe / codex.exe goes into one Windows job with KILL_ON_JOB_CLOSE, held by a small PowerShell helper (Add-Type, no native module) that reads PIDs on stdin. When Walt's host goes away, even by crashing, the job closes and ends the CLIs and everything they started. Verified: unit test (process + its later child both end); Codex still runs commands inside the job (node -v); a Codex ping kept running was gone after force-killing Walt; no helper or codex left behind.
+- Decision asks: the builder may end with "DECISION: question" and 2-4 "- option" lines; Walt stops before review (step "awaiting decision") and shows the options as buttons under the message. A choice goes back to the builder as a plain message (build, then review), or as an @mention to whoever asked. Unit test.
+- Team templates: "Save template" in Who joins; templates show as one-click chips there; Customize · Team templates lists and deletes them. Same name replaces. Unit test.
+- Plugins & tools: MCP servers from ~/.claude.json (user scope) and ~/.codex/config.toml, turned on per project (Project.mcp). Claude gets a --mcp-config file with only those servers (env stays off the command line) and asks before each tool call; Codex keeps every other server off. Codex runs MCP tools without an approval request, so read-only Codex sessions (reviewers) never get MCP. Verified with figcraft: Claude asked for mcp__figcraft__list_commands and answered after approval; Codex answered without asking (documented on the page). Unit test.
+- Recovery: a chat cut off by a crash used to lock its project for good (no way out). It now shows "The last run stopped before it finished" with "I checked, continue", which unlocks the chat and project without replaying anything. Unit test + checked in the app.
+- 23 unit tests.
+
 ## Found while testing (next work, in order)
 
-1. Whole state (all messages) is rewritten as one JSON row every 200 ms while streaming. Move messages to their own table before histories grow.
-2. "Continue in Claude Code / Codex" and "Export context" buttons.
-3. Fix + re-review loop, decision asks, Walt picking roles per task, Job Objects for tool child processes.
-4. Gemini adapter (`--acp`) once cello signs in; then API-key engines (Groq and others).
-5. Indonesian copy not checked on the new layout. Customize · Plugins & tools and Team templates (designed in V13/V14) are not built.
+1. Decide: give Claude builders a shell (Bash, each command still asks first). Process containment, the condition in COMPATIBILITY.md, now exists.
+2. Walt picking roles per task (Auto mode from the blueprint).
+3. Installer and code signing (Smart App Control).
+4. Ce:L island side of the control API; Gemini adapter once cello signs in; API-key engines (Groq and others).
+5. Click-through links for the V01–V14 FigCraft frames.

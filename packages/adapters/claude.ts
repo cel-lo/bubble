@@ -6,6 +6,10 @@ import { LEVELS, type ModelInfo } from "../domain/model";
 export type Approval = (tool: string, input: unknown) => Promise<boolean>;
 export class ClaudeSession {
   private child: ChildProcessWithoutNullStreams;
+  /** the CLI process id, for the Job Object */
+  get pid() {
+    return this.child.pid;
+  }
   private pending?: {
     resolve: (text: string) => void;
     reject: (e: Error) => void;
@@ -25,6 +29,8 @@ export class ClaudeSession {
     readonly: boolean,
     readonly effort?: string,
     resume?: string,
+    /** --mcp-config value: a JSON file path with the project's servers, or none */
+    mcpConfig = '{"mcpServers":{}}',
   ) {
     const args = [
       "--print",
@@ -41,7 +47,7 @@ export class ClaudeSession {
       "--restricted",
       "--strict-mcp-config",
       "--mcp-config",
-      '{"mcpServers":{}}',
+      mcpConfig,
       "--setting-sources=",
       "--disable-slash-commands",
       "--tools",
