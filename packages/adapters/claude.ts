@@ -62,11 +62,14 @@ export class ClaudeSession {
       "--permission-mode",
       "manual",
       "--restricted",
-      "--strict-mcp-config",
+      // the claude.ai account's connectors (Gmail, Calendar, Docs…) come in only without the strict flag
+      ...(kit.connectors ? [] : ["--strict-mcp-config"]),
       "--mcp-config",
       mcpConfig,
       "--setting-sources=",
-      "--disable-slash-commands",
+      // skills (from plugins) need the Skill tool and the skill list; without plugins there is nothing to list
+      ...(kit.claudePlugins.length ? [] : ["--disable-slash-commands"]),
+      ...(kit.instructions ? ["--append-system-prompt", kit.instructions] : []),
       "--tools",
       claudeTools(readonly, shell, kit),
       ...kit.claudePlugins.flatMap((p) => ["--plugin-dir", p.dir]),

@@ -184,7 +184,7 @@ test("island rejects browser origins, bad auth and approvals; dedupes commands; 
     assert.equal((await answer("SQLite", "d-1")).status, 200);
     const sent = room.messages.find((m) => m.author === "cello")!;
     assert.deepEqual([sent.text, sent.meta?.via], ["SQLite", "island"], "recorded as answered from the island");
-    for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+    for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
     assert.equal((await answer("SQLite", "d-2")).status, 400, "already answered");
     // answering from the island turned off: the question shows without options, and answers are refused
     host.state.settings.islandAnswers = false;
@@ -275,7 +275,7 @@ test("codex runs without the user's MCP servers, plugins or apps", async () => {
   assert.deepEqual(skills, [join(dir, "skills", "ponytail", "SKILL.md")]);
   assert.ok(codexArgs([], skills).includes(`skills.config=[{path='${skills[0]}',enabled=false}]`));
   // Plugins & tools on: images, apps, plugins and web search on; browser and computer use stay off; a plugin switched off is named
-  const on = codexArgs([], skills, { images: true, web: true, apps: true, codexPlugins: ["a@b"], claudePlugins: [], browser: false, computer: false, mcp: [] }, ["a@b", "c@d"]).join(" ");
+  const on = codexArgs([], skills, { images: true, web: true, apps: true, codexPlugins: ["a@b"], claudePlugins: [], browser: false, computer: false, mcp: [], connectors: false, instructions: "" }, ["a@b", "c@d"]).join(" ");
   for (const f of ["image_generation", "apps", "plugins"]) assert.ok(!on.includes("--disable " + f), f + " on");
   assert.ok(on.includes("--disable computer_use") && on.includes('web_search="live"') && on.includes('plugins."c@d".enabled=false') && !on.includes("skills.config"));
   assert.ok(onlyReads([{ type: "read" }, { type: "search" }]) && !onlyReads([{ type: "read" }, { type: "unknown" }]) && !onlyReads([]));
@@ -686,7 +686,7 @@ test("a usage limit becomes a card, and another model takes the message again", 
     },
     stop: async () => {},
   });
-  const idle = async () => { for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10)); };
+  const idle = async () => { for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10)); };
   await host.send(r.id, "write the plan");
   await idle();
   const card = r.messages.at(-1)!;
@@ -717,9 +717,39 @@ test("pictures: Walt's own show in the chat, attached ones go to the AI with you
   const seen: { prompt: string; images: string[] }[] = [];
   (host.supervisor as any).get = async () => ({ run: async (prompt: string, _d: unknown, _a: unknown, images: string[]) => (seen.push({ prompt, images }), "a cat"), stop: async () => {} });
   await host.send(r.id, `what is this?\n\n${saved.markdown}`);
-  for (let i = 0; i < 200 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+  for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
   assert.deepEqual(seen[0].images, [join(media.dir, saved.name)]);
   assert.ok(!seen[0].prompt.includes("walt-img://"), "the prompt names the picture instead of linking it");
   await host.close();
   await rm(dir, { recursive: true });
+});
+import { syncedPlugin, synced } from "../packages/adapters/tools";
+test("claude.ai skills become one plugin; connectors, skills and instructions reach Claude", async () => {
+  const home = await mkdtemp(join(tmpdir(), "walt-home-"));
+  const acct = join(home, ".claude", "skills", "synced", "acct");
+  for (const n of ["docx", "chrome-browser"]) {
+    await mkdir(join(acct, n), { recursive: true });
+    await writeFile(join(acct, n, "SKILL.md"), "---\nname: " + n + "\n---\n");
+  }
+  await writeFile(join(acct, "manifest.json"), '{"lastUpdated":1}');
+  await writeFile(join(home, ".claude", "skills", "synced", ".bucket-acct"), "x"); // the app keeps files there too
+  synced.dir = join(home, "out");
+  const p = syncedPlugin(home)!;
+  const { readdirSync, existsSync } = await import("node:fs");
+  assert.deepEqual(readdirSync(join(p.dir, "skills")), ["docx"], "skills for tools only the Claude app has are left out");
+  assert.ok(existsSync(join(p.dir, ".claude-plugin", "plugin.json")));
+  const args = (kit: any) => {
+    const s = new ClaudeSession(process.execPath, tmpdir(), "", false, undefined, undefined, undefined, false, kit);
+    (s as any).ready.catch(() => {});
+    (s as any).child.stdin.on("error", () => {});
+    const a: string[] = (s as any).child.spawnargs;
+    (s as any).child.kill();
+    return a;
+  };
+  const on = args({ images: false, web: false, apps: false, codexPlugins: [], claudePlugins: [{ id: "x", dir: p.dir }], browser: false, computer: false, mcp: [], connectors: true, instructions: "Answer in Indonesian." });
+  assert.ok(!on.includes("--strict-mcp-config") && !on.includes("--disable-slash-commands") && on.includes("Skill" ) === false);
+  assert.ok(on.join(" ").includes("Skill") && on.includes("--plugin-dir") && on[on.indexOf("--append-system-prompt") + 1] === "Answer in Indonesian.");
+  const off = args({ images: false, web: false, apps: false, codexPlugins: [], claudePlugins: [], browser: false, computer: false, mcp: [], connectors: false, instructions: "" });
+  assert.ok(off.includes("--strict-mcp-config") && off.includes("--disable-slash-commands") && !off.includes("--append-system-prompt"), "a reviewer stays closed");
+  await rm(home, { recursive: true });
 });

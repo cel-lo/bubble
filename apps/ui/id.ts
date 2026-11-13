@@ -363,4 +363,12 @@ export const ID: Record<string, string> = {
   "Dark theme": "Tema gelap",
   "Light theme": "Tema terang",
   "Command palette: chats, pages, actions": "Palet perintah: chat, halaman, aksi",
+  "Claude app connectors": "Konektor aplikasi Claude",
+  "Gmail, Google Calendar, Claude Docs and the other connectors of your claude.ai account. If one says it needs sign-in, run claude once and use /mcp.": "Gmail, Google Calendar, Claude Docs, dan konektor lain di akun claude.ai kamu. Kalau ada yang minta login, buka claude sekali lalu jalankan /mcp.",
+  "Instructions": "Instruksi",
+  "Every AI in Walt gets this, in every chat: who you are, what you work on, how you like answers. It works like custom instructions in ChatGPT. To bring your ChatGPT memory along, copy it from ChatGPT · Settings · Personalization · Memory and paste the parts you want here.": "Setiap AI di Walt menerima ini di setiap chat: siapa kamu, apa yang kamu kerjakan, dan jawaban seperti apa yang kamu suka. Fungsinya seperti custom instructions di ChatGPT. Untuk membawa memory ChatGPT, salin dari ChatGPT · Settings · Personalization · Memory lalu tempel bagian yang kamu mau di sini.",
+  "For example: I'm cello, a student in Indonesia. Answer in Indonesian unless I write in English. Keep answers short, and show code before explaining it.": "Contoh: Aku cello, mahasiswa di Indonesia. Jawab pakai bahasa Indonesia kecuali aku menulis dalam bahasa Inggris. Jawaban singkat, dan tunjukkan kodenya dulu sebelum penjelasan.",
+  "Applies from the next message.": "Berlaku mulai pesan berikutnya.",
+  "Saved": "Tersimpan",
+  "Save": "Simpan",
 };

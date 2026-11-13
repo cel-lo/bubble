@@ -119,6 +119,7 @@ parent.on("message", async ({ data }: any) => {
               claudeShell: z.boolean(),
               islandAnswers: z.boolean(),
               closeAction: z.enum(["tray", "quit"]),
+              instructions: z.string().max(4000),
               notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),

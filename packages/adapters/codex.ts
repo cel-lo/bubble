@@ -105,6 +105,7 @@ export class CodexSession {
         approvalPolicy: "untrusted",
         sandbox: readonly ? "read-only" : "workspace-write",
         ...(model ? { model } : {}),
+        ...(kit.instructions ? { developerInstructions: kit.instructions } : {}),
       };
       // shortcut: a failed resume silently starts a new thread (Walt resends the full packet each turn, so the task
       // context survives); show "new session" in the timeline once resume state is surfaced in the UI

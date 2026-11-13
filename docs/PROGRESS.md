@@ -152,6 +152,14 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Ce:L (D:/NEWNUSA/cel/app): Settings → Walt page with the peek switches and the connection line; login and handoff peeks; paging through more than two chats. 7 Rust tests on the Walt side.
 - Not built on purpose: the task board from the old W11 design. Chats inside a project already play that part.
 
+## Claude skills, claude.ai connectors, instructions — 2026-11-14
+
+- Found: Walt started Claude with --disable-slash-commands, so Claude had no skills at all, plugins or not. Now dropped when plugins are on: all 5 Claude Code plugins' skills are usable (checked: Haiku listed academic-research, ponytail, ui-ux-pro-max, document-skills, superpowers).
+- Skills synced from claude.ai (deep-research, docx, google-workspace, import-memory, pdf, pptx, skill-creator, xlsx) load as one generated plugin, rebuilt when claude.ai syncs again; shown as Skills from claude.ai in Plugins & tools. Checked live.
+- Claude app connectors (Plugins & tools, on by default): the claude.ai account's connectors. Claude Docs works; Gmail and Calendar need one sign-in in Claude Code (claude, then /mcp).
+- Customize · Instructions: what every AI should know about you, sent to Claude (--append-system-prompt) and Codex (developerInstructions). Checked: both started with the test line. ChatGPT memory cannot be read by any API; the page says how to copy it in.
+- 29 unit tests.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

@@ -131,6 +131,8 @@ export interface ToolSettings {
   codexPlugins?: boolean;
   /** all Claude Code plugins and skills; single ones are switched off in `off` */
   claudePlugins?: boolean;
+  /** the connectors of your claude.ai account (Gmail, Calendar, Claude Docs…) in Claude */
+  connectors?: boolean;
   /** Codex browser use and computer use act on your screen: off unless turned on */
   browser?: boolean;
   computer?: boolean;
@@ -167,6 +169,8 @@ export interface State {
     /** the Ce:L island may answer DECISION: questions (default on); tool approvals always open Walt */
     islandAnswers?: boolean;
     tools?: ToolSettings;
+    /** Customize · Instructions: sent to every AI, like ChatGPT's custom instructions */
+    instructions?: string;
     /** the window's close button: hide to the tray (default, so the island stays connected) or quit Walt */
     closeAction?: "tray" | "quit";
     /** Windows notifications when an AI needs you or finishes while Walt is in the background (default on) */

@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
-import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
+import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, syncedPlugin, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
 
 const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
 
@@ -45,6 +45,7 @@ export class Host extends EventEmitter {
   constructor(readonly store: Store) {
     // generated pictures live with the rest of Walt's data
     media.dir = join(store.dir, "images");
+    synced.dir = join(store.dir, "claude-skills");
     super();
     this.state = store.load();
     if (!this.state.personas?.length) this.state.personas = structuredClone(DEFAULT_PERSONAS);
@@ -148,8 +149,8 @@ export class Host extends EventEmitter {
     const t = this.state.settings.tools ?? {};
     const off = new Set(t.off ?? []);
     return {
-      switches: { images: t.images ?? true, web: t.web ?? true, apps: t.apps ?? true, codexPlugins: t.codexPlugins ?? true, claudePlugins: t.claudePlugins ?? true, browser: t.browser ?? false, computer: t.computer ?? false },
-      claude: claudePlugins().map((p) => ({ id: p.id, name: p.name, version: p.version, on: !off.has("claude:" + p.id) })),
+      switches: { images: t.images ?? true, web: t.web ?? true, apps: t.apps ?? true, connectors: t.connectors ?? true, codexPlugins: t.codexPlugins ?? true, claudePlugins: t.claudePlugins ?? true, browser: t.browser ?? false, computer: t.computer ?? false },
+      claude: [...claudePlugins(), ...[syncedPlugin()].filter((p) => !!p)].map((p) => ({ id: p!.id, name: p!.name, version: p!.version, on: !off.has("claude:" + p!.id) })),
       codex: codexPlugins().map((id) => ({ id, name: id.split("@")[0], on: !off.has("codex:" + id) })),
       mcp: this.mcpServers(),
     };
@@ -158,15 +159,16 @@ export class Host extends EventEmitter {
   setTool(key: string, on: boolean) {
     const t = (this.state.settings.tools ??= {});
     if (/^(mcp|claude|codex):/.test(key)) t.off = on ? (t.off ?? []).filter((k) => k !== key) : [...new Set([...(t.off ?? []), key])];
-    else if (["images", "web", "apps", "codexPlugins", "claudePlugins", "browser", "computer"].includes(key)) (t as Record<string, unknown>)[key] = on;
+    else if (["images", "web", "apps", "connectors", "codexPlugins", "claudePlugins", "browser", "computer"].includes(key)) (t as Record<string, unknown>)[key] = on;
     else throw new Error("Unknown tool switch " + key);
     this.commit("settings.tools");
     return this.tools();
   }
   /** what a turn may use: reviewers only read the project, everyone else gets Plugins & tools */
   private kit(reviewer: boolean): ToolKit {
-    if (reviewer) return NO_TOOLS;
-    return resolveTools(this.state.settings.tools, this.mcpServers().map((s) => s.name));
+    const instructions = (this.state.settings.instructions ?? "").trim();
+    if (reviewer) return { ...NO_TOOLS, instructions };
+    return { ...resolveTools(this.state.settings.tools, this.mcpServers().map((s) => s.name)), instructions };
   }
   /** save a team template; a template with the same name is replaced */
   saveTeam(input: Omit<TeamTemplate, "id">) {

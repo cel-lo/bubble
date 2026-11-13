@@ -248,7 +248,7 @@ function Palette({ state, close, go, run }: { state: State; close: () => void; g
       }),
     ...state.projects.map((p) => ({ label: p.name, hint: t("New team chat"), icon: "folder", on: () => go({ kind: "join", projectId: p.id, first: false }) })),
     ...([["general", "General"], ["permissions", "Permissions"], ["island", "Island (Ce:L)"], ["data", "Data & backup"], ["shortcuts", "Shortcuts"], ["about", "About"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Settings"), icon: "gear", on: page("settings", k) })),
-    ...([["ai", "AI & models"], ["personas", "Personas"], ["teams", "Team templates"], ["plugins", "Plugins & tools"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Customize"), icon: "sparkle", on: page("customize", k) })),
+    ...([["ai", "AI & models"], ["personas", "Personas"], ["teams", "Team templates"], ["plugins", "Plugins & tools"], ["instructions", "Instructions"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Customize"), icon: "sparkle", on: page("customize", k) })),
     { label: t("Show or hide the sidebar"), hint: "Ctrl B", icon: "sidebar", on: () => run("sidebar") },
     { label: t("Show or hide the side panel"), hint: "Ctrl Alt B", icon: "panel", on: () => run("panel") },
     { label: t(state.settings.theme === "light" ? "Dark theme" : "Light theme"), hint: "", icon: state.settings.theme === "light" ? "moon" : "sun", on: () => run("theme") },
@@ -1349,8 +1349,38 @@ const PLANNED: [string, string, string][] = [
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
   ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
+/** Customize · Instructions: what every AI should know about you and how to answer (like ChatGPT's custom instructions) */
+function Instructions({ state, invoke }: { state: State; invoke: Invoke }) {
+  const saved = state.settings.instructions ?? "";
+  const [text, setText] = useState(saved);
+  const [done, setDone] = useState(false);
+  useEffect(() => setText(saved), [saved]);
+  return (
+    <>
+      <h2>{t("Instructions")}</h2>
+      <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>
+        {t("Every AI in Walt gets this, in every chat: who you are, what you work on, how you like answers. It works like custom instructions in ChatGPT. To bring your ChatGPT memory along, copy it from ChatGPT · Settings · Personalization · Memory and paste the parts you want here.")}
+      </div>
+      <textarea
+        value={text}
+        maxLength={4000}
+        rows={12}
+        aria-label={t("Instructions")}
+        placeholder={t("For example: I'm cello, a student in Indonesia. Answer in Indonesian unless I write in English. Keep answers short, and show code before explaining it.")}
+        onChange={(e) => (setText(e.target.value), setDone(false))}
+        style={{ width: "100%", maxWidth: 760, marginTop: 18, resize: "vertical", lineHeight: 1.5 }}
+      />
+      <div className="row g10" style={{ marginTop: 10, maxWidth: 760 }}>
+        <span className="s12 dim f1">{text.length} / 4000 · {t("Applies from the next message.")}</span>
+        {done && <span className="s12" style={{ color: T.green }}>{t("Saved")}</span>}
+        <button type="button" className="btn g" style={{ border: 0 }} disabled={text === saved} onClick={() => void invoke("settings", { instructions: text }).then((r) => r !== null && setDone(true))}>{t("Save")}</button>
+      </div>
+    </>
+  );
+}
+
 type ToolsView = {
-  switches: Record<"images" | "web" | "apps" | "codexPlugins" | "claudePlugins" | "browser" | "computer", boolean>;
+  switches: Record<"images" | "web" | "apps" | "connectors" | "codexPlugins" | "claudePlugins" | "browser" | "computer", boolean>;
   claude: { id: string; name: string; version: string; on: boolean }[];
   codex: { id: string; name: string; on: boolean }[];
   mcp: { name: string; engines: Engine[]; on: boolean }[];
@@ -1380,6 +1410,7 @@ function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
     ["images", "Image generation", "GPT makes pictures in the chat; click one to open it.", "ChatGPT"],
     ["web", "Web search", "Look things up on the web. Claude asks you before it opens a page.", "Both"],
     ["apps", "ChatGPT apps & connectors", "The apps you connected in ChatGPT (Gmail, Drive, GitHub…).", "ChatGPT"],
+    ["connectors", "Claude app connectors", "Gmail, Google Calendar, Claude Docs and the other connectors of your claude.ai account. If one says it needs sign-in, run claude once and use /mcp.", "Claude"],
     ["codexPlugins", "Codex plugins & skills", "Documents, PDF, spreadsheets, slides and the other plugins in your Codex.", "ChatGPT"],
     ["claudePlugins", "Claude Code plugins & skills", "The plugins you installed in Claude Code, with their skills.", "Claude"],
     ["browser", "Browser", "Codex opens and clicks web pages itself. Off unless you need it.", "ChatGPT"],
@@ -1495,7 +1526,7 @@ function DataPage({ invoke }: { invoke: Invoke }) {
 
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
 /** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
-const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"]]} />;
+const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"], ["instructions", "Instructions", "file"]]} />;
 const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
@@ -1566,6 +1597,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
           </>
         )}
         {tab === "plugins" && <Plugins state={state} invoke={invoke} />}
+        {tab === "instructions" && <Instructions state={state} invoke={invoke} />}
         {tab === "teams" && (
           <>
             <h2>{t("Team templates")}</h2>
