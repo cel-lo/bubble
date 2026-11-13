@@ -55,7 +55,7 @@ Alternatif tanpa HTTP untuk membuka Walt: deep link `walt://room/<id>`, `walt://
   "walt": {"status": "running", "locale": "id"},
   "engines": [
     {"engine": "codex",  "auth": "ok",       "quota": "unknown"},
-    {"engine": "claude", "auth": "ok",       "quota": {"state": "ok"}},
+    {"engine": "claude", "auth": "ok",       "quota": {"windows": [{"mins": 300, "percent": 50, "resetsAt": 1794604200}, {"mins": 10080, "percent": 26, "resetsAt": 1794657600}], "limited": false, "at": "2026-11-14T01:56:35Z"}},
     {"engine": "gemini", "auth": "required", "quota": "unknown"}
   ],
   "activeRooms": [
