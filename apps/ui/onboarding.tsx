@@ -13,7 +13,7 @@ const pill = (t: string, c: string) => (
   <span className="pill" style={{ background: c + "29", color: c }}>{t}</span>
 );
 // Only Claude has an adapter today; Codex and Gemini stay honest about it.
-export const ADAPTERS = new Set(["claude"]);
+export const ADAPTERS = new Set(["claude", "codex"]);
 export const ENGINE_LABEL: Record<string, string> = { codex: "Codex CLI", claude: "Claude Code", gemini: "Gemini CLI" };
 /** whether a persona on this engine can run here right now */
 export function personaStatus(engine: string, engines: EngineReport[]) {

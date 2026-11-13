@@ -1,7 +1,7 @@
 // Personas: Settings page (S03 + W18 editor), HTML helpers for the room, and composer autocomplete.
 import React, { useState } from "react";
 import type { State, PersonaDef, Engine, Effort, Room } from "../../packages/domain/model";
-import { EFFORTS } from "../../packages/domain/model";
+import { EFFORTS, LEVELS } from "../../packages/domain/model";
 import { aliases } from "../../packages/domain/command";
 import { T, av, ic, role as roleTag, dot } from "./generated/kit.mjs";
 import { esc } from "./markdown";
@@ -44,7 +44,7 @@ export function complete(before: string, state: State, room: Room): Suggestion[]
   const engines = (mentioned ? [mentioned] : [...inRoom]).map((id) => state.personas.find((p) => p.id === id)?.engine).filter(Boolean) as Engine[];
   const eff = before.match(/\/effort\s+(\w*)$/i);
   if (eff) {
-    const levels = EFFORTS.claude.filter((l) => engines.every((e) => EFFORTS[e].includes(l)));
+    const levels = LEVELS.filter((l) => engines.every((e) => EFFORTS[e].includes(l)));
     if (!levels.length) return [{ label: "no effort setting", hint: "this engine has none", insert: "", replace: 0 }];
     return levels.filter((l) => l.startsWith(eff[1].toLowerCase())).map((l) => ({ label: l, hint: "this turn · add keep to save", insert: l + " ", replace: eff[1].length }));
   }

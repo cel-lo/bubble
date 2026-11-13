@@ -1,7 +1,7 @@
 /** a persona id; the record lives in State.personas */
 export type Persona = string;
 export type Engine = "codex" | "claude" | "gemini";
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 /** one of the design kit's avatar tiles */
 export type Avatar = "codex" | "claude" | "sonnet" | "gemini";
 export interface PersonaDef {
@@ -14,11 +14,12 @@ export interface PersonaDef {
   strengths: string[];
   avatar: Avatar;
 }
-/** effort levels each CLI accepts. claude: `claude --help` 2.1.322. gemini has no effort flag.
- * shortcut: codex values are from its config docs, unverified until the Codex adapter exists */
+/** effort levels each CLI accepts. claude: `claude --help` 2.1.322. codex: app-server `model/list` on 0.167.2
+ * (gpt-6/6.1 models; the luna models stop at max, Codex rejects ultra there). gemini has no effort flag. */
+export const LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
 export const EFFORTS: Record<Engine, Effort[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
-  codex: ["low", "medium", "high", "xhigh"],
+  codex: LEVELS,
   gemini: [],
 };
 export const DEFAULT_PERSONAS: PersonaDef[] = [

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { overlaps, takeTurn } from "../packages/domain/model";
@@ -229,4 +229,22 @@ test("composer menu: @ names, then effort levels per engine", () => {
   assert.deepEqual(labels("@Gemini /effort "), ["no effort setting"]);
   assert.deepEqual(labels("fix it /ef"), ["/effort"]);
   assert.deepEqual(labels("@Opus fix it"), []);
+});
+import { codexArgs, userMcpServers, userSkills } from "../packages/adapters/codex";
+test("codex runs without the user's MCP servers, plugins or apps", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-codex-"));
+  const cfg = join(dir, "config.toml");
+  await writeFile(cfg, '[mcp_servers.figcraft]\ncommand = "x"\n[mcp_servers.figcraft.env]\nTOKEN = "secret"\n[mcp_servers.node_repl]\n[plugins."a@b"]\n');
+  assert.deepEqual(userMcpServers(cfg), ["figcraft", "node_repl"]);
+  const args = codexArgs(userMcpServers(cfg));
+  for (const f of ["apps", "plugins", "browser_use", "computer_use", "hooks"]) assert.ok(args.join(" ").includes("--disable " + f), f);
+  assert.ok(args.includes("mcp_servers.figcraft.enabled=false") && args.includes("mcp_servers.node_repl.enabled=false"));
+  assert.ok(!args.join(" ").includes("secret"));
+  assert.equal(args.at(-1), "app-server");
+  await mkdir(join(dir, "skills", "ponytail"), { recursive: true });
+  await writeFile(join(dir, "skills", "ponytail", "SKILL.md"), "x");
+  const skills = userSkills(join(dir, "skills"));
+  assert.deepEqual(skills, [join(dir, "skills", "ponytail", "SKILL.md")]);
+  assert.ok(codexArgs([], skills).includes(`skills.config=[{path='${skills[0]}',enabled=false}]`));
+  await rm(dir, { recursive: true });
 });

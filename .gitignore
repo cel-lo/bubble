@@ -8,3 +8,5 @@ test-results/
 apps/ui/generated/
 tests/fixtures/provider-smoke/
 tests/fixtures/tools-smoke/
+tests/fixtures/codex-smoke/
+tests/fixtures/codex-probe/

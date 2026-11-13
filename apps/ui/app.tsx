@@ -258,7 +258,7 @@ function App() {
             `<div class="card" style="padding:14px;margin:10px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${nm(a.persona)} wants to use ${esc(a.title)}</span></div><pre class="mono" style="margin:10px 0;background:#141416;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(a.input, null, 2))}</pre><div class="row g8">${btn("Allow once", "allow:" + a.id, "g")}${btn("Deny", "deny:" + a.id)}</div></div>`,
         )
         .join("")}${last && !["running", "awaiting_user"].includes(room.state) ? deliverable(room, last) : ""}</div></div>` +
-      composer({ ph: text.send, route: TEMPLATE[room.template] });
+      composer({ ph: text.send.replace("Main", esc(room.title)), route: TEMPLATE[room.template] });
     inspector = `<div class="insp"><div class="tabs">${["Task", "Files", "Context", "Decisions", "Activity"].map((t) => `<span class="tab ${tab === t ? "on" : ""}" data-hot="tab:${t}">${t}</span>`).join("")}</div><div style="padding:18px;overflow:auto"><div class="s16 b">${esc(room.title)}</div><div class="lbl">${STATE[room.state] || esc(room.state)}</div>${
       tab === "Context"
         ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || "No packet yet")}</pre>`

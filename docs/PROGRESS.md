@@ -1,6 +1,9 @@
 # Progress checkpoint — 2026-11-13
 
-## P0 status: passed for Claude (Opus + Sonnet); open for Codex and Gemini
+## P0 status: passed for Claude (Opus + Sonnet) and Codex; open for Gemini
+
+Codex adapter (2026-11-13): `packages/adapters/codex.ts`. `npm run smoke:codex` (real Codex: broker allow + deny, warm second turn on the same process, read-only reviewer never reaches the broker, resume). In Electron, room "Codex build" (Codex builder, Opus reviewer): Codex asked for two shell reads and one edit through the UI cards, changed `borrow.js`, Opus reviewed the same revision. Doctor runs the native exe behind `codex.cmd` and reads `codex login status`.
+Unverified: once after launch the composer stayed a placeholder (no textarea) until the room was switched; not reproduced after a reload. Markdown tables in agent messages render as raw pipes.
 
 Done on the real laptop session:
 

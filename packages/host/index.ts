@@ -7,7 +7,7 @@ const parent = (process as any).parentPort;
 const dir = process.argv[2];
 const host = new Host(new Store(dir));
 const persona = z.string().min(1).max(80);
-const effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
+const effort = z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]);
 const api = await controlServer(host, dir, () =>
   parent.postMessage({ type: "open" }),
 );

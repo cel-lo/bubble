@@ -2,7 +2,7 @@
 //   @Opus /effort high fix the date check     -> to Opus, effort high for this turn
 //   @Opus /effort high keep                    -> Opus keeps effort high in this room
 //   /model gpt-6.1-sol review this             -> model for this turn, whoever runs it
-import type { Effort, Persona, PersonaDef } from "./model";
+import { LEVELS, type Effort, type Persona, type PersonaDef } from "./model";
 
 export interface Parsed {
   text: string;
@@ -11,7 +11,6 @@ export interface Parsed {
   model?: string;
   keep: boolean;
 }
-const LEVELS = ["low", "medium", "high", "xhigh", "max"];
 /** model ids reach the CLI as one argv entry; plain id characters only */
 export const MODEL_ID = /^[\w.:/-]{1,80}$/;
 const END = String.raw`(?=$|[\s,.:;!?])`;
@@ -42,7 +41,7 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   if (leftover && !to) throw new Error(`No persona called ${leftover[0]} in Walt.`);
   let effort: Effort | undefined, model: string | undefined, keep = false;
   text = text.replace(/(?:\buse\s+)?\/effort(?:\s+(\S+))?(\s+keep\b)?/gi, (_, v: string | undefined, k) => {
-    if (!v || !LEVELS.includes(v.toLowerCase())) throw new Error(`/effort needs one of: ${LEVELS.join(", ")}.`);
+    if (!v || !LEVELS.includes(v.toLowerCase() as Effort)) throw new Error(`/effort needs one of: ${LEVELS.join(", ")}.`);
     effort = v.toLowerCase() as Effort;
     keep ||= !!k;
     return " ";

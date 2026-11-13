@@ -11,6 +11,15 @@ export function cleanEnv(source = process.env) {
   }
   return env;
 }
+/** true when no process with this pid exists any more */
+export function gone(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
+}
 export function capture(
   exe: string,
   args: string[],

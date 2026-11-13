@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
-import { cleanEnv } from "./environment";
+import { cleanEnv, gone } from "./environment";
 export type Approval = (tool: string, input: unknown) => Promise<boolean>;
 export class ClaudeSession {
   private child: ChildProcessWithoutNullStreams;
@@ -207,7 +207,8 @@ export class ClaudeSession {
           );
           killer.once("error", reject);
           killer.once("close", (code) => {
-            if (code === 0 || this.closed) resolve();
+            // taskkill fails when the process exited on its own a moment earlier; that is a clean stop too
+            if (code === 0 || this.closed || gone(this.child.pid!)) resolve();
             else
               reject(
                 new Error(

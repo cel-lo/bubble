@@ -1,14 +1,23 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, delimiter, isAbsolute } from "node:path";
+import { join, delimiter, isAbsolute, dirname } from "node:path";
 import type { EngineReport, PersonaDef, Tune } from "../domain/model";
 import { capture } from "./environment";
 import { ClaudeSession } from "./claude";
+import { CodexSession } from "./codex";
+type Session = ClaudeSession | CodexSession;
 export class Supervisor {
-  sessions = new Map<string, ClaudeSession>();
-  /** last Claude session id per room:persona:readonly, to resume after a restart */
+  sessions = new Map<string, Session>();
+  /** last session/thread id per room:persona:readonly, to resume after a restart */
   private resumeIds = new Map<string, string>();
   claude = join(homedir(), ".local", "bin", "claude.exe");
+  codex = "";
+  /** the native codex.exe behind npm's codex.cmd shim (Node cannot spawn .cmd without a shell) */
+  codexExe(found = this.find("codex")) {
+    if (!found || /\.exe$/i.test(found)) return found;
+    const exe = join(dirname(found), "node_modules", "@openai", "codex", "node_modules", "@openai", "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin", "codex.exe");
+    return existsSync(exe) ? exe : undefined;
+  }
   find(name: string) {
     // npm global installs (codex, gemini) are .cmd shims in %APPDATA%\npm, which is not always on Electron's PATH
     const dirs = [...(process.env.PATH || "").split(delimiter), process.env.APPDATA ? join(process.env.APPDATA, "npm") : ""].filter(isAbsolute);
@@ -20,7 +29,9 @@ export class Supervisor {
         const exe =
           engine === "claude" && existsSync(this.claude)
             ? this.claude
-            : this.find(engine);
+            : engine === "codex"
+              ? this.codexExe()
+              : this.find(engine);
         if (!exe)
           return {
             engine,
@@ -41,6 +52,7 @@ export class Supervisor {
                 ? "ok"
                 : "required";
           } else if (engine === "codex") {
+            this.codex = exe;
             auth = /logged in/i.test(await capture(exe, ["login", "status"]).catch(() => "")) ? "ok" : "required";
           } else if (engine === "gemini") {
             // gemini has no status command; its Google sign-in leaves this file
@@ -52,10 +64,7 @@ export class Supervisor {
             version,
             auth,
             quota: "unknown" as const,
-            detail:
-              engine === "claude"
-                ? "CLI subscription login"
-                : "Adapter compatibility verification required",
+            detail: engine === "gemini" ? "Adapter not built yet" : "CLI subscription login",
           };
         } catch (e) {
           return {
@@ -71,8 +80,10 @@ export class Supervisor {
     );
   }
   async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}) {
-    if (p.engine !== "claude")
-      throw new Error(`${p.name} runs on ${p.engine}, and Walt's ${p.engine} adapter is not built yet.`);
+    if (p.engine === "gemini")
+      throw new Error(`${p.name} runs on gemini, and Walt's gemini adapter is not built yet.`);
+    if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
+      throw new Error("Codex CLI was not found. Install it with npm install -g @openai/codex, then sign in with codex login.");
     const key = room + ":" + p.id + ":" + readonly;
     const model = tune.model ?? p.model;
     const effort = tune.effort ?? p.effort;
@@ -84,12 +95,14 @@ export class Supervisor {
     if (!s?.alive) {
       if ([...this.sessions.values()].filter((s) => s.alive).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
-      s = new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key));
+      s = p.engine === "codex"
+        ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key))
+        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key));
       this.sessions.set(key, s);
     }
     return s;
   }
-  private async retire(key: string, s: ClaudeSession) {
+  private async retire(key: string, s: Session) {
     if (s.sessionId) this.resumeIds.set(key, s.sessionId);
     await s.stop();
     this.sessions.delete(key);
