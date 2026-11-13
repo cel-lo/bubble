@@ -371,4 +371,7 @@ export const ID: Record<string, string> = {
   "Applies from the next message.": "Berlaku mulai pesan berikutnya.",
   "Saved": "Tersimpan",
   "Save": "Simpan",
+  "This task": "Tugas ini",
+  "{0} of {1} AI turns": "{0} dari {1} giliran AI",
+  "Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.": "Membatasi putaran otomatis build, review, dan fix supaya AI tidak berputar terus. Setiap pesan baru mulai lagi dari 0.",
 };

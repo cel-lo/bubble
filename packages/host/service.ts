@@ -448,10 +448,10 @@ export class Host extends EventEmitter {
       this.commit();
       return;
     }
-    // each message in a plain chat is its own exchange; the turn budget guards the autonomous team loops
-    if (r.template === "direct" || r.template === "roundtable") r.used = 0;
-    if (r.used >= r.budget)
-      throw new Error("Budget exhausted. Add turns with Continue.");
+    // every message you send is a new task with a fresh turn budget, like a normal chat; the budget only caps the
+    // automatic build → review → fix loop inside one task, so two AIs cannot bounce work back and forth forever
+    r.used = 0;
+    r.budget = budgets[r.template];
     if (r.title === "New chat") r.title = cmd.text.replace(/\s+/g, " ").slice(0, 48);
     this.message(r, "cello", text).meta = via ? { ...meta, via } : meta;
     this.commit();
@@ -766,7 +766,7 @@ export class Host extends EventEmitter {
             break;
           }
           if (r.budget - r.used < 1 + reviewers.length) {
-            this.message(r, "Walt", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, but the budget has no room for a fix round. Continue adds turns; then send "fix the review findings".`);
+            this.message(r, "Walt", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, and the automatic loop has used its turns for this task. Send "fix the review findings" to start a fix round, or accept as it is.`);
             break;
           }
           this.message(r, "Walt", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(r.builder)} fixes them.`);

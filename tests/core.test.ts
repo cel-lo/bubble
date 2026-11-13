@@ -753,3 +753,25 @@ test("claude.ai skills become one plugin; connectors, skills and instructions re
   assert.ok(off.includes("--strict-mcp-config") && off.includes("--disable-slash-commands") && !off.includes("--append-system-prompt"), "a reviewer stays closed");
   await rm(home, { recursive: true });
 });
+test("every message is a new task with fresh turns: a team chat never gets stuck on its budget", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-budget-"));
+  const root = join(dir, "proj");
+  await mkdir(root);
+  const host = new Host(new Store(join(dir, "data")));
+  const p = await host.project({ name: "P", root, goal: "", constraints: "" });
+  const r = host.createRoom({ projectId: p.id, title: "T", template: "build_review", builder: "codex", reviewers: ["claude"] });
+  let n = 0;
+  (host.supervisor as any).get = async (_room: string, def: { id: string }) => ({
+    run: async () => (def.id === "codex" ? (await writeFile(join(root, "a.txt"), "v" + ++n), "built") : "VERDICT: APPROVE"),
+    stop: async () => {},
+  });
+  r.used = r.budget; // as if the last task used every turn
+  await host.send(r.id, "first task");
+  for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(r.used, 2, "build + review, counted from 0");
+  await host.send(r.id, "second task");
+  for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(n, 2, "the second message ran too");
+  await host.close();
+  await rm(dir, { recursive: true });
+});

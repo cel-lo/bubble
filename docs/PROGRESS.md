@@ -160,6 +160,10 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Customize · Instructions: what every AI should know about you, sent to Claude (--append-system-prompt) and Codex (developerInstructions). Checked: both started with the test line. ChatGPT memory cannot be read by any API; the page says how to copy it in.
 - 29 unit tests.
 
+## Turn budget per task — 2026-11-14
+
+- cello hit "Budget exhausted" in a team chat: the counter never reset between messages, so a chat stopped after one task. Now every message starts a new task with the template's budget (like plain chats already did); the budget only caps the automatic build → review → fix loop. When a fix round does not fit, Walt says to send "fix the review findings". The "Continue · +2 turns" and "Continue with a new budget" buttons are gone (a new message does that). Unit test.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
