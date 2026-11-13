@@ -65,6 +65,7 @@ function App() {
   const [state, setState] = useState<State>();
   const [view, setView] = useState<View>({ kind: "home" });
   const [step, setStep] = useState<"welcome" | "engines">("welcome");
+  const [palette, setPalette] = useState(false);
   const [error, setError] = useState("");
   // panel open/closed and widths: a per-window convenience, so browser storage is enough (try/catch: it can be unavailable)
   const [panels, setPanels] = useState<Panels>(() => {
@@ -87,7 +88,12 @@ function App() {
     const key = (e: KeyboardEvent) => {
       if (!e.ctrlKey) return;
       const k = e.key.toLowerCase();
-      const go: Record<string, View> = { n: { kind: "home" }, k: { kind: "search" }, ",": { kind: "settings", tab: "general" } };
+      if (k === "k" && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setPalette((o) => !o);
+        return;
+      }
+      const go: Record<string, View> = { n: { kind: "home" }, ",": { kind: "settings", tab: "general" } };
       if (go[k] && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         setView(go[k]);
@@ -202,11 +208,91 @@ function App() {
           <div className="main" style={{ position: "relative" }}>{main}</div>
         </div>
       </div>
+      {palette && (
+        <Palette
+          state={state}
+          close={() => setPalette(false)}
+          go={setView}
+          run={(a) => {
+            if (a === "sidebar") setP({ left: !panels.left });
+            if (a === "panel") setP({ right: !panels.right });
+            if (a === "theme") void invoke("settings", { theme: state.settings.theme === "light" ? "dark" : "light" });
+            if (a === "lang") void invoke("settings", { locale: state.settings.locale === "id" ? "en" : "id" });
+          }}
+        />
+      )}
       {error && (
         <div role="alert" className="card" onClick={() => setError("")} style={{ position: "fixed", bottom: 24, left: 300, right: 40, padding: "12px 16px", color: "#FF6961", zIndex: 70, cursor: "pointer" }}>
           {error}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Ctrl K: type to find a chat, a project, a page or an action; Enter runs it */
+function Palette({ state, close, go, run }: { state: State; close: () => void; go: (v: View) => void; run: (a: string) => void }) {
+  const [q, setQ] = useState("");
+  const [act, setAct] = useState(0);
+  type Item = { label: string; hint: string; icon: string; on: () => void };
+  const page = (kind: "settings" | "customize", tab: string): (() => void) => () => go({ kind, tab } as View);
+  const all: Item[] = [
+    { label: t("New chat"), hint: "Ctrl N", icon: "plus", on: () => go({ kind: "home" }) },
+    { label: t("New project"), hint: "", icon: "folder", on: () => go({ kind: "project-new" }) },
+    { label: t("Search chats"), hint: "", icon: "search", on: () => go({ kind: "search" }) },
+    ...state.rooms
+      .filter((r) => r.state !== "ended")
+      .map((r) => {
+        const p = state.projects.find((x) => x.id === r.projectId);
+        return { label: r.title, hint: p ? p.name : t("Chat"), icon: r.template === "direct" ? "chat" : "users", on: () => go({ kind: "chat", id: r.id }) };
+      }),
+    ...state.projects.map((p) => ({ label: p.name, hint: t("New team chat"), icon: "folder", on: () => go({ kind: "join", projectId: p.id, first: false }) })),
+    ...([["general", "General"], ["permissions", "Permissions"], ["island", "Island (Ce:L)"], ["data", "Data & backup"], ["shortcuts", "Shortcuts"], ["about", "About"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Settings"), icon: "gear", on: page("settings", k) })),
+    ...([["ai", "AI & models"], ["personas", "Personas"], ["teams", "Team templates"], ["plugins", "Plugins & tools"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Customize"), icon: "sparkle", on: page("customize", k) })),
+    { label: t("Show or hide the sidebar"), hint: "Ctrl B", icon: "sidebar", on: () => run("sidebar") },
+    { label: t("Show or hide the side panel"), hint: "Ctrl Alt B", icon: "panel", on: () => run("panel") },
+    { label: t(state.settings.theme === "light" ? "Dark theme" : "Light theme"), hint: "", icon: state.settings.theme === "light" ? "moon" : "sun", on: () => run("theme") },
+    { label: state.settings.locale === "id" ? "English" : "Bahasa Indonesia", hint: t("Language"), icon: "lang", on: () => run("lang") },
+  ];
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const list = all.filter((i) => words.every((w) => (i.label + " " + i.hint).toLowerCase().includes(w))).slice(0, 12);
+  const pick = (i?: Item) => {
+    if (!i) return;
+    close();
+    i.on();
+  };
+  return (
+    <div className="scrim" style={{ alignItems: "flex-start", paddingTop: "12vh" }} onClick={(e) => e.target === e.currentTarget && close()}>
+      <div className="card col" role="dialog" aria-label={t("Command palette")} style={{ width: "min(620px, 90vw)", padding: 0, overflow: "hidden" }}>
+        <div className="row g10" style={{ padding: "12px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Icon n="search" s={17} />
+          <input
+            autoFocus
+            value={q}
+            placeholder={t("Type a chat, a page or an action")}
+            aria-label={t("Command palette")}
+            style={{ flex: 1, border: 0, background: "transparent", padding: "4px 0", fontSize: 15 }}
+            onChange={(e) => (setQ(e.target.value), setAct(0))}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") close();
+              else if (e.key === "ArrowDown") (e.preventDefault(), setAct((a) => Math.min(a + 1, list.length - 1)));
+              else if (e.key === "ArrowUp") (e.preventDefault(), setAct((a) => Math.max(a - 1, 0)));
+              else if (e.key === "Enter") (e.preventDefault(), pick(list[act]));
+            }}
+          />
+          <span className="chip mono" style={{ fontSize: 11 }}>Esc</span>
+        </div>
+        <div className="col" role="listbox" style={{ padding: 6, maxHeight: "50vh", overflow: "auto" }}>
+          {!list.length && <div className="s13 dim" style={{ padding: 12 }}>{t("Nothing matches.")}</div>}
+          {list.map((i, n) => (
+            <div key={i.label + i.hint + n} role="option" aria-selected={n === act} className={`navi ${n === act ? "on" : ""}`} onMouseEnter={() => setAct(n)} onClick={() => pick(i)}>
+              <Icon n={i.icon} s={16} />
+              <span className="t f1">{i.label}</span>
+              <span className="s12 dim">{i.hint}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -909,6 +995,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     if (h.startsWith("allow:") || h.startsWith("deny:")) await invoke("approval", { id: h.split(":")[1], allow: h.startsWith("allow:") });
     else if (h === "accept") await invoke("accept", room.id);
     else if (h === "diff") setDiff(await invoke("diff", room.id));
+    else if (h.startsWith("diff:")) setDiff(await invoke("diff", { roomId: room.id, revision: Number(h.slice(5)) }));
     else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
     else if (h.startsWith("img:")) window.walt.window("image:" + h.slice(4));
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
@@ -1037,10 +1124,32 @@ function deliverable(state: State, room: Room, a: Room["artifacts"][number]) {
   return `<div class="card" style="padding:16px;margin:10px 0 0 44px"><div class="row sb"><span class="row g10">${ic("checkc", 20, a.accepted ? T.green : T.sub)}<span class="s16 b">${esc(room.title)} · ${t("result")}</span><span class="chip mono">r${a.revision}</span></span><span class="s12 dim mono">manifest ${a.hash.slice(0, 6)}</span></div><div class="row g12" style="margin-top:14px">${reviews.join("")}${accept}</div><div class="row g8" style="margin-top:14px">${a.accepted ? "" : `<button class="btn g" data-hot="accept" style="border:0">${ic("check", 15, "#04170B", 2.2)}${t("Accept")}</button>`}<button class="btn" data-hot="diff" style="border:0">${ic("diff", 15, T.text)}${t("Open diff")}</button><button class="btn" data-hot="control:continue" style="border:0">${t("Continue with a new budget")}</button></div></div>`;
 }
 
+/** every DECISION an AI asked in this project's chats (or this chat), and what you answered */
+function decisions(state: State, room: Room) {
+  const rooms = room.projectId ? state.rooms.filter((r) => r.projectId === room.projectId) : [room];
+  return rooms.flatMap((r) =>
+    r.messages.flatMap((m, i) => {
+      const d = state.personas.some((p) => p.id === m.author) ? decision(m.text) : undefined;
+      if (!d) return [];
+      const reply = r.messages.slice(i + 1).find((x) => x.author === "cello" && x.kind !== "setting");
+      return [{ chat: r.title, who: ((p) => (r.template === "direct" && p ? label(state, p.engine, m.meta?.model) : p?.name ?? m.author))(state.personas.find((p) => p.id === m.author)), question: d.question, options: d.options, answer: reply?.text.replace(/^@\S+\s+/, "").trim(), at: m.at }];
+    }),
+  ).sort((a, b) => b.at.localeCompare(a.at));
+}
+function decisionsHtml(state: State, room: Room) {
+  const list = decisions(state, room);
+  if (!list.length) return `<div class="s13 dim">${t("No decisions yet. When an AI asks you to choose, the question and your answer are kept here.")}</div>`;
+  return list
+    .map(
+      (d) => `<div class="card" style="padding:12px;margin:0 0 10px"><div class="s13 b">${esc(d.question)}</div><div class="s12 dim" style="margin-top:3px">${esc(d.who)} · ${esc(d.chat)} · ${new Date(d.at).toLocaleDateString()}</div><div class="s13" style="margin-top:8px">${d.answer ? `${t("You chose")}: <b>${esc(d.answer.slice(0, 120))}</b>` : `<span style="color:${T.amber}">${t("Waiting for your answer")}</span>`}</div></div>`,
+    )
+    .join("");
+}
+
 function inspectorHtml(state: State, room: Room, tab: string) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
-  const files = room.artifacts.map((a) => `<div class="card" style="padding:12px;margin:10px 0">r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}<div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
+  const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
   // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
   const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
   const team = (direct ? [] : [room.builder, ...room.reviewers, ...(room.members || [])])
@@ -1056,10 +1165,12 @@ function inspectorHtml(state: State, room: Room, tab: string) {
       ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || t("No packet yet"))}</pre>`
       : tab === "Files"
         ? files
-        : tab === "Activity"
+        : tab === "Decisions"
+          ? decisionsHtml(state, room)
+          : tab === "Activity"
           ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
           : `<div class="lbl">${t("Who does what")}</div>${team}<div class="lbl">${t("Budget")}</div><div>${t("{0} of {1} turns used", room.used, room.budget)}</div><div class="col g8" style="margin-top:20px">${btn(t("Continue · +2 turns"), "control:continue")}${btn(t("Resume"), "control:resume")}${btn(t("End chat"), "control:end")}</div>`;
-  const tabs = (direct ? ["Files", "Activity"] : ["Task", "Files", "Context", "Activity"]).map((x) => `<span class="tab ${tab === x ? "on" : ""}" data-hot="tab:${x}">${t(x)}</span>`).join("");
+  const tabs = (direct ? ["Files", "Decisions", "Activity"] : ["Task", "Files", "Decisions", "Context", "Activity"]).map((x) => `<span class="tab ${tab === x ? "on" : ""}" data-hot="tab:${x}">${t(x)}</span>`).join("");
   return `<div class="tabs">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
 }
 
@@ -1306,7 +1417,7 @@ function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl N", "New chat"],
-  ["Ctrl K", "Search chats"],
+  ["Ctrl K", "Command palette: chats, pages, actions"],
   ["Ctrl ,", "Settings"],
   ["Ctrl B", "Show or hide the sidebar"],
   ["Ctrl Alt B", "Show or hide the side panel"],

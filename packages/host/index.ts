@@ -100,7 +100,8 @@ parent.on("message", async ({ data }: any) => {
         result = { dir: host.store.dir, list: host.backups() };
         break;
       case "diff":
-        result = await host.diff(z.string().parse(input));
+        // a chat id, or { roomId, revision } for an older revision
+        result = typeof input === "string" ? await host.diff(z.string().parse(input)) : await host.diff(...((v) => [v.roomId, v.revision] as const)(z.object({ roomId: z.string(), revision: z.number().int().positive() }).parse(input)));
         break;
       case "accept":
         result = await host.accept(z.string().parse(input));

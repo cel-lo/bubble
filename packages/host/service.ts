@@ -834,12 +834,14 @@ export class Host extends EventEmitter {
     resolve(allow);
   }
   /** what the latest revision changed: git diff against HEAD when the project is a git repo, else the new text of each file */
-  async diff(roomId: string) {
+  async diff(roomId: string, revision?: number) {
     const r = this.room(roomId);
-    const a = r.artifacts.at(-1);
+    const at = revision ? r.artifacts.findIndex((x) => x.revision === revision) : r.artifacts.length - 1;
+    const a = r.artifacts[at];
     const root = this.projectOf(r)?.root;
     if (!a || !root) return { revision: 0, files: [] };
-    const prev: Record<string, string> = r.artifacts.at(-2)?.files ?? (r.packet as { fileRefs?: Record<string, string> })?.fileRefs ?? {};
+    // an older revision: compared with the one before it (git diff then shows today's file against HEAD, so it is only exact for the latest)
+    const prev: Record<string, string> = r.artifacts[at - 1]?.files ?? (r.packet as { fileRefs?: Record<string, string> })?.fileRefs ?? {};
     const paths = [...new Set([...Object.keys(a.files), ...Object.keys(prev)])].filter((f) => prev[f] !== a.files[f]).sort();
     const git = (args: string[]) =>
       new Promise<string>((ok) => execFile("git", ["-c", "core.quotepath=off", ...args], { cwd: root, env: cleanEnv(), timeout: 10_000, maxBuffer: 4_000_000, windowsHide: true }, (e, out) => ok(e ? "" : out)));
