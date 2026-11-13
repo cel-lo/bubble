@@ -144,6 +144,14 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 - Attach pictures: paste, drop or the 📎 button in the composer (PNG/JPEG/WebP/GIF up to 15 MB), thumbnails before sending, shown in your bubble; Claude gets them as image blocks, Codex as localImage. Checked: GPT-6-Luna and Haiku both described the attached logo.
 - 28 unit tests.
 
+## Palette, decisions, revisions, island settings — 2026-11-13
+
+- Ctrl K: command palette (chats, projects → new team chat, every Settings and Customize page, sidebar / side panel, theme, language). Search stays in the sidebar.
+- Decisions tab (side panel): every DECISION an AI asked in the project's chats and what you chose, or that it still waits.
+- Files tab: Open diff on every revision, not only the latest (an older one is compared with the revision before it).
+- Ce:L (D:/NEWNUSA/cel/app): Settings → Walt page with the peek switches and the connection line; login and handoff peeks; paging through more than two chats. 7 Rust tests on the Walt side.
+- Not built on purpose: the task board from the old W11 design. Chats inside a project already play that part.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
