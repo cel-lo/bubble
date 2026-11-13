@@ -258,7 +258,7 @@ test("composer menu: @ names, then effort levels per engine", () => {
   assert.deepEqual(labels("fix it /ef"), ["/effort"]);
   assert.deepEqual(labels("@Opus fix it"), []);
 });
-import { codexArgs, userMcpServers, userSkills } from "../packages/adapters/codex";
+import { codexArgs, userMcpServers, userSkills, onlyReads } from "../packages/adapters/codex";
 test("codex runs without the user's MCP servers, plugins or apps", async () => {
   const dir = await mkdtemp(join(tmpdir(), "walt-codex-"));
   const cfg = join(dir, "config.toml");
@@ -274,6 +274,11 @@ test("codex runs without the user's MCP servers, plugins or apps", async () => {
   const skills = userSkills(join(dir, "skills"));
   assert.deepEqual(skills, [join(dir, "skills", "ponytail", "SKILL.md")]);
   assert.ok(codexArgs([], skills).includes(`skills.config=[{path='${skills[0]}',enabled=false}]`));
+  // Plugins & tools on: images, apps, plugins and web search on; browser and computer use stay off; a plugin switched off is named
+  const on = codexArgs([], skills, { images: true, web: true, apps: true, codexPlugins: ["a@b"], claudePlugins: [], browser: false, computer: false, mcp: [] }, ["a@b", "c@d"]).join(" ");
+  for (const f of ["image_generation", "apps", "plugins"]) assert.ok(!on.includes("--disable " + f), f + " on");
+  assert.ok(on.includes("--disable computer_use") && on.includes('web_search="live"') && on.includes('plugins."c@d".enabled=false') && !on.includes("skills.config"));
+  assert.ok(onlyReads([{ type: "read" }, { type: "search" }]) && !onlyReads([{ type: "read" }, { type: "unknown" }]) && !onlyReads([]));
   await rm(dir, { recursive: true });
 });
 test("plain chats: no project, model picker target, rename, delete", async () => {
@@ -542,23 +547,26 @@ test("team templates: save, replace by name, delete", async () => {
   await rm(dir, { recursive: true });
 });
 
-test("MCP servers are off until a project turns one on", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "walt-mcp-"));
-  const root = join(dir, "proj");
-  await mkdir(root);
+test("Plugins & tools: on by default for chats, nothing for reviewers, single items switch off", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-tools-"));
   const host = new Host(new Store(join(dir, "data")));
   host.supervisor.claudeMcp = () => ({ demo: { type: "stdio", command: "demo.exe", env: { TOKEN: "secret" } }, other: { type: "stdio", command: "x" } });
-  const p = await host.project({ name: "P", root, goal: "", constraints: "" });
-  assert.ok(host.mcpServers().some((s) => s.name === "demo" && s.engines.includes("claude") && !s.projects.length));
-  assert.throws(() => host.setMcp(p.id, "nope", true), /No MCP server/);
-  host.setMcp(p.id, "demo", true);
-  assert.deepEqual(host.mcpServers().find((s) => s.name === "demo")!.projects, [p.id]);
+  const t = host.tools();
+  assert.deepEqual([t.switches.images, t.switches.web, t.switches.apps, t.switches.browser, t.switches.computer], [true, true, true, false, false]);
+  assert.ok(t.mcp.some((m) => m.name === "demo" && m.on));
+  const kit = (reviewer: boolean) => (host as any).kit(reviewer);
+  assert.ok(kit(false).mcp.includes("demo") && kit(false).images && kit(false).web, "a chat gets everything that is on");
+  assert.deepEqual(kit(true).mcp, [], "a reviewer gets no MCP");
+  assert.equal(kit(true).images || kit(true).web || kit(true).apps, false, "and no outside tools");
+  host.setTool("mcp:demo", false);
+  host.setTool("images", false);
+  assert.ok(!kit(false).mcp.includes("demo") && kit(false).mcp.includes("other"));
+  assert.equal(kit(false).images, false);
+  assert.throws(() => host.setTool("rm -rf", true), /Unknown/);
   const file = (host.supervisor as any).claudeMcpFile(["demo"]);
   const cfg = JSON.parse((await import("node:fs")).readFileSync(file, "utf8"));
-  assert.deepEqual(Object.keys(cfg.mcpServers), ["demo"], "Claude gets only the servers this project turned on");
+  assert.deepEqual(Object.keys(cfg.mcpServers), ["demo"], "Claude gets only the servers that are on");
   assert.equal((host.supervisor as any).claudeMcpFile([]), undefined, "none on: Claude keeps its empty MCP config");
-  host.setMcp(p.id, "demo", false);
-  assert.deepEqual(host.state.projects.find((x) => x.id === p.id)!.mcp, []);
   await host.close();
   await rm(dir, { recursive: true });
 });

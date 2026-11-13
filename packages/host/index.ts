@@ -161,12 +161,12 @@ parent.on("message", async ({ data }: any) => {
             .parse(input),
         );
         break;
-      case "mcp.list":
-        result = host.mcpServers();
+      case "tools.list":
+        result = host.tools();
         break;
-      case "mcp.set": {
-        const v = z.object({ projectId: z.string(), name: z.string().regex(/^[\w.-]{1,80}$/), on: z.boolean() }).parse(input);
-        result = host.setMcp(v.projectId, v.name, v.on);
+      case "tools.set": {
+        const v = z.object({ key: z.string().regex(/^[\w:@.-]{1,160}$/), on: z.boolean() }).parse(input);
+        result = host.setTool(v.key, v.on);
         break;
       }
       case "team.save":

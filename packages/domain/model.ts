@@ -119,6 +119,24 @@ export interface EngineReport {
   detail: string;
   quota: "unknown";
 }
+/** Settings · Plugins & tools. Unset = the default (on, except browser and computer use) */
+export interface ToolSettings {
+  /** ChatGPT image generation in Codex */
+  images?: boolean;
+  /** web search: Codex's own, Claude's WebSearch / WebFetch */
+  web?: boolean;
+  /** ChatGPT apps and connectors in Codex */
+  apps?: boolean;
+  /** all Codex plugins and skills; single ones are switched off in `off` */
+  codexPlugins?: boolean;
+  /** all Claude Code plugins and skills; single ones are switched off in `off` */
+  claudePlugins?: boolean;
+  /** Codex browser use and computer use act on your screen: off unless turned on */
+  browser?: boolean;
+  computer?: boolean;
+  /** single items switched off: "mcp:<server>", "claude:<plugin id>", "codex:<plugin id>" */
+  off?: string[];
+}
 /** a saved team: which models join a new team chat, in which role, and whether they build or just talk */
 export interface TeamTemplate {
   id: string;
@@ -148,6 +166,7 @@ export interface State {
     claudeShell?: boolean;
     /** the Ce:L island may answer DECISION: questions (default on); tool approvals always open Walt */
     islandAnswers?: boolean;
+    tools?: ToolSettings;
     /** the window's close button: hide to the tray (default, so the island stays connected) or quit Walt */
     closeAction?: "tray" | "quit";
     /** Windows notifications when an AI needs you or finishes while Walt is in the background (default on) */

@@ -3,6 +3,8 @@ import {
   BrowserWindow,
   ipcMain,
   shell,
+  protocol,
+  net,
   dialog,
   utilityProcess,
   Tray,
@@ -11,6 +13,11 @@ import {
 } from "electron";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import { basename } from "node:path";
+// walt-img://img/<name>.png: pictures the AI made, served from <data>/images only
+protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+const imageFile = (name: string) => (/^[\w.-]+\.png$/.test(name) ? join(app.getPath("userData"), "images", basename(name)) : undefined);
 import { randomUUID } from "node:crypto";
 let win: BrowserWindow;
 let child: ReturnType<typeof utilityProcess.fork>;
@@ -38,6 +45,10 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
   app.whenReady().then(async () => {
+    protocol.handle("walt-img", (req) => {
+      const file = imageFile(decodeURIComponent(new URL(req.url).pathname.slice(1)));
+      return file ? net.fetch(pathToFileURL(file).toString()) : new Response("not found", { status: 404 });
+    });
     // how Ce:L starts Walt while it is not running (control.json only exists while Walt runs)
     writeFileSync(join(app.getPath("userData"), "launch.json"), JSON.stringify({ exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] }));
     child = utilityProcess.fork(
@@ -106,6 +117,11 @@ else {
         win.isMaximized() ? win.unmaximize() : win.maximize();
       if (action === "close") closeAction === "quit" ? app.quit() : win.hide();
       if (action === "show") (win.show(), win.focus());
+      // a picture in the chat: open it in the default image viewer
+      if (typeof action === "string" && action.startsWith("image:")) {
+        const file = imageFile(action.slice(6));
+        if (file) void shell.openPath(file);
+      }
       // Settings · Data & backup
       if (action === "data") void shell.openPath(app.getPath("userData"));
     });

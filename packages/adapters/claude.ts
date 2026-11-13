@@ -3,6 +3,18 @@ import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { cleanEnv, gone } from "./environment";
 import { LEVELS, type ModelInfo } from "../domain/model";
+import { NO_TOOLS, type ToolKit } from "./tools";
+/** tools that only read (files, the web's search results, a skill's instructions): never ask */
+const SAFE = ["Read", "Glob", "Grep", "WebSearch", "Skill"];
+/** the --tools list: reviewers read; builders also write; the shell, web and skills when switched on */
+export function claudeTools(readonly: boolean, shell: boolean, kit: ToolKit) {
+  const t = ["Read", "Glob", "Grep"];
+  if (!readonly) t.push("Write", "Edit");
+  if (!readonly && shell) t.push("Bash", "PowerShell");
+  if (kit.web) t.push("WebSearch", "WebFetch");
+  if (kit.claudePlugins.length) t.push("Skill");
+  return t.join(",");
+}
 export type Approval = (tool: string, input: unknown) => Promise<boolean>;
 export class ClaudeSession {
   private child: ChildProcessWithoutNullStreams;
@@ -33,6 +45,8 @@ export class ClaudeSession {
     mcpConfig = '{"mcpServers":{}}',
     /** builder only: add the shell (Bash, or PowerShell on Windows without Git Bash); each call still goes through the owner's approval */
     shell = false,
+    /** Plugins & tools: web search, skills and plugins (reviewers: none) */
+    kit: ToolKit = NO_TOOLS,
   ) {
     const args = [
       "--print",
@@ -53,7 +67,8 @@ export class ClaudeSession {
       "--setting-sources=",
       "--disable-slash-commands",
       "--tools",
-      readonly ? "Read,Glob,Grep" : shell ? "Read,Glob,Grep,Write,Edit,Bash,PowerShell" : "Read,Glob,Grep,Write,Edit",
+      claudeTools(readonly, shell, kit),
+      ...kit.claudePlugins.flatMap((p) => ["--plugin-dir", p.dir]),
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
       // a restarted process (new effort/model, or after sleeping) continues the same conversation
@@ -147,12 +162,10 @@ export class ClaudeSession {
       message: "Unsupported control request",
     };
     if (r?.subtype === "can_use_tool") {
-      const read = ["Read", "Glob", "Grep"].includes(r.tool_name);
-      const allowed =
-        read ||
-        (!readonly &&
-          !!this.pending &&
-          (await this.pending.approve(r.tool_name, r.input)));
+      const read = SAFE.includes(r.tool_name);
+      // a chat without a project never edits; it may still ask you before a web fetch or an MCP tool
+      const askable = !readonly || r.tool_name === "WebFetch" || String(r.tool_name).startsWith("mcp__");
+      const allowed = read || (askable && !!this.pending && (await this.pending.approve(r.tool_name, r.input)));
       result = allowed
         ? { behavior: "allow", updatedInput: r.input }
         : {

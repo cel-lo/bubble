@@ -9,9 +9,10 @@ import { join } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
 import { LEVELS, type ModelInfo } from "../domain/model";
+import { NO_TOOLS, saveImage, type ToolKit } from "./tools";
 
-/** Features that give the agent tools outside the project folder or outside Walt's approval broker. */
-const OFF = ["apps", "plugins", "browser_use", "in_app_browser", "computer_use", "image_generation", "hooks", "multi_agent"];
+/** Features Walt always turns off: hooks run the user's own commands, sub-agents run outside Walt's view */
+const ALWAYS_OFF = ["hooks", "multi_agent"];
 /** names of the user's own MCP servers, so each can be switched off for Walt sessions (names only, no values) */
 export function userMcpServers(config = join(homedir(), ".codex", "config.toml")) {
   try {
@@ -30,16 +31,33 @@ export function userSkills(dir = join(homedir(), ".codex", "skills")) {
     return [];
   }
 }
-export function codexArgs(servers = userMcpServers(), skills = userSkills()) {
+/** `servers` = MCP servers to switch off; `skills` = the user's skills, off unless plugins are on; `kit` = Plugins & tools */
+export function codexArgs(servers = userMcpServers(), skills = userSkills(), kit: ToolKit = NO_TOOLS, plugins: string[] = []) {
+  const off = [
+    ...ALWAYS_OFF,
+    ...(kit.images ? [] : ["image_generation"]),
+    ...(kit.apps ? [] : ["apps"]),
+    ...(kit.codexPlugins.length ? [] : ["plugins"]),
+    ...(kit.browser ? [] : ["browser_use", "in_app_browser"]),
+    ...(kit.computer ? [] : ["computer_use"]),
+  ];
+  const pluginsOff = plugins.filter((p) => !kit.codexPlugins.includes(p) && !/["\\]/.test(p));
   return [
-    ...OFF.flatMap((f) => ["--disable", f]),
+    ...off.flatMap((f) => ["--disable", f]),
+    "-c",
+    `web_search="${kit.web ? "live" : "disabled"}"`,
     ...servers.flatMap((s) => ["-c", `mcp_servers.${s}.enabled=false`]),
-    ...(skills.length ? ["-c", `skills.config=[${skills.map((p) => `{path='${p}',enabled=false}`).join(",")}]`] : []),
+    ...pluginsOff.flatMap((p) => ["-c", `plugins."${p}".enabled=false`]),
+    ...(skills.length && !kit.codexPlugins.length ? ["-c", `skills.config=[${skills.map((p) => `{path='${p}',enabled=false}`).join(",")}]`] : []),
     "app-server",
   ];
 }
+/** a command that only reads, lists or searches files (Codex's own parse of it): safe to run without asking */
+export function onlyReads(actions: unknown) {
+  return Array.isArray(actions) && actions.length > 0 && actions.every((a: any) => ["read", "listFiles", "search"].includes(a?.type));
+}
 
-type Pending = { resolve: (text: string) => void; reject: (e: Error) => void; delta: (t: string) => void; approve: Approval; text: string; last: string };
+type Pending = { resolve: (text: string) => void; reject: (e: Error) => void; delta: (t: string) => void; approve: Approval; text: string; last: string; images: string[] };
 export class CodexSession {
   private child: ChildProcessWithoutNullStreams;
   /** the CLI process id, for the Job Object */
@@ -64,10 +82,13 @@ export class CodexSession {
     private readonly readonly: boolean,
     readonly effort?: string,
     resume?: string,
-    /** MCP servers this project turned on; every other server in ~/.codex/config.toml stays off */
-    mcp: string[] = [],
+    /** Plugins & tools for this session (reviewers: none) */
+    kit: ToolKit = NO_TOOLS,
+    /** the user's Codex plugins, so the ones switched off in Walt can be named */
+    plugins: string[] = [],
   ) {
-    this.child = spawn(executable, codexArgs(userMcpServers().filter((s) => !mcp.includes(s))), { cwd, env: cleanEnv(), shell: false, windowsHide: true });
+    const args = codexArgs(userMcpServers().filter((s) => !kit.mcp.includes(s)), userSkills(), kit, plugins);
+    this.child = spawn(executable, args, { cwd, env: cleanEnv(), shell: false, windowsHide: true });
     this.child.stderr.on("data", (b) => (this.stderr = (this.stderr + b).slice(-4000)));
     this.child.on("error", (e) => this.fail(e));
     this.child.on("close", (code) => {
@@ -136,11 +157,18 @@ export class CodexSession {
       run.delta(p.delta);
     }
     if (m.method === "item/completed" && p.item.type === "agentMessage") run.last = p.item.text;
+    // a generated picture arrives as base64 PNG: keep it in Walt's images folder and show it in the reply
+    if (m.method === "item/completed" && p.item.type === "imageGeneration" && typeof p.item.result === "string" && p.item.result) {
+      const md = saveImage(`${this.sessionId}-${p.item.id}`, p.item.result, p.item.revisedPrompt || "image");
+      run.images.push(md);
+      run.text += `\n\n${md}\n\n`;
+      run.delta(`\n\n${md}\n\n`);
+    }
     if (m.method === "turn/completed") {
       this.lastActive = Date.now();
       this.pending = undefined;
       const t = p.turn;
-      if (t.status === "completed") run.resolve(run.last || run.text);
+      if (t.status === "completed") run.resolve([run.last || run.text, ...run.images.filter((i) => !(run.last || run.text).includes(i))].join("\n\n"));
       else run.reject(new Error(t.error?.message || `Codex turn ${t.status}`));
     }
   }
@@ -153,6 +181,11 @@ export class CodexSession {
         : m.method === "item/fileChange/requestApproval" || m.method === "applyPatchApproval"
           ? { tool: "Edit", input: { changes: (this.items.get(p.itemId)?.changes ?? p.fileChanges ?? []).map((c: any) => ({ path: c.path, kind: c.kind?.type ?? c.kind, diff: c.diff })), reason: p.reason ?? undefined } }
           : undefined;
+    // reading skill or project files: no need to ask (anything that writes, runs code or is unclear still asks)
+    if (ask?.tool === "Shell" && onlyReads(p.commandActions ?? this.items.get(p.itemId)?.commandActions)) {
+      this.write({ id: m.id, result: { decision: legacy ? "approved" : "accept" } });
+      return;
+    }
     if (!ask) {
       // extra permissions, user-input prompts, MCP elicitations, tool calls: Walt grants none of these
       this.write({ id: m.id, error: { code: -32601, message: `Walt does not allow ${m.method}` } });
@@ -171,7 +204,7 @@ export class CodexSession {
     if (this.pending) throw new Error("Session already busy");
     this.items.clear();
     return new Promise<string>((resolve, reject) => {
-      this.pending = { resolve, reject, delta, approve, text: "", last: "" };
+      this.pending = { resolve, reject, delta, approve, text: "", last: "", images: [] };
       this.call("turn/start", {
         threadId: this.sessionId,
         input: [{ type: "text", text: prompt, text_elements: [] }],

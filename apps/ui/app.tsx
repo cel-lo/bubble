@@ -721,7 +721,7 @@ function limitCardFor(state: State, room: Room) {
     const name = room.template === "direct" && who ? label(state, who.engine, room.tune?.[who.id]?.model ?? who.model) : (who?.name ?? m.meta?.to ?? "");
     const others: [string, string][] =
       room.template === "direct"
-        ? ENGINES_ON.filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:default`, t("Continue with {0}", ENGINE_NAME[e])])
+        ? ENGINES_ON.filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:${state.catalog?.[e]?.find((x) => x.isDefault)?.id ?? "default"}`, t("Continue with {0}", ENGINE_NAME[e])])
         : m.meta?.to === room.builder
           ? [room.builder, ...room.reviewers, ...(room.members || [])].filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
           : [[m.meta?.to ?? "", t("Continue without {0}'s review", name)]];
@@ -864,6 +864,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     else if (h === "accept") await invoke("accept", room.id);
     else if (h === "diff") setDiff(await invoke("diff", room.id));
     else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
+    else if (h.startsWith("img:")) window.walt.window("image:" + h.slice(4));
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
     else if (h.startsWith("member:")) {
       const [, persona, role] = h.split(":");
@@ -1191,38 +1192,67 @@ const PLANNED: [string, string, string][] = [
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
   ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
-/** MCP servers from the user's Claude Code / Codex config, turned on per project */
+type ToolsView = {
+  switches: Record<"images" | "web" | "apps" | "codexPlugins" | "claudePlugins" | "browser" | "computer", boolean>;
+  claude: { id: string; name: string; version: string; on: boolean }[];
+  codex: { id: string; name: string; on: boolean }[];
+  mcp: { name: string; engines: Engine[]; on: boolean }[];
+};
+/** Plugins & tools: what the AI may use besides the project files, found in your Claude Code and Codex setup */
 function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
-  const [list, setList] = useState<{ name: string; engines: Engine[]; projects: string[] }[] | null>(null);
-  const load = () => void invoke("mcp.list").then((l) => l && setList(l));
-  useEffect(load, [state.revision]);
+  const [v, setV] = useState<ToolsView | null>(null);
+  useEffect(() => void invoke("tools.list").then((l) => l && setV(l)), [state.revision]);
+  const set = (key: string, on: boolean) => void invoke("tools.set", { key, on }).then((l) => l && setV(l));
+  const toggle = (on: boolean, key: string, label: string) => (
+    <span className="seg" role="switch" aria-checked={on} aria-label={label}>
+      {([[true, "On"], [false, "Off"]] as const).map(([b, l]) => <span key={l} className={on === b ? "on" : ""} onClick={() => on !== b && set(key, b)}>{t(l)}</span>)}
+    </span>
+  );
+  const row = (title: string, d: string, c: React.ReactNode, i: number, tag?: string) => (
+    <div key={title + i} className="row g16" style={{ padding: "12px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+      <div className="f1" style={{ minWidth: 0 }}>
+        <div className="s14 row g8">{title}{tag && <span className="chip" style={{ fontSize: 11 }}>{tag}</span>}</div>
+        {d && <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{d}</div>}
+      </div>
+      {c}
+    </div>
+  );
+  if (!v) return <h2>{t("Plugins & tools")}</h2>;
+  const s = v.switches;
+  const built: [keyof ToolsView["switches"], string, string, string][] = [
+    ["images", "Image generation", "GPT makes pictures in the chat; click one to open it.", "ChatGPT"],
+    ["web", "Web search", "Look things up on the web. Claude asks you before it opens a page.", "Both"],
+    ["apps", "ChatGPT apps & connectors", "The apps you connected in ChatGPT (Gmail, Drive, GitHub…).", "ChatGPT"],
+    ["codexPlugins", "Codex plugins & skills", "Documents, PDF, spreadsheets, slides and the other plugins in your Codex.", "ChatGPT"],
+    ["claudePlugins", "Claude Code plugins & skills", "The plugins you installed in Claude Code, with their skills.", "Claude"],
+    ["browser", "Browser", "Codex opens and clicks web pages itself. Off unless you need it.", "ChatGPT"],
+    ["computer", "Computer use", "Codex controls apps on your screen. Off unless you need it.", "ChatGPT"],
+  ];
   return (
     <>
       <h2>{t("Plugins & tools")}</h2>
-      <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>{t("Walt starts every AI without your MCP servers. Turn one on for a project when a task needs it. A change applies from the next message.")}<br />{t("Claude asks you before each tool call. Codex runs MCP tools without asking, so only a Codex builder or chat gets them; Codex reviewers never do.")}</div>
-      <div className="col g8" style={{ marginTop: 18, maxWidth: 820 }}>
-        {list && !list.length && <div className="s13 dim">{t("No MCP servers found in your Claude Code or Codex config.")}</div>}
-        {list?.map((m) => (
-          <div key={m.name} className="card" style={{ padding: "12px 16px" }}>
-            <div className="row g8">
-              <span className="s14 b mono">{m.name}</span>
-              {m.engines.map((e) => <span key={e} className="chip">{ENGINE_LABEL[e]}</span>)}
-            </div>
-            <div className="row g6" style={{ marginTop: 10, flexWrap: "wrap" }}>
-              <span className="s12 dim">{t("On in")}:</span>
-              {!state.projects.length && <span className="s12 dim">{t("No projects yet")}</span>}
-              {state.projects.map((p) => {
-                const on = m.projects.includes(p.id);
-                return (
-                  <span key={p.id} className="chip" role="switch" aria-checked={on} style={{ cursor: "pointer", ...(on ? { background: T.green + "29", color: T.green } : {}) }} onClick={() => void invoke("mcp.set", { projectId: p.id, name: m.name, on: !on }).then(load)}>
-                    {on && <Icon n="check" s={12} c={T.green} w={2.4} />}
-                    {p.name}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>
+        {t("Walt connects the plugins, apps and MCP servers you already set up in Claude Code and ChatGPT · Codex. Changes apply from the next message. Reviewers never get these: they only read the project.")}
+      </div>
+      <div className="s12 b dim" style={{ margin: "20px 0 8px", letterSpacing: ".04em" }}>{t("BUILT IN")}</div>
+      <div className="card col" style={{ maxWidth: 820 }}>{built.map(([k, title, d, tag], i) => row(t(title), t(d), toggle(s[k], k, t(title)), i, tag === "Both" ? t("Claude + ChatGPT") : tag))}</div>
+      <div className="s12 b dim" style={{ margin: "20px 0 8px", letterSpacing: ".04em" }}>{t("CLAUDE CODE PLUGINS")}</div>
+      <div className="card col" style={{ maxWidth: 820, opacity: s.claudePlugins ? 1 : 0.5 }}>
+        {!v.claude.length && <div className="s13 dim" style={{ padding: 14 }}>{t("No plugins installed in Claude Code.")}</div>}
+        {v.claude.map((p, i) => row(p.name, `${p.id}${p.version ? " · " + p.version : ""}`, toggle(p.on, "claude:" + p.id, p.name), i))}
+      </div>
+      <div className="s12 b dim" style={{ margin: "20px 0 8px", letterSpacing: ".04em" }}>{t("CODEX PLUGINS")}</div>
+      <div className="card col" style={{ maxWidth: 820, opacity: s.codexPlugins ? 1 : 0.5 }}>
+        {!v.codex.length && <div className="s13 dim" style={{ padding: 14 }}>{t("No plugins switched on in Codex.")}</div>}
+        {v.codex.map((p, i) => row(p.name, p.id, toggle(p.on, "codex:" + p.id, p.name), i))}
+      </div>
+      <div className="s12 b dim" style={{ margin: "20px 0 8px", letterSpacing: ".04em" }}>{t("MCP SERVERS")}</div>
+      <div className="card col" style={{ maxWidth: 820 }}>
+        {!v.mcp.length && <div className="s13 dim" style={{ padding: 14 }}>{t("No MCP servers found in your Claude Code or Codex config.")}</div>}
+        {v.mcp.map((m, i) => row(m.name, m.engines.map((e) => ENGINE_LABEL[e]).join(" · "), toggle(m.on, "mcp:" + m.name, m.name), i))}
+      </div>
+      <div className="s12 dim" style={{ maxWidth: 760, lineHeight: 1.55, margin: "12px 0 30px" }}>
+        {t("Claude asks you before each MCP tool and web page. Codex runs MCP and app tools without asking: switch off a server you do not want it to use on its own.")}
       </div>
     </>
   );

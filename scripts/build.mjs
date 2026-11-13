@@ -55,7 +55,7 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   "dist/ui/index.html",
-  '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; img-src \'self\' data:; style-src \'self\' \'unsafe-inline\'; script-src \'self\'"><title>Walt</title><link rel="stylesheet" href="design.css"></head><body><div id="root"></div><script src="app.js"></script></body></html>',
+  '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; img-src \'self\' data: walt-img:; style-src \'self\' \'unsafe-inline\'; script-src \'self\'"><title>Walt</title><link rel="stylesheet" href="design.css"></head><body><div id="root"></div><script src="app.js"></script></body></html>',
 );
 console.log(
   "Built Walt desktop, host and UI. Original design sources retained in design/.",

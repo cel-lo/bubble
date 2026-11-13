@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { NO_TOOLS, kitKey, codexPlugins, type ToolKit } from "./tools";
 import { homedir } from "node:os";
 import { join, delimiter, isAbsolute, dirname } from "node:path";
 import type { EngineReport, PersonaDef, Tune } from "../domain/model";
@@ -109,8 +110,8 @@ export class Supervisor {
     writeFileSync(file, json);
     return file;
   }
-  /** `resume`: the id saved on the chat, used when this process has none of its own (first turn after a restart); `mcp`: servers the project turned on */
-  async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, mcp: string[] = []) {
+  /** `resume`: the id saved on the chat, used when this process has none of its own (first turn after a restart); `kit`: its tools */
+  async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, kit: ToolKit = NO_TOOLS) {
     if (p.engine === "gemini")
       throw new Error(`${p.name} runs on gemini, and Walt's gemini adapter is not built yet.`);
     if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
@@ -119,10 +120,8 @@ export class Supervisor {
     const model = tune.model ?? p.model;
     const effort = tune.effort ?? p.effort;
     let s = this.sessions.get(key);
-    // Codex runs MCP tools without an approval request, so a read-only Codex session (a reviewer) never gets any
-    if (p.engine === "codex" && readonly) mcp = [];
     const shell = p.engine === "claude" && !readonly && this.claudeShell;
-    const mcpKey = [...mcp].sort().join(",") + (shell ? "+sh" : "");
+    const mcpKey = kitKey(kit) + (shell ? "+sh" : "");
     if (s?.alive && (s.model !== model || s.effort !== effort || (this.mcpOf.get(key) ?? "") !== mcpKey)) {
       if (s.busy) throw new Error(`${p.name} is busy; change model or effort after this turn.`);
       await this.retire(key, s);
@@ -131,8 +130,8 @@ export class Supervisor {
       if ([...this.sessions.values()].filter((s) => s.alive).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
       s = p.engine === "codex"
-        ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, mcp)
-        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(mcp), shell);
+        ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit, codexPlugins())
+        : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(kit.mcp), shell, kit);
       this.mcpOf.set(key, mcpKey);
       this.sessions.set(key, s);
       this.job.add(s.pid);
