@@ -193,6 +193,13 @@ Second pass (cello's feedback, same day):
 - Left out on purpose: print, device toolbar, import of cookies and passwords, a password manager and autofill (Walt never keeps your passwords), downloads (still blocked).
 - Checked for real on the test page: link opened a second tab; two elements annotated with comments → message "1. Make this bigger · element div.card > button.buy.primary "Add to cart" / 2. Use the full product name · element h2#name "Blue mug"" with the picture, nothing left in the page afterwards; History listed both visits; Find "e" 3/4 then Enter 4/4; Zoom 1.1.
 
+## Settings · Browser, links in replies — 2026-11-15
+
+- New Settings page Browser (settings.browser, validated in the host): Search with (Google, DuckDuckGo, Bing); Web links in chats (Walt's Browser or your browser); Annotation pictures (Always include, or Notes only for fewer tokens); Downloads (Off, or Ask where to save: main reads the setting from the state and leaves Electron's Save as dialog); device access shown as always refused; Clear cookies and logins; Clear everything; the History list with search, remove one, clear all.
+- Web links in AI replies are clickable now (http(s) only; file paths and other targets stay text). By default they open as a tab in the chat's Browser (into the current tab while it is blank; a hidden side panel opens); or in your own browser.
+- Permissions page names Antigravity's strict mode and the Browser's limits; About lists API providers too.
+- Checked: the page, two settings saved through the host and back; Haiku replied with a link, clicking it opened example.com in the Browser tab; a blank tab takes the link. Unit tests for the search engine and which links open. Not tried: a real download with the Save as dialog.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

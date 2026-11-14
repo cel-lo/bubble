@@ -19,7 +19,7 @@ type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; desc
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
 import { Marker, type Box } from "./marker";
-import { BrowserPane, type Shot, type Attach } from "./browser";
+import { BrowserPane, BrowserSettings, type Shot, type Attach } from "./browser";
 import { t, setLocale } from "./i18n";
 
 declare global {
@@ -204,7 +204,7 @@ function App() {
   let crumb = "";
   if (view.kind === "chat" && room) {
     crumb = `${room.projectId ? state.projects.find((p) => p.id === room.projectId)?.name ?? "" : t("Chats")}  ›  ${room.title}`;
-    main = <ChatView key={room.id} state={state} room={room} invoke={invoke} panel={panels.right ? panels.rw : 0} setRw={(rw) => setP({ rw })} />;
+    main = <ChatView key={room.id} state={state} room={room} invoke={invoke} panel={panels.right ? panels.rw : 0} setRw={(rw) => setP({ rw, right: true })} />;
   } else if (view.kind === "customize") (crumb = t("Customize")), (main = <Customize state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "customize", tab })} />);
   else if (view.kind === "settings") (crumb = t("Settings")), (main = <Settings state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "settings", tab })} />);
   else if (view.kind === "project-new") (crumb = t("New project")), (main = <NewProject invoke={invoke} back={() => setView({ kind: "home" })} done={(id) => setView({ kind: "join", projectId: id, first: true })} />);
@@ -737,10 +737,12 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
     return () => (removeEventListener("walt:mark", open), removeEventListener("walt:mark-shot", shot), removeEventListener("walt:attach", direct));
   }, []);
   // the marked copy replaces the picture; the notes go into the message, numbered like the marks
-  const attach = async (png: string, title: string | undefined, notes: string[], replace?: string) => {
-    const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
-    if (!saved) return;
-    setPics((all) => (replace ? all.map((x) => (x.name === replace ? saved : x)) : [...all, saved]));
+  const attach = async (png: string | undefined, title: string | undefined, notes: string[], replace?: string) => {
+    if (png) {
+      const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
+      if (!saved) return;
+      setPics((all) => (replace ? all.map((x) => (x.name === replace ? saved : x)) : [...all, saved]));
+    }
     const head = title ?? t("On the marked picture:");
     if (notes.length || title) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + head + (notes.length ? "\n" + notes.join("\n") : ""));
     ref.current?.focus();
@@ -1070,6 +1072,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const [tab, setTab] = useState(direct ? "Files" : "Task");
   // the Browser stays loaded once opened in this chat, so switching tabs keeps the page
   const [browsed, setBrowsed] = useState(false);
+  const [browse, setBrowse] = useState<{ url: string; n: number } | undefined>();
   useEffect(() => void (tab === "Browser" && setBrowsed(true)), [tab]);
   useEffect(() => setBrowsed(false), [room.id]);
   const [menuAt, setMenuAt] = useState<DOMRect | null>(null);
@@ -1165,6 +1168,15 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
     else if (h.startsWith("img:")) window.walt.window("image:" + h.slice(4));
     else if (h.startsWith("mark:")) dispatchEvent(new CustomEvent("walt:mark", { detail: h.slice(5) }));
+    else if (h.startsWith("link:")) {
+      const url = h.slice(5);
+      if (state.settings.browser?.links === "system") void window.walt.call("browser.external", url).catch(() => {});
+      else {
+        if (!panel) setRw(PANELS.rw);
+        setTab("Browser");
+        setBrowse({ url, n: Date.now() });
+      }
+    }
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
     else if (h.startsWith("member:")) {
       const [, persona, role] = h.split(":");
@@ -1261,7 +1273,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           <Grip side="right" width={panel} min={280} max={tab === "Browser" ? Math.max(560, Math.round(innerWidth * 0.6)) : 560} def={PANELS.rw} set={setRw} />
           <div className="insp" style={{ width: panel }}>
             <div className="col" style={{ flex: tab === "Browser" ? "none" : 1, minHeight: 0 }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab, panel >= 400) }} />
-            {browsed && <BrowserPane key={room.id} roomId={room.id} hidden={tab !== "Browser"} />}
+            {browsed && <BrowserPane key={room.id} roomId={room.id} hidden={tab !== "Browser"} prefs={state.settings.browser ?? {}} open={browse} />}
           </div>
         </>
       )}
@@ -1812,7 +1824,7 @@ function DataPage({ invoke }: { invoke: Invoke }) {
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
 /** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
 const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"], ["instructions", "Instructions", "file"]]} />;
-const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["browser", "Browser", "globe"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
   const [login, setLogin] = useState<boolean | null>(null);
@@ -1938,6 +1950,8 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
               <div><b>{t("Chats in a project")}</b> · {t("every file edit and command asks you first, with the full command or diff.")}</div>
               <div><b>{t("Team chats")}</b> · {t("one builder writes at a time; reviewers are read-only.")}</div>
               <div><b>{t("Ce:L island")}</b> · {t("can pause and answer questions; tool approvals always open Walt.")}</div>
+              <div><b>{t("Antigravity")}</b> · {t("runs in strict mode from its own folder: it reads by itself, every edit and command asks you.")}</div>
+              <div><b>{t("Browser")}</b> · {t("pages have their own cookies, no access to your files, no camera, microphone or location; the AIs cannot use it.")}</div>
               <div className="dim">{t("Waiting never counts as allow. Walt never sees your passwords; API keys you add in AI & models stay encrypted on this laptop.")}</div>
             </div>
             <div className="card row g16" style={{ padding: "14px 16px", marginTop: 14, maxWidth: 720 }}>
@@ -1949,6 +1963,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
             </div>
           </>
         )}
+        {tab === "browser" && <BrowserSettings state={state} invoke={invoke} />}
         {tab === "data" && <DataPage invoke={invoke} />}
         {tab === "island" && <IslandPage state={state} invoke={invoke} />}
         {tab === "shortcuts" && (
@@ -1968,7 +1983,8 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
           <>
             <h2>{t("About Walt")}</h2>
             <div className="s13 dim" style={{ marginTop: 8, lineHeight: 1.7 }}>
-              Version 0.1.0 · child app of Ce:L<br />{t("History and settings stay on this laptop.")}<br />Engines: {ENGINES_ON.map((e) => ENGINE_LABEL[e]).join(", ")}
+              Version 0.1.0 · child app of Ce:L<br />{t("History and settings stay on this laptop.")}<br />
+              {t("Engines")}: {[...ENGINES_ON.map((e) => ENGINE_LABEL[e]), ...(state.settings.providers ?? []).map((p) => p.name)].join(", ")}
             </div>
           </>
         )}

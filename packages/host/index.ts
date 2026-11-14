@@ -138,6 +138,7 @@ parent.on("message", async ({ data }: any) => {
               notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
               lastTarget: z.object({ engine, model: z.string().regex(MODEL_ID), effort: effort.optional() }),
+              browser: z.object({ search: z.enum(["google", "duckduckgo", "bing"]), links: z.enum(["walt", "system"]), shots: z.boolean(), downloads: z.boolean() }).partial(),
             })
             .partial()
             .parse(input),

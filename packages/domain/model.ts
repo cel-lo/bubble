@@ -154,6 +154,17 @@ export interface Quota {
   at: string;
 }
 /** Settings · Plugins & tools. Unset = the default (on, except browser and computer use) */
+/** Settings · Browser. Unset = the default in brackets */
+export interface BrowserSettings {
+  /** what the address bar searches with (google) */
+  search?: "google" | "duckduckgo" | "bing";
+  /** web links in chat messages open in Walt's Browser tab, or in your own browser (walt) */
+  links?: "walt" | "system";
+  /** Annotate sends a picture of the page with the marks; off = the notes only, fewer tokens (on) */
+  shots?: boolean;
+  /** pages may download files, each with a Save as dialog (off) */
+  downloads?: boolean;
+}
 export interface ToolSettings {
   /** ChatGPT image generation in Codex */
   images?: boolean;
@@ -215,6 +226,8 @@ export interface State {
     onboarded?: boolean;
     /** Customize · AI & models · API providers */
     providers?: Provider[];
+    /** Settings · Browser (the side panel's browser) */
+    browser?: BrowserSettings;
   };
 }
 export const budgets: Record<Template, number> = {

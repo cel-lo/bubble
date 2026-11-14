@@ -981,6 +981,11 @@ test("Browser address bar: local ports, web addresses, searches", () => {
   assert.equal(address("https://example.com/x"), "https://example.com/x");
   assert.equal(address("antigravity.google"), "https://antigravity.google");
   assert.equal(address("berita mpr hari ini"), "https://www.google.com/search?q=berita%20mpr%20hari%20ini");
+  assert.equal(address("berita mpr", "duckduckgo"), "https://duckduckgo.com/?q=berita%20mpr");
+  // links in replies: web links can be opened (Settings · Browser says where), file paths and the rest stay text
+  assert.match(md("see [the docs](https://example.com/a?b=1&c=2)"), /data-hot="link:https:\/\/example\.com\/a\?b=1&amp;c=2"/);
+  assert.doesNotMatch(md("[note](/D:/x/walt-note.txt)"), /data-hot/);
+  assert.doesNotMatch(md("[x](javascript:alert(1))"), /data-hot/);
   assert.equal(address("  "), "");
   // a page address is never anything but http(s): no file:, javascript: or walt-img:
   assert.ok(address("javascript:alert(1)").startsWith("https://www.google.com/search?q="));

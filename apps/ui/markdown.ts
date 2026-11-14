@@ -14,8 +14,13 @@ const inline = (s: string) =>
   pics(s)
     .replace(/`([^`\n]+)`/g, '<span class="mono" style="font-size:.9em;background:#ffffff14;border-radius:5px;padding:1px 5px">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-    // links show their text only (target in the tooltip): nothing in a message opens a browser or a file
-    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, '<span style="text-decoration:underline;text-decoration-color:#ffffff50" title="$2">$1</span>');
+    // a web link opens in Walt's Browser tab or your browser (Settings · Browser); any other target (a file path)
+    // shows its text only, with the target in the tooltip
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, text: string, to: string) =>
+      /^https?:\/\//i.test(to)
+        ? `<span role="link" data-hot="link:${to}" title="${to}" style="color:#64A8FF;cursor:pointer;text-decoration:underline;text-decoration-color:#64A8FF60">${text}</span>`
+        : `<span style="text-decoration:underline;text-decoration-color:#ffffff50" title="${to}">${text}</span>`,
+    );
 
 /** pipe tables: header row, separator row, then body rows */
 const tables = (s: string) =>

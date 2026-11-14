@@ -8,16 +8,18 @@ import React, { useEffect, useRef, useState } from "react";
 import { ic, T } from "./generated/kit.mjs";
 import { t } from "./i18n";
 import { burn, type Box } from "./marker";
-import { Menu, type Item } from "./menu";
+import { Menu, Dropdown, type Item } from "./menu";
+import type { State, BrowserSettings as Prefs } from "../../packages/domain/model";
 
+const SEARCH = { google: "https://www.google.com/search?q=", duckduckgo: "https://duckduckgo.com/?q=", bing: "https://www.bing.com/search?q=" };
 /** what you typed: a local address gets http, something with a dot gets https, anything else is a web search */
-export function address(s: string) {
+export function address(s: string, search: keyof typeof SEARCH = "google") {
   const v = s.trim();
   if (!v) return "";
   if (/^https?:\/\//i.test(v)) return v;
   if (/^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(v) || /^\d{1,5}$/.test(v)) return "http://" + (/^\d+$/.test(v) ? "localhost:" + v : v);
   if (/^[^\s]+\.[^\s]{2,}$/.test(v)) return "https://" + v;
-  return "https://www.google.com/search?q=" + encodeURIComponent(v);
+  return (SEARCH[search] ?? SEARCH.google) + encodeURIComponent(v);
 }
 
 /** thin scrollbars that suit Walt's dark panel, on every page (pages that style their own keep theirs) */
@@ -78,8 +80,8 @@ const annotate = (placeholder: string) => `(() => {
 
 /** what the marker gets: the page picture, boxes to start with, and the heading for the notes */
 export interface Shot { src: string; boxes: Box[]; title: string }
-/** a marked picture that goes straight into the message */
-export interface Attach { png: string; title: string; notes: string[] }
+/** marks that go straight into the message (png left out when Settings · Browser says notes only) */
+export interface Attach { png?: string; title: string; notes: string[] }
 
 interface Tab { id: string; start: string; url: string; title: string; back?: boolean; fwd?: boolean; loading?: boolean; found?: string }
 interface Visit { url: string; title: string; at: number }
@@ -105,6 +107,40 @@ function visit(url: string, title: string) {
   if (h[0]?.url === url) h[0] = { ...h[0], title: title || h[0].title, at: Date.now() };
   else h.unshift({ url, title, at: Date.now() });
   store.set(HISTORY, h.slice(0, 500));
+}
+/** visited pages, newest first, with search; open (Browser tab) and delete one or all */
+export function HistoryList({ open, onClose, height }: { open?: (url: string) => void; onClose?: () => void; height?: number }) {
+  const [q, setQ] = useState("");
+  const [all, setAll] = useState(() => store.get<Visit[]>(HISTORY, []));
+  const save = (h: Visit[]) => (store.set(HISTORY, h), setAll(h));
+  const shown = all.filter((v) => !q || (v.title + " " + v.url).toLowerCase().includes(q.toLowerCase())).slice(0, 300);
+  return (
+    <div className="col" style={{ flex: 1, minHeight: 0, maxHeight: height }}>
+      <div className="row g6" style={{ padding: "10px 12px" }}>
+        <span className="s14 b f1">{t("History")}</span>
+        {!!all.length && <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => confirm(t("Clear all browsing history?")) && save([])}>{t("Clear history")}</button>}
+        {onClose && <Btn icon="x" label={t("Close")} onClick={onClose} />}
+      </div>
+      <input autoFocus={!!open} aria-label={t("Search history")} placeholder={t("Search history")} value={q} onChange={(e) => setQ(e.target.value)} style={{ margin: "0 12px 8px", padding: "5px 10px", fontSize: 13 }} />
+      <div style={{ flex: 1, overflow: "auto", padding: "0 6px 10px" }}>
+        {shown.length ? (
+          shown.map((v) => (
+            <div key={v.url + v.at} className="mi row g8" role={open ? "button" : undefined} title={v.url} onClick={() => open?.(v.url)} style={{ padding: "7px 8px", borderRadius: 8, cursor: open ? "pointer" : "default" }}>
+              <div className="f1" style={{ minWidth: 0 }}>
+                <div className="s13" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title || v.url}</div>
+                <div className="s12 dim" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {new Date(v.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {v.url.replace(/^https?:\/\//, "")}
+                </div>
+              </div>
+              <span role="button" aria-label={t("Remove from history")} title={t("Remove from history")} onClick={(e) => (e.stopPropagation(), save(all.filter((x) => x !== v)))} style={{ display: "flex", padding: 4 }} dangerouslySetInnerHTML={{ __html: ic("x", 11, T.dim, 2.2) }} />
+            </div>
+          ))
+        ) : (
+          <div className="s13 dim" style={{ padding: 8 }}>{t("No pages yet.")}</div>
+        )}
+      </div>
+    </div>
+  );
 }
 const newTab = (start = ""): Tab => ({ id: Math.random().toString(36).slice(2, 10), start, url: start, title: "" });
 /** a chat's tabs; older Walt kept one address per chat as a plain string */
@@ -170,7 +206,7 @@ function Page({ tab, active, patch, register }: { tab: Tab; active: boolean; pat
   return React.createElement("webview", { ref, src: tab.start, partition: "persist:walt-browser", allowpopups: "true", style: { position: "absolute", inset: 0, background: "#fff", display: active ? "flex" : "none" } });
 }
 
-export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolean }) {
+export function BrowserPane({ roomId, hidden, prefs, open: link }: { roomId: string; hidden: boolean; prefs: Prefs; open?: { url: string; n: number } }) {
   const key = "walt.browser." + roomId;
   const [state, setState] = useState(() => loadTabs(key));
   const { tabs, active } = state;
@@ -178,7 +214,7 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
   const [input, setInput] = useState(tab.url);
   const [annotating, setAnnotating] = useState(false);
   const [finding, setFinding] = useState<string | null>(null);
-  const [history, setHistory] = useState<string | null>(null);
+  const [history, setHistory] = useState<"" | null>(null);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [note, setNote] = useState("");
   const views = useRef(new Map<string, any>());
@@ -209,6 +245,9 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
       }
       return { tabs: rest, active: s.active === id ? rest[Math.max(0, i - 1)].id : s.active };
     });
+  // a web link clicked in the chat opens as a new tab
+  // (into the current tab while it is still blank)
+  useEffect(() => void (link && (tab.start ? open(link.url) : patch(tab.id, { start: link.url, url: link.url }))), [link?.n]);
   // a popup or target=_blank link from one of this chat's pages opens as a new tab here
   useEffect(
     () =>
@@ -218,7 +257,7 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
     [],
   );
   const go = (to = input) => {
-    const u = address(to);
+    const u = address(to, prefs.search);
     if (!u) return;
     setHistory(null);
     if (!tab.start) patch(tab.id, { start: u, url: u });
@@ -250,19 +289,24 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
     setAnnotating(false);
     const r = await v?.executeJavaScript("window.__waltAnno?.finish()").catch(() => null);
     if (!r?.items?.length) return setNote(t("Nothing was marked."));
-    await new Promise((ok) => setTimeout(ok, 120)); // let the page repaint without the marks
-    const png = await picture();
-    if (!png) return;
-    const boxes: Box[] = r.items.map((x: any) => ({ x: x.x / r.vw, y: x.y / r.vh, w: x.w / r.vw, h: x.h / r.vh, note: x.note }));
-    const img = new Image();
-    img.src = "data:image/png;base64," + png;
-    await img.decode();
+    const withPicture = prefs.shots !== false;
+    let marked: string | undefined;
+    if (withPicture) {
+      await new Promise((ok) => setTimeout(ok, 120)); // let the page repaint without the marks
+      const png = await picture();
+      if (!png) return;
+      const boxes: Box[] = r.items.map((x: any) => ({ x: x.x / r.vw, y: x.y / r.vh, w: x.w / r.vw, h: x.h / r.vh, note: x.note }));
+      const img = new Image();
+      img.src = "data:image/png;base64," + png;
+      await img.decode();
+      marked = burn(img, boxes);
+    }
     const notes = r.items.map((x: any, i: number) => {
       const seen = x.y + x.h > 0 && x.y < r.vh && x.x + x.w > 0 && x.x < r.vw;
-      const about = `${t("element")} ${x.path}${x.text ? ` "${x.text}"` : ""}${seen ? "" : ` (${t("scrolled out of the picture")})`}`;
+      const about = `${t("element")} ${x.path}${x.text ? ` "${x.text}"` : ""}${seen || !withPicture ? "" : ` (${t("scrolled out of the picture")})`}`;
       return `${i + 1}. ${[x.note, about].filter(Boolean).join(" · ")}`;
     });
-    dispatchEvent(new CustomEvent("walt:attach", { detail: { png: burn(img, boxes), title: t("On the marked page ({0}):", v.getURL()), notes } satisfies Attach }));
+    dispatchEvent(new CustomEvent("walt:attach", { detail: { png: marked, title: t("On the marked page ({0}):", v.getURL()), notes } satisfies Attach }));
   };
   // Electron: findNext true starts a new search (typing), false moves to the next match (Enter)
   const find = (text: string, next = false) => (text ? view()?.findInPage(text, { findNext: !next }) : view()?.stopFindInPage("clearSelection"));
@@ -305,7 +349,6 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
       },
     ];
   };
-  const visits = history === null ? [] : store.get<Visit[]>(HISTORY, []).filter((v) => !history || (v.title + " " + v.url).toLowerCase().includes(history.toLowerCase())).slice(0, 200);
   return (
     <div className="col" style={{ flex: 1, minHeight: 0, display: hidden ? "none" : "flex" }}>
       {/* tabs */}
@@ -379,28 +422,53 @@ export function BrowserPane({ roomId, hidden }: { roomId: string; hidden: boolea
         ))}
         {history !== null && (
           <div className="col" style={{ position: "absolute", inset: 0, background: T.side, zIndex: 1 }}>
-            <div className="row g6" style={{ padding: "10px 12px" }}>
-              <span className="s14 b f1">{t("History")}</span>
-              <Btn icon="x" label={t("Close")} onClick={() => setHistory(null)} />
-            </div>
-            <input autoFocus aria-label={t("Search history")} placeholder={t("Search history")} value={history} onChange={(e) => setHistory(e.target.value)} style={{ margin: "0 12px 8px", padding: "5px 10px", fontSize: 13 }} />
-            <div style={{ flex: 1, overflow: "auto", padding: "0 6px 10px" }}>
-              {visits.length ? (
-                visits.map((v, i) => (
-                  <div key={v.url + v.at + i} className="mi" role="button" title={v.url} onClick={() => go(v.url)} style={{ display: "block", padding: "7px 8px", borderRadius: 8, cursor: "pointer" }}>
-                    <div className="s13" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title || v.url}</div>
-                    <div className="s12 dim" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {new Date(v.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {v.url.replace(/^https?:\/\//, "")}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="s13 dim" style={{ padding: 8 }}>{t("No pages yet.")}</div>
-              )}
-            </div>
+            <HistoryList open={(u) => go(u)} onClose={() => setHistory(null)} />
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+/** Settings · Browser: search, where chat links open, Annotate pictures, downloads, and the Browser's data */
+export function BrowserSettings({ state, invoke }: { state: State; invoke: (method: string, input?: unknown) => Promise<any> }) {
+  const b = state.settings.browser ?? {};
+  const set = (p: Prefs) => void invoke("settings", { browser: { ...b, ...p } });
+  const [done, setDone] = useState("");
+  const seg = <V,>(value: V, options: [V, string][], pick: (v: V) => void) => (
+    <div className="seg">{options.map(([v, l]) => <span key={l} className={value === v ? "on" : ""} onClick={() => pick(v)}>{t(l)}</span>)}</div>
+  );
+  const clear = async (history: boolean) => {
+    if (!confirm(t(history ? "Clear cookies, logins, cache and history of the Browser?" : "Clear cookies, logins and cache of the Browser? You will be signed out of sites there."))) return;
+    await window.walt.call("browser.clear").catch(() => {});
+    if (history) store.set(HISTORY, []);
+    setDone(t(history ? "Browsing data cleared." : "Cookies and cache cleared."));
+  };
+  const rows: [string, string, React.ReactNode][] = [
+    ["Search with", "What the address bar uses for words that are not an address.", <Dropdown label="Search with" value={b.search ?? "google"} width={170} onChange={(v) => set({ search: v as Prefs["search"] })} options={[{ value: "google", label: "Google" }, { value: "duckduckgo", label: "DuckDuckGo" }, { value: "bing", label: "Bing" }]} />],
+    ["Web links in chats", "Where a link in an AI's reply opens.", seg<NonNullable<Prefs["links"]>>(b.links ?? "walt", [["walt", "Walt's Browser"], ["system", "Your browser"]], (v) => set({ links: v }))],
+    ["Annotation pictures", "Annotate sends a picture of the page with the marks. Notes only uses fewer tokens; the AI then reads the element and your comment.", seg(b.shots !== false, [[true, "Always include"], [false, "Notes only"]], (v) => set({ shots: v }))],
+    ["Downloads", "Off blocks every download. On asks where to save each file.", seg(!!b.downloads, [[false, "Off"], [true, "Ask where to save"]], (v) => set({ downloads: v }))],
+    ["Camera, microphone, location, notifications", "Always refused for every site. The AIs cannot use the Browser either.", <span className="s12 dim">{t("Refused")}</span>],
+    ["Cookies and logins", "The Browser has its own cookies, apart from your Chrome or Edge, and keeps logins after a restart.", <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => void clear(false)}>{t("Clear")}</button>],
+    ["All browsing data", "Cookies, logins, cache and history together.", <button type="button" className="btn sm r" style={{ border: 0 }} onClick={() => void clear(true)}>{t("Clear everything")}</button>],
+  ];
+  return (
+    <>
+      <h2>{t("Browser")}</h2>
+      <div className="s13 dim">{t("The Browser tab beside each chat: open the app you are building, annotate what you mean, ask.")}</div>
+      {done && <div className="s13" style={{ color: T.green, marginTop: 10 }}>{done}</div>}
+      <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
+        {rows.map(([title, d, c], i) => (
+          <div key={title} className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+            <div className="f1"><div className="s14">{t(title)}</div>{d && <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{t(d)}</div>}</div>
+            {c}
+          </div>
+        ))}
+      </div>
+      <div className="card col" style={{ marginTop: 14, maxWidth: 720, height: 360, padding: 0 }}>
+        <HistoryList key={done} />
+      </div>
+    </>
   );
 }

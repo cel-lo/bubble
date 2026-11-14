@@ -22,9 +22,11 @@ import { basename } from "node:path";
 protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 // The side panel's Browser: web pages in a <webview> with its own cookie jar ("persist:walt-browser", so a login
 // to the app you are building survives a restart), no preload, no Node, sandboxed; only http(s) pages; popups
-// (allowpopups, so target=_blank links work) come back to the window as new tabs; no downloads and no device
-// permissions (camera, location, notifications…).
+// (allowpopups, so target=_blank links work) come back to the window as new tabs; downloads only when Settings ·
+// Browser allows them; no device permissions (camera, location, notifications…).
 const BROWSER = "persist:walt-browser";
+/** Settings · Browser · Downloads (off until the owner turns it on; then each download asks where to save) */
+let downloads = false;
 const web = (url: string) => /^https?:\/\//i.test(url) || url === "about:blank";
 app.on("web-contents-created", (_e, wc) => {
   if (wc.getType() !== "webview") return;
@@ -107,6 +109,7 @@ else {
     child.on("message", (m: any) => {
       if (m.type === "state") {
         closeAction = m.state?.settings?.closeAction ?? "tray";
+        downloads = !!m.state?.settings?.browser?.downloads;
         win?.webContents.send("walt:state", m.state);
       }
       else if (m.type === "delta") win?.webContents.send("walt:delta", m.delta);
@@ -148,7 +151,8 @@ else {
     const browser = session.fromPartition(BROWSER);
     browser.setPermissionRequestHandler((_wc, _permission, done) => done(false));
     browser.setPermissionCheckHandler(() => false);
-    browser.on("will-download", (e) => e.preventDefault());
+    // no save path set, so Electron asks with a Save as dialog
+    browser.on("will-download", (e) => !downloads && e.preventDefault());
     // every <webview> the window makes gets the browser's locked-down settings, whatever the page asked for
     win.webContents.on("will-attach-webview", (e, prefs, params) => {
       delete prefs.preload;
@@ -188,7 +192,7 @@ else {
       const result: any = await call(method, input);
       if (method === "provider.remove") saveKey(String(input), null);
       // the window reads the whole state once at load: the close setting is in there before any change
-      if (method === "snapshot") closeAction = result?.settings?.closeAction ?? "tray";
+      if (method === "snapshot") (closeAction = result?.settings?.closeAction ?? "tray"), (downloads = !!result?.settings?.browser?.downloads);
       return result;
     });
     ipcMain.handle("walt:folder", async () => {
