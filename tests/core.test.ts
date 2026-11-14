@@ -246,11 +246,14 @@ test("room settings from the composer: keep, effort per engine, members, custom 
   await rm(dir, { recursive: true });
 });
 import { complete } from "../apps/ui/personas";
-test("composer menu: @ names, then effort levels per engine", () => {
+test("composer menu: @ names of this chat's members only, then effort levels per engine", () => {
   const state: any = { personas: [...DEFAULT_PERSONAS, { id: "gpt", name: "GPT 6.1 Sol", engine: "codex", model: "gpt-6.1-sol", strengths: [], avatar: "codex" }] };
   const room: any = { builder: "sonnet", reviewers: ["claude"], members: ["gpt"] };
   const labels = (t: string) => complete(t, state, room).map((s) => s.label);
   assert.deepEqual(labels("@Op"), ["@Claude Opus"]);
+  // like a group chat: only this chat's models; Gemini exists as a persona but is not in it
+  assert.deepEqual(labels("@Gem"), []);
+  assert.deepEqual(labels("@").length, 3);
   assert.deepEqual(labels("@GPT 6.1 "), ["@GPT 6.1 Sol"]);
   assert.deepEqual(labels("@Opus /effort "), ["low", "medium", "high", "xhigh", "max"]);
   assert.deepEqual(labels("@GPT 6.1 Sol /effort h"), ["high"]);

@@ -34,12 +34,12 @@ export function complete(before: string, state: State, room: Room): Suggestion[]
   // @ menu only while the text after @ can still start a persona name (so "@Opus /effort " moves on)
   const at = before.match(/(?:^|\s)@([^@/\n]{0,30})$/);
   const q = at?.[1].toLowerCase() ?? "";
-  const named = at ? state.personas.filter((p) => p.name.toLowerCase().startsWith(q) || p.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))) : [];
+  // like a group chat: only the models in this chat can be mentioned
+  const named = at ? state.personas.filter((p) => inRoom.has(p.id) && (p.name.toLowerCase().startsWith(q) || p.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)))) : [];
   if (at && named.length)
     return named
-      .sort((a, b) => Number(inRoom.has(b.id)) - Number(inRoom.has(a.id)))
       .slice(0, 6)
-      .map((p) => ({ label: "@" + p.name, hint: inRoom.has(p.id) ? personaLine(p) : "not in this room", insert: "@" + p.name + " ", replace: at[1].length + 1 }));
+      .map((p) => ({ label: "@" + p.name, hint: personaLine(p), insert: "@" + p.name + " ", replace: at[1].length + 1 }));
   // effort levels follow the mentioned persona's engine; with no mention, the ones every member accepts
   const mentioned = aliases(state.personas).find(([a]) => before.toLowerCase().includes("@" + a))?.[1];
   const engines = (mentioned ? [mentioned] : [...inRoom]).map((id) => state.personas.find((p) => p.id === id)?.engine).filter(Boolean) as Engine[];
