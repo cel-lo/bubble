@@ -817,10 +817,15 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
         icon: "plug",
         submenu: [
           ...(groups.length ? [] : [{ label: t("No skills on for this chat"), disabled: true }]),
-          ...groups.map((g) => ({
-            label: g.plugin,
-            hint: SHORT[g.engine],
-            submenu: g.skills.map((s) => ({ label: s.name, detail: s.description || undefined, onSelect: () => insert(`Use the ${s.name} skill: `, true) })),
+          // AI first, then its plugins, then their skills; an engine whose host reports skills shows up here by itself
+          ...[...new Set(groups.map((g) => g.engine))].map((e) => ({
+            label: ENGINE_NAME[e] ?? e,
+            submenu: groups
+              .filter((g) => g.engine === e)
+              .map((g) => ({
+                label: g.plugin,
+                submenu: g.skills.map((s) => ({ label: s.name, detail: s.description || undefined, onSelect: () => insert(`Use the ${s.name} skill: `, true) })),
+              })),
           })),
           { kind: "sep" },
           { label: t("Manage plugins"), icon: "gear", onSelect: () => manage("plugins") },

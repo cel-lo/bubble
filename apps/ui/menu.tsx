@@ -84,6 +84,8 @@ export function Menu({ at, items, onClose, side = "below", width }: { at: DOMRec
                 if (x.submenu && !x.disabled) setOpen({ i, rect: e.currentTarget.getBoundingClientRect() });
                 else setOpen(null);
               }}
+              // a description belongs to the item under the cursor: leaving it (to scroll, or off the menu) hides it
+              onMouseLeave={() => !x.submenu && setAct((a) => (a === i ? -1 : a))}
               onClick={(e) => pick(i, e.currentTarget)}
             >
               <span className="ck">{x.checked ? <Icon n="check" c="#F5F5F7" /> : x.icon ? <Icon n={x.icon} s={16} c={T.sub} /> : null}</span>
