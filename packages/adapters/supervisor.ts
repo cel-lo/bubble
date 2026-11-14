@@ -9,10 +9,11 @@ import { ClaudeSession, claudeModels } from "./claude";
 import { CodexSession, codexModels } from "./codex";
 import { Job } from "./job";
 import { ApiSession, type ApiTarget } from "./api";
+import { GeminiSession, geminiCommand, geminiModels, geminiSignedIn } from "./gemini";
 import { isApi } from "../domain/model";
 import { tmpdir } from "node:os";
 import type { Engine, ModelInfo } from "../domain/model";
-type Session = ClaudeSession | CodexSession | ApiSession;
+type Session = ClaudeSession | CodexSession | ApiSession | GeminiSession;
 /** what every API model is told: it only talks */
 const API_SYSTEM = "You are chatting with the user inside Walt, a desktop app. You cannot open, read or change files or run commands; when you need a file, ask the user to paste it. Reply in the language the user writes in.";
 export class Supervisor {
@@ -35,6 +36,11 @@ export class Supervisor {
     return this.api.get(engine);
   }
   codex = "";
+  /** node + Gemini CLI's script, found once */
+  private gem?: ReturnType<typeof geminiCommand>;
+  geminiCmd() {
+    return (this.gem ||= geminiCommand(this.find("gemini")));
+  }
   /** the native codex.exe behind npm's codex.cmd shim (Node cannot spawn .cmd without a shell) */
   codexExe(found = this.find("codex")) {
     if (!found || /\.exe$/i.test(found)) return found;
@@ -54,7 +60,7 @@ export class Supervisor {
             ? this.claude
             : engine === "codex"
               ? this.codexExe()
-              : this.find(engine);
+              : this.geminiCmd()?.js;
         if (!exe)
           return {
             engine,
@@ -64,7 +70,7 @@ export class Supervisor {
             detail: "Not installed / native executable not found",
           };
         try {
-          const version = await capture(exe, ["--version"]);
+          const version = engine === "gemini" ? await capture(this.geminiCmd()!.node, [exe, "--version"]) : await capture(exe, ["--version"]);
           let auth = "unknown";
           if (engine === "claude") {
             this.claude = exe;
@@ -77,15 +83,15 @@ export class Supervisor {
             this.codex = exe;
             auth = /logged in/i.test(await capture(exe, ["login", "status"]).catch(() => "")) ? "ok" : "required";
           } else if (engine === "gemini") {
-            // gemini has no status command; its Google sign-in leaves this file
-            auth = existsSync(join(homedir(), ".gemini", "oauth_creds.json")) ? "ok" : "required";
+            // gemini has no status command; its Google sign-in leaves a file, an API key choice is in settings
+            auth = geminiSignedIn() ? "ok" : "required";
           }
           return {
             engine,
             installed: true,
             version,
             auth,
-            detail: engine === "gemini" ? "Adapter not built yet" : "CLI subscription login",
+            detail: engine === "gemini" ? "Google sign-in" : "CLI subscription login",
           };
         } catch (e) {
           return {
@@ -125,8 +131,8 @@ export class Supervisor {
   async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, kit: ToolKit = NO_TOOLS) {
     if (isApi(p.engine) && !this.api.has(p.engine))
       throw new Error(`${p.name}'s API is not set up any more. Add it again in Customize · AI & models.`);
-    if (p.engine === "gemini")
-      throw new Error(`${p.name} runs on gemini, and Walt's gemini adapter is not built yet.`);
+    if (p.engine === "gemini" && !this.geminiCmd())
+      throw new Error("Gemini CLI was not found. Install it with npm install -g @google/gemini-cli, then run gemini once to sign in.");
     if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
       throw new Error("Codex CLI was not found. Install it with npm install -g @openai/codex, then sign in with codex login.");
     const key = room + ":" + p.id + ":" + readonly;
@@ -142,7 +148,9 @@ export class Supervisor {
     if (!s?.alive) {
       if ([...this.sessions.values()].filter((s) => s.alive && !(s instanceof ApiSession)).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
-      s = isApi(p.engine)
+      s = p.engine === "gemini"
+        ? new GeminiSession(this.geminiCmd()!, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit.instructions)
+        : isApi(p.engine)
         ? new ApiSession(this.api.get(p.engine)!, model, [API_SYSTEM, kit.instructions].filter(Boolean).join("\n\n"), effort)
         : p.engine === "codex"
         ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit, codexPlugins())
@@ -164,6 +172,7 @@ export class Supervisor {
     await Promise.all([
       engines.includes("claude") && existsSync(this.claude) ? claudeModels(this.claude, tmpdir()).then((m) => (out.claude = m)).catch(() => {}) : null,
       engines.includes("codex") && (this.codex ||= this.codexExe() || "") ? codexModels(this.codex, tmpdir()).then((m) => (out.codex = m)).catch(() => {}) : null,
+      engines.includes("gemini") && this.geminiCmd() ? geminiModels(this.geminiCmd()!, tmpdir()).then((m) => (out.gemini = m)).catch(() => {}) : null,
     ]);
     return out;
   }

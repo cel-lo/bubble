@@ -146,10 +146,10 @@ export class Host extends EventEmitter {
     if (hit) return hit;
     const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
     if (this.state.catalog?.[t.engine] && !info) throw new Error(`${t.model} is not available for this account.`);
-    const base = (info && info.label !== "Default" ? info.label : `${t.engine === "codex" ? "Codex" : "Claude"} default`) + (t.effort ? ` ${t.effort}` : "");
+    const base = (info && info.label !== "Default" ? info.label : `${{ codex: "Codex", claude: "Claude", gemini: "Gemini" }[t.engine as string] ?? t.engine} default`) + (t.effort ? ` ${t.effort}` : "");
     let name = base;
     for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
-    const avatar = isApi(t.engine) ? t.engine : t.engine === "codex" ? "codex" : "claude";
+    const avatar = t.engine === "claude" ? "claude" : t.engine;
     return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: defaultStrengths(t.engine, t.model), avatar });
   }
   /** MCP servers found in the user's Claude Code and Codex configs */
@@ -188,6 +188,9 @@ export class Host extends EventEmitter {
       ...k.codexPlugins.map((id) => ({ engine: "codex" as Engine, plugin: id.split("@")[0], skills: ((d) => (d ? pluginSkills(d) : []))(codexPluginDir(id)) })),
       // the user's own Codex skills come along whenever Codex plugins are on
       ...(k.codexPlugins.length ? [{ engine: "codex" as Engine, plugin: "Your skills", skills: skillsIn(join(homedir(), ".codex", "skills")) }] : []),
+      // Gemini CLI: its own skills folder and each installed extension
+      { engine: "gemini" as Engine, plugin: "Your skills", skills: skillsIn(join(homedir(), ".gemini", "skills")) },
+      ...((d) => { try { return readdirSync(d).map((x) => ({ engine: "gemini" as Engine, plugin: x, skills: pluginSkills(join(d, x)) })); } catch { return []; } })(join(homedir(), ".gemini", "extensions")),
     ];
     return groups.filter((g) => g.skills.length);
   }

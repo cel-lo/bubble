@@ -901,3 +901,64 @@ test("API providers in the host: key in memory only, models in the catalog, chat
   api.close();
   await rm(dir, { recursive: true });
 });
+
+import { GeminiSession, geminiModels, askFor, choose } from "../packages/adapters/gemini";
+/** a stand-in for `gemini --acp`: lists two models, asks to edit a file, says what Walt answered */
+const FAKE_GEMINI = `
+const rl = require("readline").createInterface({ input: process.stdin });
+const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\\n");
+const model = process.argv.includes("-m") ? process.argv[process.argv.indexOf("-m") + 1] : "auto";
+let waiting;
+rl.on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.id != null && !m.method && waiting) return waiting(m.result);
+  if (m.method === "initialize") return send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+  if (m.method === "session/new") {
+    if (process.env.FAKE_UNSIGNED) return send({ id: m.id, error: { code: -32000, message: "Gemini API key is missing or not configured." } });
+    return send({ id: m.id, result: { sessionId: "s1", models: { currentModelId: "auto", availableModels: [{ modelId: "auto", name: "Auto" }, { modelId: "gemini-pro", name: "Gemini Pro" }] } } });
+  }
+  if (m.method === "session/prompt") {
+    const text = m.params.prompt[0].text;
+    waiting = (r) => {
+      waiting = undefined;
+      const said = r.outcome.optionId || r.outcome.outcome;
+      for (const piece of ["[" + model + "] ", text.includes("Answer briefly") ? "(briefed) " : "", "edit " + said + ": ", text.split("\\n").pop()]) send({ method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } } } });
+      send({ id: m.id, result: { stopReason: "end_turn" } });
+    };
+    send({ id: 900, method: "session/request_permission", params: { sessionId: "s1", options: [{ optionId: "yes", kind: "allow_once" }, { optionId: "no", kind: "reject_once" }], toolCall: { toolCallId: "t1", title: "Write a.txt", kind: "edit", content: [{ type: "diff", path: "a.txt", oldText: "old", newText: "new" }] } } });
+  }
+});
+`;
+test("Gemini over ACP: models, streamed text, edits ask the owner, read-only refuses, sign-in message", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-gemini-"));
+  const js = join(dir, "fake-gemini.cjs");
+  await writeFile(js, FAKE_GEMINI);
+  const cmd = { node: process.execPath, js };
+  const models = await geminiModels(cmd, dir);
+  assert.deepEqual(models.map((m) => [m.id, m.label, !!m.isDefault]), [["auto", "Auto", true], ["gemini-pro", "Gemini Pro", false]]);
+  const asked: any[] = [];
+  const s = new GeminiSession(cmd, dir, "gemini-pro", false, undefined, undefined, "Answer briefly");
+  let streamed = "";
+  const out = await s.run("please fix it", (d) => (streamed += d), async (tool, input) => (asked.push({ tool, input }), true));
+  assert.equal(out, "[gemini-pro] (briefed) edit yes: please fix it", "Instructions go with the first message");
+  assert.equal(streamed, out);
+  assert.equal(asked[0].tool, "Edit");
+  assert.deepEqual(asked[0].input.changes, [{ path: "a.txt", kind: "update", diff: "-old\n+new" }]);
+  assert.equal(await s.run("no thanks", () => {}, async () => false), "[gemini-pro] edit no: no thanks");
+  await s.stop();
+  // read-only (reviews, chats without a project): a change is refused without asking
+  const ro = new GeminiSession(cmd, dir, "", true);
+  let bothered = false;
+  assert.equal(await ro.run("look only", () => {}, async () => ((bothered = true), true)), "[auto] edit no: look only");
+  assert.equal(bothered, false);
+  await ro.stop();
+  // not signed in: say what to do
+  process.env.FAKE_UNSIGNED = "1";
+  await assert.rejects(geminiModels(cmd, dir), /not signed in.*run gemini once/);
+  delete process.env.FAKE_UNSIGNED;
+  assert.equal(askFor({ kind: "execute", title: "npm test", rawInput: { command: "npm test" } }).tool, "Shell");
+  assert.deepEqual(choose([{ optionId: "a", kind: "allow_always" }], true), { outcome: { outcome: "selected", optionId: "a" } });
+  assert.deepEqual(choose([], false), { outcome: { outcome: "cancelled" } });
+  // Windows holds the folder until the killed fake process has gone
+  await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+});

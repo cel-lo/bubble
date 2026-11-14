@@ -56,7 +56,7 @@ export interface ModelInfo {
   more?: boolean;
 }
 /** engines Walt can run today; the others stay hidden until their adapter works */
-export const ENGINES_ON: Engine[] = ["claude", "codex"];
+export const ENGINES_ON: Engine[] = ["claude", "codex", "gemini"];
 /** per-message or per-room override of a persona's model/effort */
 export interface Tune {
   model?: string;
@@ -227,6 +227,7 @@ export function takeTurn(room: Room) {
 /** "Good at" for a persona Walt makes from a model pick, so Auto roles has something to go on */
 export function defaultStrengths(engine: Engine, model: string) {
   if (engine === "codex") return ["Code changes", "Tests", "Refactors"];
+  if (engine === "gemini") return ["Research", "Second opinion", "Long files"];
   // an API model only talks: it cannot read or edit the project
   if (isApi(engine)) return ["Second opinion", "Explaining", "Writing"];
   if (/opus|fable/i.test(model)) return ["Planning", "Hard reviews", "Architecture"];

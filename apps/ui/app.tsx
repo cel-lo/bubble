@@ -1548,7 +1548,6 @@ function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
 }
 
 const PLANNED: [string, string, string][] = [
-  ["Gemini CLI", "Installed on this laptop. Its adapter comes next; sign in with gemini first.", "gemini"],
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
   ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
@@ -1793,7 +1792,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
             <div className="col g8">
               {PLANNED.map(([title, d, i]) => (
                 <div key={title} className="card row g12" style={{ padding: "12px 16px", opacity: 0.85 }}>
-                  {i === "gemini" ? <Html h={av("gemini", 30)} /> : <Icon n={i} s={20} c={T.sub} />}
+                  <Icon n={i} s={20} c={T.sub} />
                   <div className="f1"><div className="s14 b">{t(title)}</div><div className="s12 dim" style={{ marginTop: 2 }}>{t(d)}</div></div>
                   <span className="pill" style={{ background: "#3A3A3C", color: T.sub }}>{t("Planned")}</span>
                 </div>
