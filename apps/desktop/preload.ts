@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld("walt", {
     ipcRenderer.on("walt:open", listener);
     return () => ipcRenderer.removeListener("walt:open", listener);
   },
+  // Browser: a page asked for a new window; it opens as a tab in the chat whose page asked ({ url, from })
+  browserTab: (fn: (v: { url: string; from: number }) => void) => {
+    const listener = (_event: unknown, v: { url: string; from: number }) => fn(v);
+    ipcRenderer.on("walt:browser-tab", listener);
+    return () => ipcRenderer.removeListener("walt:browser-tab", listener);
+  },
   // streaming text of one message: { room, id, text }
   delta: (fn: (value: unknown) => void) => {
     const listener = (_event: unknown, d: unknown) => fn(d);

@@ -184,6 +184,15 @@ Taken from Claude's side panel and GPT's mark-and-ask, only what fits Walt:
 - Checked for real on a local test page: page loads, pick → screenshot with the button boxed → note → message → Gemini 3.8 Flash answered "You marked the green button … which says 'Add to cart'". A page that sets location to file:///C:/Windows/win.ini stays where it was; `require` and `process` are undefined in the page; window.open loads in the same view. Unit test for the address bar.
 - Not done: the AIs cannot drive this browser themselves (they still use their own web tools).
 
+Second pass (cello's feedback, same day):
+- Tabs: a tab strip with + and ×; every tab stays loaded; popups and target=_blank links come back from the main process (`walt:browser-tab`, only to the window that owns the page) and open as a new tab next to it. Tabs and their addresses are kept per chat (older single-address storage is read as one tab).
+- History for all chats (window storage, last 500 visits, title and time), with search; click to open in the current tab.
+- Annotate replaces Pick element: click any number of things on the page, each gets a numbered box and its own comment field (in a shadow root, so the page's CSS and keyboard shortcuts stay out); Done puts one picture with all numbered boxes and one note line per mark straight into the message (marks scrolled out of view are named as such). Screenshot still opens the marker.
+- ⋯ menu: New tab, History, Find in page (count, Enter for next), Zoom in/out/actual size, Open in your browser (http(s) only, main process), Developer tools, Clear browsing data (cookies, logins, cache, storage and history; asks first).
+- Thin grey scrollbars on every page (insertCSS on dom-ready).
+- Left out on purpose: print, device toolbar, import of cookies and passwords, a password manager and autofill (Walt never keeps your passwords), downloads (still blocked).
+- Checked for real on the test page: link opened a second tab; two elements annotated with comments → message "1. Make this bigger · element div.card > button.buy.primary "Add to cart" / 2. Use the full product name · element h2#name "Blue mug"" with the picture, nothing left in the page afterwards; History listed both visits; Find "e" 3/4 then Enter 4/4; Zoom 1.1.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

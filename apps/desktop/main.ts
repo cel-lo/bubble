@@ -22,13 +22,14 @@ import { basename } from "node:path";
 protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 // The side panel's Browser: web pages in a <webview> with its own cookie jar ("persist:walt-browser", so a login
 // to the app you are building survives a restart), no preload, no Node, sandboxed; only http(s) pages; popups
-// (allowpopups, so target=_blank links work) open in the same view; no downloads and no device permissions (camera, location, notifications…).
+// (allowpopups, so target=_blank links work) come back to the window as new tabs; no downloads and no device
+// permissions (camera, location, notifications…).
 const BROWSER = "persist:walt-browser";
 const web = (url: string) => /^https?:\/\//i.test(url) || url === "about:blank";
 app.on("web-contents-created", (_e, wc) => {
   if (wc.getType() !== "webview") return;
   wc.setWindowOpenHandler(({ url }) => {
-    if (web(url)) void wc.loadURL(url);
+    if (web(url) && url !== "about:blank") win?.webContents.send("walt:browser-tab", { url, from: wc.id });
     return { action: "deny" };
   });
   wc.on("will-navigate", (e, url) => !web(url) && e.preventDefault());
@@ -172,6 +173,17 @@ else {
         if (!wc || wc.getType() !== "webview" || wc.hostWebContents !== win.webContents) throw new Error("No page to capture");
         const img = await wc.capturePage();
         return img.toPNG().toString("base64");
+      }
+      // Browser · More: the page in your own browser, and clearing the Browser's cookies, cache and storage
+      if (method === "browser.external") {
+        if (typeof input !== "string" || !/^https?:\/\//i.test(input)) throw new Error("Only web pages open outside");
+        return shell.openExternal(input);
+      }
+      if (method === "browser.clear") {
+        const s = session.fromPartition(BROWSER);
+        await s.clearStorageData();
+        await s.clearCache();
+        return true;
       }
       const result: any = await call(method, input);
       if (method === "provider.remove") saveKey(String(input), null);

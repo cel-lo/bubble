@@ -19,7 +19,7 @@ type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; desc
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
 import { Marker, type Box } from "./marker";
-import { BrowserPane, type Shot } from "./browser";
+import { BrowserPane, type Shot, type Attach } from "./browser";
 import { t, setLocale } from "./i18n";
 
 declare global {
@@ -32,6 +32,7 @@ declare global {
       opened: (fn: (roomId: string) => void) => () => void;
       subscribe: (fn: (s: State) => void) => () => void;
       delta: (fn: (d: { room: string; id: string; text: string }) => void) => () => void;
+      browserTab?: (fn: (v: { url: string; from: number }) => void) => () => void;
     };
   }
 }
@@ -725,20 +726,29 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
       const s = (e as CustomEvent<Shot>).detail;
       setMarking({ src: s.src, start: s.boxes, title: s.title });
     };
+    // Browser · Annotate: the marked page goes straight in
+    const direct = (e: Event) => {
+      const a = (e as CustomEvent<Attach>).detail;
+      void attach(a.png, a.title, a.notes);
+    };
     addEventListener("walt:mark", open);
     addEventListener("walt:mark-shot", shot);
-    return () => (removeEventListener("walt:mark", open), removeEventListener("walt:mark-shot", shot));
+    addEventListener("walt:attach", direct);
+    return () => (removeEventListener("walt:mark", open), removeEventListener("walt:mark-shot", shot), removeEventListener("walt:attach", direct));
   }, []);
   // the marked copy replaces the picture; the notes go into the message, numbered like the marks
+  const attach = async (png: string, title: string | undefined, notes: string[], replace?: string) => {
+    const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
+    if (!saved) return;
+    setPics((all) => (replace ? all.map((x) => (x.name === replace ? saved : x)) : [...all, saved]));
+    const head = title ?? t("On the marked picture:");
+    if (notes.length || title) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + head + (notes.length ? "\n" + notes.join("\n") : ""));
+    ref.current?.focus();
+  };
   const marked = async (png: string, notes: string[]) => {
     const old = marking!;
     setMarking(null);
-    const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
-    if (!saved) return;
-    setPics((all) => (old.name ? all.map((x) => (x.name === old.name ? saved : x)) : [...all, saved]));
-    const head = old.title ?? t("On the marked picture:");
-    if (notes.length || old.title) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + head + (notes.length ? "\n" + notes.join("\n") : ""));
-    ref.current?.focus();
+    await attach(png, old.title, notes, old.name);
   };
   const fileRef = useRef<HTMLInputElement>(null);
   // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent;
