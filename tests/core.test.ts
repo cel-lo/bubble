@@ -972,3 +972,17 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   // Windows holds the folder until the killed fake process has gone
   await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
 });
+
+import { address } from "../apps/ui/browser";
+test("Browser address bar: local ports, web addresses, searches", () => {
+  assert.equal(address("localhost:5173"), "http://localhost:5173");
+  assert.equal(address("5173"), "http://localhost:5173");
+  assert.equal(address("127.0.0.1:8080/app"), "http://127.0.0.1:8080/app");
+  assert.equal(address("https://example.com/x"), "https://example.com/x");
+  assert.equal(address("antigravity.google"), "https://antigravity.google");
+  assert.equal(address("berita mpr hari ini"), "https://www.google.com/search?q=berita%20mpr%20hari%20ini");
+  assert.equal(address("  "), "");
+  // a page address is never anything but http(s): no file:, javascript: or walt-img:
+  assert.ok(address("javascript:alert(1)").startsWith("https://www.google.com/search?q="));
+  assert.ok(address("file:///C:/x").startsWith("https://"));
+});

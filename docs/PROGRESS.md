@@ -176,7 +176,15 @@ Taken from Claude's side panel and GPT's mark-and-ask, only what fits Walt:
 - Mark and ask: click an attached picture (or "Mark and ask" under a picture in the chat), drag numbered boxes, give each a note. "Add to message" draws the red boxes into a new PNG that replaces the attachment, and puts the numbered notes into the message. walt-img now sends a CORS header so the window can draw the picture onto a canvas. The dialog only closes on a click that starts and ends on the backdrop.
 - Not taken: Claude's per-category context breakdown (only Claude reports it), terminal pane (Continue in the CLI covers it), browser preview with element picking (large; later).
 
+## Browser in the side panel — 2026-11-15
+
+- New side panel tab "Browser" (globe), in team and plain chats: address bar (localhost:5173 or just 5173 → http, anything with a dot → https, other text → a web search), back, forward, reload/stop. The page stays loaded while you switch tabs; each chat remembers its last address (localStorage). The panel can grow to 60% of the window on this tab.
+- Pick element: highlight under the pointer, click to pick (Esc or Cancel to stop). Walt takes a picture of the page (main process `browser.capture`, only for a webview inside Walt's window) and opens the marker with the element already boxed as 1. Screenshot: the same without picking. "Add to message" puts the marked PNG in the message, headed "On the marked page (<address>):", each note with the picked element (`element div.card > button.buy.primary "Add to cart"`).
+- Locked down (apps/desktop/main.ts): every <webview> gets no preload, no Node, contextIsolation and sandbox, its own cookie jar `persist:walt-browser` (a login to your app survives a restart); only http(s) pages (file:, javascript: and others are refused on attach, navigate and redirect); popups and target=_blank load in the same view; downloads are cancelled; every permission (camera, microphone, location, notifications…) is refused.
+- Checked for real on a local test page: page loads, pick → screenshot with the button boxed → note → message → Gemini 3.8 Flash answered "You marked the green button … which says 'Add to cart'". A page that sets location to file:///C:/Windows/win.ini stays where it was; `require` and `process` are undefined in the page; window.open loads in the same view. Unit test for the address bar.
+- Not done: the AIs cannot drive this browser themselves (they still use their own web tools).
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
-2. Browser preview pane for a project's dev server, with mark-and-ask on page elements.
+2. Let a chat's AI look at and click in the side panel's Browser (would need a tool bridge per engine).

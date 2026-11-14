@@ -18,7 +18,8 @@ const avatarOf = (e: string, label = "") => (e === "claude" ? (/sonnet/i.test(la
 type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; description: string }[] };
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
-import { Marker } from "./marker";
+import { Marker, type Box } from "./marker";
+import { BrowserPane, type Shot } from "./browser";
 import { t, setLocale } from "./i18n";
 
 declare global {
@@ -709,7 +710,8 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
   const [pics, setPics] = useState<{ name: string; markdown: string }[]>([]);
   const [docs, setDocs] = useState<{ name: string; text: string }[]>([]);
   const [plus, setPlus] = useState<{ at: DOMRect; skills: SkillGroup[]; tools: ToolsView } | null>(null);
-  const [marking, setMarking] = useState<{ name: string; markdown: string } | null>(null);
+  // a picture being marked: an attachment (name), or a page from the Browser (no name yet)
+  const [marking, setMarking] = useState<{ name?: string; src: string; start?: Box[]; title?: string } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   // "Mark and ask" under a picture in the chat: it becomes an attachment and opens for marking
   useEffect(() => {
@@ -717,10 +719,15 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
       const name = (e as CustomEvent<string>).detail;
       const p = { name, markdown: `![attached image](walt-img://img/${name})` };
       setPics((all) => (all.some((x) => x.name === name) ? all : [...all, p]));
-      setMarking(p);
+      setMarking({ name, src: `walt-img://img/${name}` });
+    };
+    const shot = (e: Event) => {
+      const s = (e as CustomEvent<Shot>).detail;
+      setMarking({ src: s.src, start: s.boxes, title: s.title });
     };
     addEventListener("walt:mark", open);
-    return () => removeEventListener("walt:mark", open);
+    addEventListener("walt:mark-shot", shot);
+    return () => (removeEventListener("walt:mark", open), removeEventListener("walt:mark-shot", shot));
   }, []);
   // the marked copy replaces the picture; the notes go into the message, numbered like the marks
   const marked = async (png: string, notes: string[]) => {
@@ -728,8 +735,9 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
     setMarking(null);
     const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
     if (!saved) return;
-    setPics((all) => all.map((x) => (x.name === old.name ? saved : x)));
-    if (notes.length) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + t("On the marked picture:") + "\n" + notes.join("\n"));
+    setPics((all) => (old.name ? all.map((x) => (x.name === old.name ? saved : x)) : [...all, saved]));
+    const head = old.title ?? t("On the marked picture:");
+    if (notes.length || old.title) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + head + (notes.length ? "\n" + notes.join("\n") : ""));
     ref.current?.focus();
   };
   const fileRef = useRef<HTMLInputElement>(null);
@@ -885,7 +893,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
         <div className="row g8" style={{ maxWidth: 760, margin: "0 auto 8px", width: "100%", flexWrap: "wrap" }}>
           {pics.map((p) => (
             <div key={p.name} style={{ position: "relative" }}>
-              <img src={`walt-img://img/${p.name}`} alt={t("Attached picture · click to mark it")} title={t("Click to mark it")} onClick={() => setMarking(p)} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, display: "block", cursor: "pointer" }} />
+              <img src={`walt-img://img/${p.name}`} alt={t("Attached picture · click to mark it")} title={t("Click to mark it")} onClick={() => setMarking({ name: p.name, src: `walt-img://img/${p.name}` })} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, display: "block", cursor: "pointer" }} />
               <span role="button" aria-label={t("Remove picture")} onClick={() => setPics((x) => x.filter((y) => y !== p))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, background: T.card, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Icon n="x" s={11} w={2.4} /></span>
             </div>
           ))}
@@ -902,7 +910,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
       >
         <span className={`tbb ${plus ? "on" : ""}`} role="button" aria-label={t("Add files, skills and connectors")} aria-haspopup="menu" title={t("Add files, skills and connectors")} onClick={(e) => (plus ? setPlus(null) : void openPlus(e.currentTarget.getBoundingClientRect()))} style={{ alignSelf: "center" }}><Icon n="plus" s={18} /></span>
         {plus && <Menu at={plus.at} side="above" width={250} items={plusItems(plus)} onClose={() => setPlus(null)} />}
-        {marking && <Marker src={`walt-img://img/${marking.name}`} onDone={(png, notes) => void marked(png, notes)} onClose={() => setMarking(null)} />}
+        {marking && <Marker src={marking.src} start={marking.start} onDone={(png, notes) => void marked(png, notes)} onClose={() => setMarking(null)} />}
         <input ref={fileRef} type="file" accept={["image/png,image/jpeg,image/webp,image/gif", ...TEXT_EXT.map((x) => "." + x)].join(",")} multiple hidden onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} />
         <textarea
           onPaste={(e) => {
@@ -1050,6 +1058,10 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const direct = room.template === "direct";
   const [adding, setAdding] = useState<DOMRect | null>(null);
   const [tab, setTab] = useState(direct ? "Files" : "Task");
+  // the Browser stays loaded once opened in this chat, so switching tabs keeps the page
+  const [browsed, setBrowsed] = useState(false);
+  useEffect(() => void (tab === "Browser" && setBrowsed(true)), [tab]);
+  useEffect(() => setBrowsed(false), [room.id]);
   const [menuAt, setMenuAt] = useState<DOMRect | null>(null);
   const [note, setNote] = useState("");
   const [diff, setDiff] = useState<Diff | null>(null);
@@ -1232,8 +1244,11 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
       </div>
       {panel > 0 && (
         <>
-          <Grip side="right" width={panel} min={280} max={560} def={PANELS.rw} set={setRw} />
-          <div className="insp" style={{ width: panel }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab, panel >= 400) }} />
+          <Grip side="right" width={panel} min={280} max={tab === "Browser" ? Math.max(560, Math.round(innerWidth * 0.6)) : 560} def={PANELS.rw} set={setRw} />
+          <div className="insp" style={{ width: panel }}>
+            <div className="col" style={{ flex: tab === "Browser" ? "none" : 1, minHeight: 0 }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab, panel >= 400) }} />
+            {browsed && <BrowserPane key={room.id} roomId={room.id} hidden={tab !== "Browser"} />}
+          </div>
         </>
       )}
     </div>
@@ -1292,7 +1307,7 @@ function decisionsHtml(state: State, room: Room) {
     .join("");
 }
 
-const TAB_ICON: Record<string, string> = { Task: "tasks", Files: "file", Decisions: "checkc", Context: "usage", Activity: "clock" };
+const TAB_ICON: Record<string, string> = { Task: "tasks", Files: "file", Decisions: "checkc", Context: "usage", Activity: "clock", Browser: "globe" };
 const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
 /** Context tab: how full each model's window is, from its latest reply in this chat */
 function contextHtml(state: State, room: Room) {
@@ -1338,10 +1353,10 @@ function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
           ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
           : `<div class="lbl">${t("Who does what")}</div>${team}<div class="lbl">${t("This task")}</div><div>${t("{0} of {1} AI turns", room.used, room.budget)}</div><div class="s12 dim" style="margin-top:4px;line-height:1.5">${t("Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.")}</div><div class="col g8" style="margin-top:20px">${room.state === "paused" ? btn(t("Resume"), "control:resume") : ""}${btn(t("End chat"), "control:end")}</div>`;
   // icons like Claude's side panel; the names show when the panel is wide enough, and always as a tooltip
-  const tabs = (direct ? ["Files", "Decisions", "Context", "Activity"] : ["Task", "Files", "Decisions", "Context", "Activity"])
+  const tabs = (direct ? ["Files", "Decisions", "Context", "Activity", "Browser"] : ["Task", "Files", "Decisions", "Context", "Activity", "Browser"])
     .map((x) => `<span class="tab ${tab === x ? "on" : ""}" role="tab" aria-selected="${tab === x}" aria-label="${t(x)}" title="${t(x)}" data-hot="tab:${x}">${ic(TAB_ICON[x], 17, tab === x ? T.text : T.dim)}${wide ? t(x) : ""}</span>`)
     .join("");
-  return `<div class="tabs" role="tablist">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
+  return `<div class="tabs" role="tablist">${tabs}</div>${tab === "Browser" ? "" : `<div style="padding:18px;overflow:auto">${body}</div>`}`;
 }
 
 type Pick = { engine: Engine; model: string; role: "Builder" | "Reviewer" | "Member"; effort?: Effort };

@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { ic, T } from "./generated/kit.mjs";
 import { t } from "./i18n";
 
-interface Box { x: number; y: number; w: number; h: number; note: string }
+/** a box as fractions of the picture; `about` describes a picked page element for the AI */
+export interface Box { x: number; y: number; w: number; h: number; note: string; about?: string }
 const RED = "#FF453A";
 
 /** draw the boxes and their numbers onto the picture at full size; returns PNG base64 */
@@ -34,8 +35,8 @@ export function burn(img: HTMLImageElement, boxes: Box[]) {
   return c.toDataURL("image/png").split(",")[1];
 }
 
-export function Marker({ src, onDone, onClose }: { src: string; onDone: (png: string, notes: string[]) => void; onClose: () => void }) {
-  const [boxes, setBoxes] = useState<Box[]>([]);
+export function Marker({ src, start: initial = [], onDone, onClose }: { src: string; start?: Box[]; onDone: (png: string, notes: string[]) => void; onClose: () => void }) {
+  const [boxes, setBoxes] = useState<Box[]>(initial);
   const [draft, setDraft] = useState<Box | null>(null);
   const [busy, setBusy] = useState(false);
   const img = useRef<HTMLImageElement>(null);
@@ -70,7 +71,7 @@ export function Marker({ src, onDone, onClose }: { src: string; onDone: (png: st
   const done = () => {
     setBusy(true);
     try {
-      onDone(burn(img.current!, boxes), boxes.map((b, i) => (b.note.trim() ? `${i + 1}. ${b.note.trim()}` : "")).filter(Boolean));
+      onDone(burn(img.current!, boxes), boxes.map((b, i) => (b.note.trim() || b.about ? `${i + 1}. ${[b.note.trim(), b.about].filter(Boolean).join(" · ")}` : "")).filter(Boolean));
     } catch {
       setBusy(false);
     }

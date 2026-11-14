@@ -11,6 +11,8 @@ import {
   Menu,
   nativeImage,
   safeStorage,
+  session,
+  webContents,
 } from "electron";
 import { join } from "node:path";
 import { writeFileSync, readFileSync } from "node:fs";
@@ -18,6 +20,20 @@ import { pathToFileURL } from "node:url";
 import { basename } from "node:path";
 // walt-img://img/<name>.png: pictures the AI made, served from <data>/images only
 protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+// The side panel's Browser: web pages in a <webview> with its own cookie jar ("persist:walt-browser", so a login
+// to the app you are building survives a restart), no preload, no Node, sandboxed; only http(s) pages; popups
+// (allowpopups, so target=_blank links work) open in the same view; no downloads and no device permissions (camera, location, notifications…).
+const BROWSER = "persist:walt-browser";
+const web = (url: string) => /^https?:\/\//i.test(url) || url === "about:blank";
+app.on("web-contents-created", (_e, wc) => {
+  if (wc.getType() !== "webview") return;
+  wc.setWindowOpenHandler(({ url }) => {
+    if (web(url)) void wc.loadURL(url);
+    return { action: "deny" };
+  });
+  wc.on("will-navigate", (e, url) => !web(url) && e.preventDefault());
+  wc.on("will-redirect", (e, url) => !web(url) && e.preventDefault());
+});
 // API keys (Customize · AI & models): encrypted with Windows' own protection for this user (DPAPI) in
 // <data>/keys.json, decrypted only to hand them to the host process. Never in walt.sqlite, a backup or the window.
 const keysFile = () => join(app.getPath("userData"), "keys.json");
@@ -125,7 +141,18 @@ else {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        webviewTag: true,
       },
+    });
+    const browser = session.fromPartition(BROWSER);
+    browser.setPermissionRequestHandler((_wc, _permission, done) => done(false));
+    browser.setPermissionCheckHandler(() => false);
+    browser.on("will-download", (e) => e.preventDefault());
+    // every <webview> the window makes gets the browser's locked-down settings, whatever the page asked for
+    win.webContents.on("will-attach-webview", (e, prefs, params) => {
+      delete prefs.preload;
+      Object.assign(prefs, { nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, webSecurity: true, partition: BROWSER });
+      if (!web(params.src || "about:blank")) e.preventDefault();
     });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", (e) => e.preventDefault());
@@ -138,6 +165,13 @@ else {
         if (typeof key !== "string" || key.length > 1000 || /\s/.test(key.trim())) throw new Error("That does not look like an API key.");
         saveKey(id, key.trim() || null);
         return call("provider.check", id);
+      }
+      // Browser · Mark: a picture of the page as it looks now (only a webview inside this window)
+      if (method === "browser.capture") {
+        const wc = webContents.fromId(Number(input));
+        if (!wc || wc.getType() !== "webview" || wc.hostWebContents !== win.webContents) throw new Error("No page to capture");
+        const img = await wc.capturePage();
+        return img.toPNG().toString("base64");
       }
       const result: any = await call(method, input);
       if (method === "provider.remove") saveKey(String(input), null);
