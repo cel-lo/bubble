@@ -8,7 +8,7 @@ import { ENGINES_ON, enginesOn, isApi } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
-import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst, registerProviders } from "./onboarding";
+import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst, isLimited, registerProviders } from "./onboarding";
 /** short engine names: sidebar usage meter, the composer's plugin list */
 const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", antigravity: "Antigravity" };
 /** files the composer puts into the message as text (up to 200 KB each) */
@@ -551,7 +551,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
           <span className="f1 row g10" role="button" title={t("Plan usage · open AI & models")} style={{ cursor: "pointer" }} onClick={() => go({ kind: "customize", tab: "ai" })}>
             {ready.map((e) => {
               const q = state.usage?.[e];
-              return q && <span key={e} style={{ color: usageColor(worst(q), q.limited) }}>{SHORT[e]} {worst(q)}%</span>;
+              return q && <span key={e} style={{ color: usageColor(worst(q), isLimited(q)) }}>{SHORT[e]} {worst(q)}%</span>;
             })}
           </span>
         ) : (

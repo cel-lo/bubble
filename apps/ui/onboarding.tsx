@@ -139,22 +139,31 @@ const resetText = (at: number) => {
   if (!h) return t("Resets in {0} min", Math.max(1, m));
   return h < 24 ? t("Resets in {0} h {1} min", h, m) : t("Resets {0}", new Date(at * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }));
 };
+/** a reading is from the moment Walt last heard from the app; a window that has reset since then is empty again */
+const gone = (w: Quota["windows"][number]) => !!w.resetsAt && w.resetsAt * 1000 <= Date.now();
+const used = (w: Quota["windows"][number]) => (gone(w) ? 0 : w.percent);
+const isLimited = (q: Quota) => q.limited && !q.windows.some(gone);
 export const usageColor = (percent: number, limited = false) => (limited || percent >= 100 ? T.red : percent >= 80 ? T.amber : T.blue);
 /** the window closest to its limit; what the sidebar shows */
-export const worst = (q: Quota) => Math.max(...q.windows.map((w) => w.percent));
-export function UsageBars({ q }: { q: Quota }) {
+export const worst = (q: Quota) => Math.max(...q.windows.map(used));
+export { isLimited };
+export function UsageBars({ q, engine }: { q: Quota; engine: string }) {
+  const limited = isLimited(q);
+  const at = new Date(q.at).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
   return (
     <div className="col g10">
-      {q.limited && <div className="s13" style={{ color: T.red }}>{t("Limit reached. New messages wait until it resets.")}</div>}
+      {limited && <div className="s13" style={{ color: T.red }}>{t("Limit reached. New messages wait until it resets.")}</div>}
       {q.windows.map((w) => (
         <div key={w.mins}>
-          <div className="row sb s12"><span>{windowName(w.mins)}</span><span className="dim">{t("{0}% used", w.percent)}</span></div>
-          <div role="progressbar" aria-label={windowName(w.mins)} aria-valuenow={w.percent} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: T.line, marginTop: 5, overflow: "hidden" }}>
-            <div style={{ width: `${Math.min(100, w.percent)}%`, height: "100%", background: usageColor(w.percent, q.limited) }} />
+          <div className="row sb s12"><span>{windowName(w.mins)}</span><span className="dim">{t("{0}% used", used(w))}</span></div>
+          <div role="progressbar" aria-label={windowName(w.mins)} aria-valuenow={used(w)} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: T.line, marginTop: 5, overflow: "hidden" }}>
+            <div style={{ width: `${Math.min(100, used(w))}%`, height: "100%", background: usageColor(used(w), limited) }} />
           </div>
-          {!!w.resetsAt && <div className="s12 dim" style={{ marginTop: 4 }}>{resetText(w.resetsAt)}</div>}
+          {!!w.resetsAt && <div className="s12 dim" style={{ marginTop: 4 }}>{gone(w) ? t("Reset since this reading") : resetText(w.resetsAt)}</div>}
         </div>
       ))}
+      {/* Claude reports usage only with a reply; Codex is asked on every check */}
+      <div className="s12 dim">{engine === "claude" ? t("As of {0} · updates when Claude replies in Walt", at) : t("As of {0}", at)}</div>
     </div>
   );
 }
@@ -179,7 +188,7 @@ export function EngineCards({ state, invoke }: { state: State; invoke: Invoke })
             {s.ready && e !== "antigravity" && (
               <div style={{ marginTop: 4 }}>
                 <div className="lbl">{t("Plan usage")}</div>
-                {state.usage?.[e] ? <UsageBars q={state.usage[e]!} /> : <div className="s12 dim">{t(e === "claude" ? "Shows after your next Claude message." : "Shows after the next check.")}</div>}
+                {state.usage?.[e] ? <UsageBars q={state.usage[e]!} engine={e} /> : <div className="s12 dim">{t(e === "claude" ? "Shows after your next Claude message." : "Shows after the next check.")}</div>}
               </div>
             )}
             <div className="f1" />
