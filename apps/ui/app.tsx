@@ -9,8 +9,11 @@ import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
 import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst } from "./onboarding";
-/** sidebar usage meter */
+/** short engine names: sidebar usage meter, the composer's plugin list */
 const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", gemini: "Gemini" };
+/** files the composer puts into the message as text (up to 200 KB each) */
+const TEXT_EXT = ["txt", "md", "csv", "tsv", "json", "jsonl", "xml", "yaml", "yml", "toml", "ini", "log", "html", "css", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "rs", "go", "java", "kt", "c", "h", "cpp", "hpp", "cs", "php", "rb", "swift", "sql", "sh", "ps1", "bat", "lua", "dart", "vue", "svelte"];
+type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; description: string }[] };
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
 import { t, setLocale } from "./i18n";
@@ -85,6 +88,12 @@ function App() {
       } catch {}
       return n;
     });
+  // deep links from inside a page (the composer's "Manage plugins")
+  useEffect(() => {
+    const open = (e: Event) => setView((e as CustomEvent<View>).detail);
+    addEventListener("walt:open", open);
+    return () => removeEventListener("walt:open", open);
+  }, []);
   useEffect(() => {
     // Ctrl+B toggles the sidebar, Ctrl+Alt+B the side panel (like an editor)
     const key = (e: KeyboardEvent) => {
@@ -694,11 +703,22 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
   const [act, setAct] = useState(0);
   const [sending, setSending] = useState(false);
   const [pics, setPics] = useState<{ name: string; markdown: string }[]>([]);
+  const [docs, setDocs] = useState<{ name: string; text: string }[]>([]);
+  const [plus, setPlus] = useState<{ at: DOMRect; skills: SkillGroup[]; tools: ToolsView } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent
+  // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent;
+  // a text or code file goes into the message itself
   const addFiles = async (files: Iterable<File>) => {
     for (const f of files) {
+      const dot = f.name.split(".").pop()?.toLowerCase() ?? "";
+      if (TEXT_EXT.includes(dot) || f.type.startsWith("text/")) {
+        if (f.size <= 200_000) {
+          const text = await f.text();
+          setDocs((d) => [...d, { name: f.name, text }]);
+        }
+        continue;
+      }
       const ext = (f.type.split("/")[1] || "").replace("jpeg", "jpg");
       if (!f.type.startsWith("image/") || !["png", "jpg", "webp", "gif"].includes(ext)) continue;
       if (f.size > 15_000_000) continue;
@@ -734,20 +754,80 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
     });
   };
   const send = async () => {
-    if ((!text.trim() && !pics.length) || sending) return;
+    if ((!text.trim() && !pics.length && !docs.length) || sending) return;
     setSending(true);
     try {
-      const body = [text.trim() || (pics.length ? t("(picture)") : ""), ...pics.map((p) => p.markdown)].join("\n\n");
+      const fence = (s: string) => "`".repeat(Math.max(3, ...(s.match(/`+/g) ?? []).map((x) => x.length + 1)));
+      const body = [
+        text.trim() || (pics.length ? t("(picture)") : t("(file)")),
+        ...docs.map((d) => `**${d.name}**\n${fence(d.text)}\n${d.text}\n${fence(d.text)}`),
+        ...pics.map((p) => p.markdown),
+      ].join("\n\n");
       if (await onSend(body)) {
         setText("");
         setList([]);
         setPics([]);
+        setDocs([]);
       }
     } finally {
       setSending(false);
     }
   };
-  const can = (!!text.trim() || !!pics.length) && !sending;
+  const can = (!!text.trim() || !!pics.length || !!docs.length) && !sending;
+  // put text at the caret (or in front, for a skill), then let the @ / menu react to it
+  const insert = (s: string, front = false) => {
+    const el = ref.current!;
+    const pos = front ? 0 : el.selectionStart;
+    const v = front ? s + text.replace(/^Use the \S+ skill: /, "") : text.slice(0, pos) + s + text.slice(pos);
+    setText(v);
+    requestAnimationFrame(() => {
+      const end = front ? v.length : pos + s.length;
+      el.focus();
+      el.setSelectionRange(end, end);
+      refresh(v, end);
+    });
+  };
+  const openPlus = async (at: DOMRect) => {
+    const [skills, tools] = await Promise.all([window.walt.call("skills.list").catch(() => []), window.walt.call("tools.list").catch(() => null)]);
+    if (tools) setPlus({ at, skills, tools });
+  };
+  const manage = (tab: string) => dispatchEvent(new CustomEvent("walt:open", { detail: { kind: "customize", tab } }));
+  // in a chat: the plugins of the engines in it; on the start screen: all of them
+  const engines = room ? new Set([room.builder, ...room.reviewers, ...(room.members || [])].map((id) => state.personas.find((p) => p.id === id)?.engine)) : undefined;
+  const plusItems = (v: NonNullable<typeof plus>): Item[] => {
+    const toggle = (key: string, on: boolean) => () => void window.walt.call("tools.set", { key, on });
+    const groups = v.skills.filter((g) => !engines || engines.has(g.engine));
+    return [
+      { label: t("Add files or photos"), icon: "clip", hint: "Ctrl+U", onSelect: () => fileRef.current?.click() },
+      { label: t("Slash commands"), icon: "slash", onSelect: () => insert("/") },
+      {
+        label: t("Connectors"),
+        icon: "grid",
+        submenu: [
+          { label: t("claude.ai connectors"), checked: v.tools.switches.connectors, hint: "Claude", onSelect: toggle("connectors", !v.tools.switches.connectors) },
+          { label: t("ChatGPT apps"), checked: v.tools.switches.apps, hint: "GPT", onSelect: toggle("apps", !v.tools.switches.apps) },
+          ...(v.tools.mcp.length ? [{ kind: "sep" as const }, { kind: "label" as const, label: t("MCP servers") }] : []),
+          ...v.tools.mcp.map((m) => ({ label: m.name, checked: m.on, onSelect: toggle("mcp:" + m.name, !m.on) })),
+          { kind: "sep" },
+          { label: t("Manage connectors"), icon: "gear", onSelect: () => manage("plugins") },
+        ],
+      },
+      {
+        label: t("Plugins"),
+        icon: "plug",
+        submenu: [
+          ...(groups.length ? [] : [{ label: t("No skills on for this chat"), disabled: true }]),
+          ...groups.map((g) => ({
+            label: g.plugin,
+            hint: SHORT[g.engine],
+            submenu: g.skills.map((s) => ({ label: s.name, detail: s.description || undefined, onSelect: () => insert(`Use the ${s.name} skill: `, true) })),
+          })),
+          { kind: "sep" },
+          { label: t("Manage plugins"), icon: "gear", onSelect: () => manage("plugins") },
+        ],
+      },
+    ];
+  };
   return (
     <div className="comp" style={{ position: "relative" }}>
       {!!list.length && (
@@ -756,6 +836,17 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
             <div key={s.label + i} className={`mi ${i === act ? "act" : ""}`} role="option" aria-selected={i === act} onMouseDown={(e) => { e.preventDefault(); if (s.insert) pick(s); else setList([]); }}>
               <span className="b">{s.label}</span><span className="h">{s.hint}</span>
             </div>
+          ))}
+        </div>
+      )}
+      {!!docs.length && (
+        <div className="row g8" style={{ maxWidth: 760, margin: "0 auto 8px", width: "100%", flexWrap: "wrap" }}>
+          {docs.map((d, i) => (
+            <span key={d.name + i} className="chip row g6">
+              <Icon n="file" s={14} />
+              {d.name}
+              <span role="button" aria-label={t("Remove {0}", d.name)} style={{ cursor: "pointer", display: "flex" }} onClick={() => setDocs((x) => x.filter((y) => y !== d))}><Icon n="x" s={11} w={2.4} /></span>
+            </span>
           ))}
         </div>
       )}
@@ -778,8 +869,9 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
           void addFiles(e.dataTransfer.files);
         }}
       >
-        <span className="tbb" role="button" aria-label={t("Attach a picture")} title={t("Attach a picture")} onClick={() => fileRef.current?.click()} style={{ alignSelf: "center" }}><Icon n="clip" s={17} /></span>
-        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} />
+        <span className={`tbb ${plus ? "on" : ""}`} role="button" aria-label={t("Add files, skills and connectors")} aria-haspopup="menu" title={t("Add files, skills and connectors")} onClick={(e) => (plus ? setPlus(null) : void openPlus(e.currentTarget.getBoundingClientRect()))} style={{ alignSelf: "center" }}><Icon n="plus" s={18} /></span>
+        {plus && <Menu at={plus.at} side="above" width={250} items={plusItems(plus)} onClose={() => setPlus(null)} />}
+        <input ref={fileRef} type="file" accept={["image/png,image/jpeg,image/webp,image/gif", ...TEXT_EXT.map((x) => "." + x)].join(",")} multiple hidden onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} />
         <textarea
           onPaste={(e) => {
             const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
@@ -800,6 +892,11 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
           onBlur={() => setTimeout(() => setList([]), 120)}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return;
+            if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "u") {
+              e.preventDefault();
+              fileRef.current?.click();
+              return;
+            }
             const nav = ["ArrowDown", "ArrowUp", "Tab", "Escape"].includes(e.key) || (e.key === "Enter" && !e.shiftKey);
             if (list.length && nav) {
               e.preventDefault();
@@ -1465,6 +1562,7 @@ const SHORTCUTS: [string, string][] = [
   ["Ctrl Alt B", "Show or hide the side panel"],
   ["Enter", "Send"],
   ["Shift Enter", "New line"],
+  ["Ctrl U", "Add files or photos to the message"],
   ["@", "Talk to one model in a team chat"],
   ["/effort, /model", "Change effort or model for one message (add keep for the chat)"],
   ["Esc", "Close a menu or dialog"],

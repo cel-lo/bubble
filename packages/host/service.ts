@@ -24,10 +24,11 @@ import { parseMessage, decision, autoBuilder, plain, usageLimit, type Parsed } f
 import { canonicalRoot, manifest } from "./files";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
-import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, usage, syncedPlugin, attachments, saveImage, IMAGE_EXT, type ToolKit } from "../adapters/tools";
+import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, usage, syncedPlugin, attachments, saveImage, IMAGE_EXT, skillsIn, pluginSkills, codexPluginDir, type ToolKit } from "../adapters/tools";
 
 const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
 
@@ -158,6 +159,17 @@ export class Host extends EventEmitter {
       codex: codexPlugins().map((id) => ({ id, name: id.split("@")[0], on: !off.has("codex:" + id) })),
       mcp: this.mcpServers(),
     };
+  }
+  /** the skills the AI can use now, per plugin that is switched on: the composer's + menu lists them */
+  skills() {
+    const k = this.kit(false);
+    const groups: { engine: Engine; plugin: string; skills: { name: string; description: string }[] }[] = [
+      ...k.claudePlugins.map((p) => ({ engine: "claude" as Engine, plugin: p.id === "claude-ai-skills" ? "claude.ai" : p.id.split("@")[0], skills: pluginSkills(p.dir) })),
+      ...k.codexPlugins.map((id) => ({ engine: "codex" as Engine, plugin: id.split("@")[0], skills: ((d) => (d ? pluginSkills(d) : []))(codexPluginDir(id)) })),
+      // the user's own Codex skills come along whenever Codex plugins are on
+      ...(k.codexPlugins.length ? [{ engine: "codex" as Engine, plugin: "Your skills", skills: skillsIn(join(homedir(), ".codex", "skills")) }] : []),
+    ];
+    return groups.filter((g) => g.skills.length);
   }
   /** flip a switch (`key` in ToolSettings) or one item ("mcp:x", "claude:id", "codex:id"); live sessions restart on their next turn */
   setTool(key: string, on: boolean) {

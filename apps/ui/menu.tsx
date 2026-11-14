@@ -11,6 +11,10 @@ export interface Item {
   danger?: boolean;
   onSelect?: () => void;
   submenu?: Item[];
+  /** an icon name from the kit, shown before the label */
+  icon?: string;
+  /** a longer text shown in a panel beside the menu while the item is hovered (skill descriptions) */
+  detail?: string;
   /** a section label, or "-" for a separator */
   kind?: "label" | "sep";
 }
@@ -82,8 +86,8 @@ export function Menu({ at, items, onClose, side = "below", width }: { at: DOMRec
               }}
               onClick={(e) => pick(i, e.currentTarget)}
             >
-              <span className="ck">{x.checked ? <Icon n="check" c="#F5F5F7" /> : null}</span>
-              <span>{x.label}</span>
+              <span className="ck">{x.checked ? <Icon n="check" c="#F5F5F7" /> : x.icon ? <Icon n={x.icon} s={16} c={T.sub} /> : null}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{x.label}</span>
               {x.hint && <span className="h">{x.hint}</span>}
               {x.submenu && <span className="h" style={{ paddingLeft: x.hint ? 6 : 18 }}><Icon n="chevr" /></span>}
             </div>
@@ -91,8 +95,22 @@ export function Menu({ at, items, onClose, side = "below", width }: { at: DOMRec
         )}
       </div>
       {open && items[open.i]?.submenu && <Menu at={open.rect} side="right" items={items[open.i].submenu!} onClose={onClose} />}
+      {!open && items[act]?.detail && <Detail menu={ref.current} text={items[act].detail!} />}
     </>,
     document.body,
+  );
+}
+
+/** the hovered item's description, beside the menu (right if there is room, else left), like the Claude app */
+function Detail({ menu, text }: { menu: HTMLDivElement | null; text: string }) {
+  if (!menu) return null;
+  const r = menu.getBoundingClientRect();
+  const width = 320;
+  const left = r.right + 6 + width < innerWidth ? r.right + 6 : Math.max(8, r.left - width - 6);
+  return (
+    <div className="menu s12" role="tooltip" style={{ left, top: r.top, width, padding: "10px 12px", lineHeight: 1.5, whiteSpace: "normal", color: T.sub, pointerEvents: "none" }}>
+      {text}
+    </div>
   );
 }
 

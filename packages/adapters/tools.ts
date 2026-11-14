@@ -149,3 +149,65 @@ export function claudeQuota(info: any): Quota | undefined {
     .map(([k, w]) => ({ mins: CLAUDE_WINDOWS[k], percent: Math.round(w.utilization * 100), resetsAt: Number(w.resetsAt) || 0 }));
   return windows.length ? { windows, limited: !!info.status && info.status !== "allowed" && info.status !== "allowed_warning", at: new Date().toISOString() } : undefined;
 }
+
+/** a skill's name and description from its SKILL.md front matter (one-line, quoted or folded > | values) */
+export function skillInfo(file: string): { name: string; description: string } | undefined {
+  try {
+    const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, "utf8").slice(0, 8000))?.[1];
+    if (!head) return undefined;
+    const field = (k: string) => {
+      const m = new RegExp(`^${k}:[ \t]*(.*)$`, "m").exec(head);
+      if (!m) return "";
+      let v = m[1].trim();
+      if (/^[>|][-+]?$/.test(v)) {
+        // a block value: the indented lines that follow
+        const rest = head.slice(m.index + m[0].length).split(/\r?\n/).slice(1);
+        const end = rest.findIndex((l) => /^\S/.test(l));
+        v = (end < 0 ? rest : rest.slice(0, end)).join(" ");
+      }
+      return v.replace(/^(["'])([\s\S]*)\1$/, "$2").replace(/\s+/g, " ").trim();
+    };
+    const name = field("name");
+    return name ? { name, description: field("description") } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+/** a plugin's skills: <dir>/skills plus the folders its manifest names ("skills": a folder of skills, a skill
+ * folder, or a list of either), as Claude Code and Codex read them */
+export function pluginSkills(dir: string) {
+  let extra: string[] = [];
+  for (const m of [".claude-plugin", ".codex-plugin"])
+    try {
+      const s = JSON.parse(readFileSync(join(dir, m, "plugin.json"), "utf8")).skills;
+      extra = [...extra, ...(Array.isArray(s) ? s : typeof s === "string" ? [s] : [])];
+    } catch {}
+  const found = ["skills", ...extra].flatMap((p) => {
+    const one = skillInfo(join(dir, p, "SKILL.md"));
+    return one ? [one] : skillsIn(join(dir, p));
+  });
+  return [...new Map(found.map((s) => [s.name, s])).values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+/** the skills in a folder of skills (<dir>/<skill>/SKILL.md) */
+export function skillsIn(dir: string) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => skillInfo(join(dir, e.name, "SKILL.md")))
+      .filter((s): s is { name: string; description: string } => !!s)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+/** where Codex keeps an installed plugin: ~/.codex/plugins/cache/<market>/<name>/<newest version> */
+export function codexPluginDir(id: string, home = homedir()) {
+  const [name, market] = id.split("@");
+  const base = join(home, ".codex", "plugins", "cache", market ?? "", name);
+  try {
+    const v = readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
+    return v ? join(base, v) : undefined;
+  } catch {
+    return undefined;
+  }
+}

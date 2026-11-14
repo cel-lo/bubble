@@ -791,3 +791,31 @@ test("plan usage from Codex and Claude reports", () => {
   assert.equal(codexQuota(undefined), undefined);
   assert.equal(claudeQuota({}), undefined);
 });
+
+import { skillInfo, skillsIn, pluginSkills } from "../packages/adapters/tools";
+test("skills for the + menu: name and description from SKILL.md", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-skills-"));
+  await mkdir(join(dir, "b-one"), { recursive: true });
+  await writeFile(join(dir, "b-one", "SKILL.md"), '---\nname: zeta\ndescription: "Makes things: fast"\n---\nbody');
+  await mkdir(join(dir, "a-two"), { recursive: true });
+  await writeFile(join(dir, "a-two", "SKILL.md"), "---\r\nname: alpha\r\ndescription: >\r\n  Folded text\r\n  over lines\r\nlicense: x\r\n---\r\n");
+  await mkdir(join(dir, "empty"), { recursive: true });
+  assert.deepEqual(skillsIn(dir), [{ name: "alpha", description: "Folded text over lines" }, { name: "zeta", description: "Makes things: fast" }]);
+  assert.equal(skillInfo(join(dir, "nope", "SKILL.md")), undefined);
+  assert.deepEqual(skillsIn(join(dir, "missing")), []);
+  // a manifest can name other skill folders (a folder of skills, or one skill)
+  const plug = join(dir, "plug");
+  await mkdir(join(plug, ".claude-plugin"), { recursive: true });
+  await writeFile(join(plug, ".claude-plugin", "plugin.json"), JSON.stringify({ skills: ["./paper"] }));
+  await mkdir(join(plug, "paper"), { recursive: true });
+  await writeFile(join(plug, "paper", "SKILL.md"), "---\nname: paper\ndescription: Write papers\n---\n");
+  await mkdir(join(plug, "skills", "lint"), { recursive: true });
+  await writeFile(join(plug, "skills", "lint", "SKILL.md"), "---\nname: lint\ndescription: Lint\n---\n");
+  assert.deepEqual(pluginSkills(plug).map((x) => x.name), ["lint", "paper"]);
+  // the string form, pointing at a folder of skills
+  await writeFile(join(plug, ".claude-plugin", "plugin.json"), JSON.stringify({ skills: "./more/" }));
+  await mkdir(join(plug, "more", "draw"), { recursive: true });
+  await writeFile(join(plug, "more", "draw", "SKILL.md"), "---\nname: draw\n---\n");
+  assert.deepEqual(pluginSkills(plug).map((x) => x.name), ["draw", "lint"]);
+  await rm(dir, { recursive: true });
+});

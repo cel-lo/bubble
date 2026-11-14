@@ -172,6 +172,9 @@ parent.on("message", async ({ data }: any) => {
       case "tools.list":
         result = host.tools();
         break;
+      case "skills.list":
+        result = host.skills();
+        break;
       case "tools.set": {
         const v = z.object({ key: z.string().regex(/^[\w:@.-]{1,160}$/), on: z.boolean() }).parse(input);
         result = host.setTool(v.key, v.on);
