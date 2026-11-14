@@ -1,12 +1,12 @@
 /** a persona id; the record lives in State.personas */
 export type Persona = string;
 /** an app Walt runs (CLI), or an API provider added in Customize ("api:<provider id>") */
-export type Engine = "codex" | "claude" | "gemini" | ApiEngine;
+export type Engine = "codex" | "claude" | "antigravity" | ApiEngine;
 export type ApiEngine = `api:${string}`;
 export const isApi = (e: string): e is ApiEngine => e.startsWith("api:");
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 /** one of the design kit's avatar tiles; an API provider gets a letter tile */
-export type Avatar = "codex" | "claude" | "sonnet" | "gemini" | ApiEngine;
+export type Avatar = "codex" | "claude" | "sonnet" | "antigravity" | ApiEngine;
 /** an OpenAI-compatible API (Groq, 9Router, OpenRouter …). Its key is kept encrypted by the desktop app, never here */
 export interface Provider {
   /** short id: the engine is "api:" + id */
@@ -30,12 +30,12 @@ export interface PersonaDef {
   avatar: Avatar;
 }
 /** effort levels each CLI accepts. claude: `claude --help` 2.1.322. codex: app-server `model/list` on 0.167.2
- * (gpt-6/6.1 models; the luna models stop at max, Codex rejects ultra there). gemini has no effort flag. */
+ * (gpt-6/6.1 models; the luna models stop at max, Codex rejects ultra there). Antigravity over ACP: none. */
 export const LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
-export const EFFORTS: Record<"codex" | "claude" | "gemini", Effort[]> = {
+export const EFFORTS: Record<"codex" | "claude" | "antigravity", Effort[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: LEVELS,
-  gemini: [],
+  antigravity: [],
 };
 /** API providers take no effort setting */
 export const effortsOf = (e: Engine): Effort[] => (EFFORTS as Record<string, Effort[]>)[e] ?? [];
@@ -43,7 +43,7 @@ export const DEFAULT_PERSONAS: PersonaDef[] = [
   { id: "codex", name: "Codex", engine: "codex", model: "", strengths: ["Code changes", "Tests", "Refactors"], avatar: "codex" },
   { id: "claude", name: "Claude Opus", engine: "claude", model: "opus", strengths: ["Planning", "Hard reviews", "Architecture"], avatar: "claude" },
   { id: "sonnet", name: "Claude Sonnet", engine: "claude", model: "sonnet", strengths: ["Quick features", "Docs", "UI copy"], avatar: "sonnet" },
-  { id: "gemini", name: "Gemini", engine: "gemini", model: "", strengths: ["Research", "Second opinion", "Long files"], avatar: "gemini" },
+  { id: "antigravity", name: "Antigravity", engine: "antigravity", model: "", strengths: ["Second opinion", "Web research", "Long files"], avatar: "antigravity" },
 ];
 /** a model the signed-in account can use, as the CLI reports it */
 export interface ModelInfo {
@@ -56,7 +56,7 @@ export interface ModelInfo {
   more?: boolean;
 }
 /** engines Walt can run today; the others stay hidden until their adapter works */
-export const ENGINES_ON: Engine[] = ["claude", "codex", "gemini"];
+export const ENGINES_ON: Engine[] = ["claude", "codex", "antigravity"];
 /** per-message or per-room override of a persona's model/effort */
 export interface Tune {
   model?: string;
@@ -227,7 +227,7 @@ export function takeTurn(room: Room) {
 /** "Good at" for a persona Walt makes from a model pick, so Auto roles has something to go on */
 export function defaultStrengths(engine: Engine, model: string) {
   if (engine === "codex") return ["Code changes", "Tests", "Refactors"];
-  if (engine === "gemini") return ["Research", "Second opinion", "Long files"];
+  if (engine === "antigravity") return ["Second opinion", "Web research", "Long files"];
   // an API model only talks: it cannot read or edit the project
   if (isApi(engine)) return ["Second opinion", "Explaining", "Writing"];
   if (/opus|fable/i.test(model)) return ["Planning", "Hard reviews", "Architecture"];

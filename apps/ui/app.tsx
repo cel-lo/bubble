@@ -10,7 +10,7 @@ import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./g
 import { md, esc, pics } from "./markdown";
 import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst, registerProviders } from "./onboarding";
 /** short engine names: sidebar usage meter, the composer's plugin list */
-const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", gemini: "Gemini" };
+const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", antigravity: "Antigravity" };
 /** files the composer puts into the message as text (up to 200 KB each) */
 const TEXT_EXT = ["txt", "md", "csv", "tsv", "json", "jsonl", "xml", "yaml", "yml", "toml", "ini", "log", "html", "css", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "rs", "go", "java", "kt", "c", "h", "cpp", "hpp", "cs", "php", "rb", "swift", "sql", "sh", "ps1", "bat", "lua", "dart", "vue", "svelte"];
 /** the avatar tile for a model: Claude Sonnet has its own, an API provider gets a letter tile */
@@ -1549,7 +1549,6 @@ function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
 
 const PLANNED: [string, string, string][] = [
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
-  ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
 /** Customize · Instructions: what every AI should know about you and how to answer (like ChatGPT's custom instructions) */
 function Instructions({ state, invoke }: { state: State; invoke: Invoke }) {

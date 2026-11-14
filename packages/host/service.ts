@@ -61,6 +61,10 @@ export class Host extends EventEmitter {
       this.commit("engine.usage");
     };
     if (!this.state.personas?.length) this.state.personas = structuredClone(DEFAULT_PERSONAS);
+    // Gemini CLI is gone (Google stopped it for personal accounts): its personas carry on as Antigravity
+    for (const p of this.state.personas)
+      if ((p.engine as string) === "gemini") Object.assign(p, { engine: "antigravity", avatar: "antigravity", model: "", effort: undefined, name: p.name === "Gemini" ? "Antigravity" : p.name });
+    if (!this.state.personas.some((p) => p.engine === "antigravity")) this.state.personas.push(structuredClone(DEFAULT_PERSONAS.find((p) => p.engine === "antigravity")!));
     for (const r of this.state.rooms)
       if (["running", "awaiting_user"].includes(r.state)) {
         r.state = "recovery_required";
@@ -146,7 +150,7 @@ export class Host extends EventEmitter {
     if (hit) return hit;
     const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
     if (this.state.catalog?.[t.engine] && !info) throw new Error(`${t.model} is not available for this account.`);
-    const base = (info && info.label !== "Default" ? info.label : `${{ codex: "Codex", claude: "Claude", gemini: "Gemini" }[t.engine as string] ?? t.engine} default`) + (t.effort ? ` ${t.effort}` : "");
+    const base = (info && info.label !== "Default" ? info.label : `${{ codex: "Codex", claude: "Claude", antigravity: "Antigravity" }[t.engine as string] ?? t.engine} default`) + (t.effort ? ` ${t.effort}` : "");
     let name = base;
     for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
     const avatar = t.engine === "claude" ? "claude" : t.engine;
@@ -188,9 +192,6 @@ export class Host extends EventEmitter {
       ...k.codexPlugins.map((id) => ({ engine: "codex" as Engine, plugin: id.split("@")[0], skills: ((d) => (d ? pluginSkills(d) : []))(codexPluginDir(id)) })),
       // the user's own Codex skills come along whenever Codex plugins are on
       ...(k.codexPlugins.length ? [{ engine: "codex" as Engine, plugin: "Your skills", skills: skillsIn(join(homedir(), ".codex", "skills")) }] : []),
-      // Gemini CLI: its own skills folder and each installed extension
-      { engine: "gemini" as Engine, plugin: "Your skills", skills: skillsIn(join(homedir(), ".gemini", "skills")) },
-      ...((d) => { try { return readdirSync(d).map((x) => ({ engine: "gemini" as Engine, plugin: x, skills: pluginSkills(join(d, x)) })); } catch { return []; } })(join(homedir(), ".gemini", "extensions")),
     ];
     return groups.filter((g) => g.skills.length);
   }
@@ -414,7 +415,7 @@ export class Host extends EventEmitter {
     const dir = this.rootOf(r);
     // inside "…" cmd takes & | ^ < > literally, but still expands %VAR%
     if (/["%]/.test(dir)) throw new Error("The folder name has a % or quote, which the terminal cannot take. Open it yourself and resume there.");
-    if (isApi(p.engine) || p.engine === "gemini") throw new Error(`${p.name} has no terminal app to continue in.`);
+    if (isApi(p.engine) || p.engine === "antigravity") throw new Error(`${p.name} has no terminal app to continue in.`);
     const exe = p.engine === "codex" ? this.supervisor.codex || this.supervisor.codexExe() : this.supervisor.claude;
     if (!exe || /["%]/.test(exe)) throw new Error(`${p.engine === "codex" ? "Codex CLI" : "Claude Code"} was not found.`);
     const args = p.engine === "codex" ? `resume ${id}` : `--resume ${id}`;

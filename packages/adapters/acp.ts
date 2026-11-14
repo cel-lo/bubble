@@ -1,40 +1,26 @@
-// Gemini adapter: one long-lived `gemini --acp` per persona session (Agent Client Protocol: JSON-RPC 2.0 over
-// stdio). Checked against Gemini CLI 0.68.0: initialize → session/new (or session/load) → session/prompt, text as
-// session/update agent_message_chunk, tool approvals as session/request_permission, Stop as session/cancel.
-// Walt runs the CLI's own JS with node, because Node cannot start npm's gemini.cmd shim without a shell.
+// ACP adapter: one long-lived agent per persona session speaking the Agent Client Protocol (JSON-RPC 2.0 over stdio).
+// Used for Antigravity CLI (`agy acp`, Google's replacement for Gemini CLI). Flow: initialize → session/new (or
+// session/load) → session/prompt; text as session/update agent_message_chunk; tool approvals as
+// session/request_permission; Stop as session/cancel. The protocol side was checked against Gemini CLI 0.68's ACP
+// server (same protocol); agy itself was not installed when this was written.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, extname, join, delimiter, isAbsolute } from "node:path";
-import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
+import { extname } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
 import type { ModelInfo } from "../domain/model";
 
-/** node.exe and Gemini CLI's bundle/gemini.js behind the npm shim; undefined when either is missing */
-export function geminiCommand(shim?: string) {
-  if (!shim) return undefined;
-  const js = join(dirname(shim), "node_modules", "@google", "gemini-cli", "bundle", "gemini.js");
-  const local = join(dirname(shim), "node.exe");
-  const node = existsSync(local) ? local : (process.env.PATH || "").split(delimiter).filter(isAbsolute).map((d) => join(d, "node.exe")).find(existsSync);
-  return existsSync(js) && node ? { node, js } : undefined;
-}
-/** signed in: the Google login leaves oauth_creds.json; an API key or Vertex choice is in settings.json */
-export function geminiSignedIn(home = homedir()) {
-  if (existsSync(join(home, ".gemini", "oauth_creds.json"))) return true;
-  try {
-    const t = JSON.parse(readFileSync(join(home, ".gemini", "settings.json"), "utf8"))?.security?.auth?.selectedType;
-    return !!t && t !== "oauth-personal";
-  } catch {
-    return false;
-  }
+/** how to start the agent's ACP server, e.g. { exe: "…\\agy.exe", args: ["acp"] } */
+export interface AcpCommand {
+  exe: string;
+  args: string[];
 }
 
-type Cmd = { node: string; js: string };
-/** a tool call Walt shows the owner, in the shapes the approval card knows (Shell, Edit) */
+/** a tool call Walt shows the owner, in the shapes the approval card knows (Shell, Edit, WebFetch) */
 export function askFor(tc: any): { tool: string; input: unknown } {
   const raw = tc?.rawInput ?? {};
-  if (tc?.kind === "execute") return { tool: "Shell", input: { command: raw.command ?? tc.title, cwd: raw.dir_path ?? raw.directory, reason: raw.description } };
+  if (tc?.kind === "execute") return { tool: "Shell", input: { command: raw.command ?? raw.CommandLine ?? tc.title, cwd: raw.dir_path ?? raw.directory ?? raw.Cwd, reason: raw.description } };
   const diffs = (tc?.content ?? []).filter((c: any) => c?.type === "diff");
   if (["edit", "delete", "move"].includes(tc?.kind) || diffs.length)
     return {
@@ -47,7 +33,7 @@ export function askFor(tc: any): { tool: string; input: unknown } {
         reason: tc.title,
       },
     };
-  if (tc?.kind === "fetch") return { tool: "WebFetch", input: { url: raw.url ?? raw.prompt ?? tc.title } };
+  if (tc?.kind === "fetch") return { tool: "WebFetch", input: { url: raw.url ?? raw.Url ?? raw.prompt ?? tc.title } };
   return { tool: String(tc?.title ?? tc?.kind ?? "tool"), input: raw };
 }
 /** the option that says yes once / no once (ACP lets the agent name them) */
@@ -65,13 +51,13 @@ class Acp {
   stderr = "";
   private id = 0;
   private calls = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  constructor(cmd: Cmd, args: string[], cwd: string, private readonly onMessage: (m: any) => void) {
-    this.child = spawn(cmd.node, [cmd.js, "--acp", ...args], { cwd, env: cleanEnv(), shell: false, windowsHide: true });
+  constructor(cmd: AcpCommand, cwd: string, private readonly onMessage: (m: any) => void) {
+    this.child = spawn(cmd.exe, cmd.args, { cwd, env: cleanEnv(), shell: false, windowsHide: true });
     this.child.stderr.on("data", (b) => (this.stderr = (this.stderr + b).slice(-4000)));
     this.child.on("error", (e) => this.fail(e));
     this.child.on("close", (code) => {
       this.closed = true;
-      this.fail(new Error(this.stderr.trim().slice(-800) || `Gemini closed (${code}); outcome may be uncertain`));
+      this.fail(new Error(this.stderr.trim().slice(-800) || `Antigravity closed (${code}); outcome may be uncertain`));
     });
     createInterface({ input: this.child.stdout }).on("line", (line) => {
       let m: any;
@@ -106,10 +92,11 @@ class Acp {
     return this.call("initialize", { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } });
   }
 }
-/** "Gemini API key is missing" is what an unsigned CLI says: tell the owner what to do instead */
-const signIn = (e: Error) => (/api key is missing|authentication required|not configured/i.test(e.message) ? new Error("Gemini is not signed in. Open a terminal, run gemini once and pick Log in with Google.") : e);
+/** an agent that is not signed in says so in many words: tell the owner what to do instead */
+export const SIGN_IN = "Antigravity is not signed in. Open a terminal, run agy once and sign in with Google.";
+const signIn = (e: Error) => (/api key is missing|authenticat|not signed|sign[ -]?in|log[ -]?in|unauthori[sz]ed|credential/i.test(e.message) ? new Error(SIGN_IN) : e);
 
-export class GeminiSession {
+export class AcpSession {
   private acp: Acp;
   private ready: Promise<void>;
   sessionId?: string;
@@ -118,7 +105,7 @@ export class GeminiSession {
   /** Customize · Instructions go with the first message (ACP has no system prompt) */
   private brief: string;
   constructor(
-    cmd: Cmd,
+    cmd: AcpCommand,
     readonly cwd: string,
     readonly model: string,
     private readonly readonly: boolean,
@@ -127,7 +114,7 @@ export class GeminiSession {
     instructions = "",
   ) {
     this.brief = instructions ? `Instructions from the user, for this whole chat:\n${instructions}\n\n` : "";
-    const acp = (this.acp = new Acp(cmd, model && model !== "default" ? ["-m", model] : [], cwd, (m) => this.onMessage(m)));
+    const acp = (this.acp = new Acp(cmd, cwd, (m) => this.onMessage(m)));
     this.ready = (async () => {
       await acp.init();
       const params = { cwd, mcpServers: [] };
@@ -136,10 +123,14 @@ export class GeminiSession {
         ? await acp.call("session/load", { sessionId: resume, ...params }).then(() => ({ sessionId: resume }), () => acp.call("session/new", params))
         : await acp.call("session/new", params);
       this.sessionId = r.sessionId;
+      // the model picked in Walt, when the agent offers model switching and it is not already on it
+      const offered: any[] = r?.models?.availableModels ?? [];
+      if (model && model !== "default" && r?.models?.currentModelId !== model && offered.some((m) => m.modelId === model))
+        await acp.call("session/set_model", { sessionId: this.sessionId, modelId: model }).catch(() => {});
     })().catch((e) => {
       throw signIn(e);
     });
-    const timer = setTimeout(() => acp.fail(new Error("Gemini did not start within 60 s")), 60000);
+    const timer = setTimeout(() => acp.fail(new Error("Antigravity did not start within 60 s")), 60000);
     this.ready.finally(() => clearTimeout(timer)).catch(() => {});
   }
   get pid() {
@@ -163,7 +154,7 @@ export class GeminiSession {
   }
   private async permission(m: any) {
     const tc = m.params?.toolCall;
-    // read-only chats never change anything; elsewhere every change asks the owner (Gemini already lets reads run)
+    // read-only chats never change anything; elsewhere every change asks the owner
     if (this.readonly && CHANGES.has(tc?.kind)) return this.acp.write({ id: m.id, result: choose(m.params?.options, false) });
     const ask = askFor(tc);
     const allowed = !!this.pending && (await this.pending.approve(ask.tool, ask.input).catch(() => false));
@@ -174,7 +165,7 @@ export class GeminiSession {
   }
   async run(prompt: string, delta: (t: string) => void, approve: Approval, images: string[] = []) {
     await this.ready;
-    if (this.acp.closed) throw new Error("Gemini process is closed");
+    if (this.acp.closed) throw new Error("Antigravity process is closed");
     if (this.pending) throw new Error("Session already busy");
     this.pending = { delta, approve, text: "" };
     const blocks = [
@@ -185,7 +176,7 @@ export class GeminiSession {
     try {
       const r = await this.acp.call("session/prompt", { sessionId: this.sessionId, prompt: blocks });
       const text = this.pending.text;
-      if (r?.stopReason === "refusal" && !text) throw new Error("Gemini declined to answer.");
+      if (r?.stopReason === "refusal" && !text) throw new Error("Antigravity declined to answer.");
       return text || (r?.stopReason === "cancelled" ? "(stopped)" : "");
     } catch (e) {
       throw signIn(e as Error);
@@ -207,9 +198,9 @@ export class GeminiSession {
   }
 }
 
-/** models this Google account can use: Gemini lists them when a session starts (the same list as /model) */
-export async function geminiModels(cmd: Cmd, cwd: string): Promise<ModelInfo[]> {
-  const acp = new Acp(cmd, [], cwd, () => {});
+/** the models the signed-in account can use, as the agent lists them when a session starts; [] when it lists none */
+export async function acpModels(cmd: AcpCommand, cwd: string): Promise<ModelInfo[]> {
+  const acp = new Acp(cmd, cwd, () => {});
   const timer = setTimeout(() => acp.child.kill(), 60000);
   try {
     await acp.init();

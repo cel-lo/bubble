@@ -234,9 +234,9 @@ test("room settings from the composer: keep, effort per engine, members, custom 
   assert.deepEqual(r.tune?.claude, { effort: "high" });
   assert.equal(r.used, 0, "a settings-only message must not start a run");
   assert.equal(r.messages.at(-1)?.kind, "setting");
-  await assert.rejects(host.send(r.id, "@Gemini hi"), /not in this room/);
-  host.member(r.id, "gemini", "Member");
-  await assert.rejects(host.send(r.id, "@Gemini /effort high hi"), /no effort setting/);
+  await assert.rejects(host.send(r.id, "@Antigravity hi"), /not in this room/);
+  host.member(r.id, "antigravity", "Member");
+  await assert.rejects(host.send(r.id, "@Antigravity /effort high hi"), /no effort setting/);
   const gpt = host.savePersona({ name: "GPT 6.1 Sol", engine: "codex", model: "gpt-6.1-sol", effort: "high", strengths: ["Code"], avatar: "codex" });
   host.member(r.id, gpt.id, "Reviewer");
   assert.deepEqual(r.reviewers, ["claude", gpt.id]);
@@ -251,13 +251,13 @@ test("composer menu: @ names of this chat's members only, then effort levels per
   const room: any = { builder: "sonnet", reviewers: ["claude"], members: ["gpt"] };
   const labels = (t: string) => complete(t, state, room).map((s) => s.label);
   assert.deepEqual(labels("@Op"), ["@Claude Opus"]);
-  // like a group chat: only this chat's models; Gemini exists as a persona but is not in it
-  assert.deepEqual(labels("@Gem"), []);
+  // like a group chat: only this chat's models; Antigravity exists as a persona but is not in it
+  assert.deepEqual(labels("@Ant"), []);
   assert.deepEqual(labels("@").length, 3);
   assert.deepEqual(labels("@GPT 6.1 "), ["@GPT 6.1 Sol"]);
   assert.deepEqual(labels("@Opus /effort "), ["low", "medium", "high", "xhigh", "max"]);
   assert.deepEqual(labels("@GPT 6.1 Sol /effort h"), ["high"]);
-  assert.deepEqual(labels("@Gemini /effort "), ["no effort setting"]);
+  assert.deepEqual(labels("@Antigravity /effort "), ["no effort setting"]);
   assert.deepEqual(labels("fix it /ef"), ["/effort"]);
   assert.deepEqual(labels("@Opus fix it"), []);
 });
@@ -902,21 +902,22 @@ test("API providers in the host: key in memory only, models in the catalog, chat
   await rm(dir, { recursive: true });
 });
 
-import { GeminiSession, geminiModels, askFor, choose } from "../packages/adapters/gemini";
-/** a stand-in for `gemini --acp`: lists two models, asks to edit a file, says what Walt answered */
-const FAKE_GEMINI = `
+import { AcpSession, acpModels, askFor, choose } from "../packages/adapters/acp";
+/** a stand-in for `agy acp`: lists two models, asks to edit a file, says what Walt answered */
+const FAKE_AGY = `
 const rl = require("readline").createInterface({ input: process.stdin });
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\\n");
-const model = process.argv.includes("-m") ? process.argv[process.argv.indexOf("-m") + 1] : "auto";
+let model = "auto";
 let waiting;
 rl.on("line", (line) => {
   const m = JSON.parse(line);
   if (m.id != null && !m.method && waiting) return waiting(m.result);
   if (m.method === "initialize") return send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
   if (m.method === "session/new") {
-    if (process.env.FAKE_UNSIGNED) return send({ id: m.id, error: { code: -32000, message: "Gemini API key is missing or not configured." } });
+    if (process.env.FAKE_UNSIGNED) return send({ id: m.id, error: { code: -32000, message: "Authentication required." } });
     return send({ id: m.id, result: { sessionId: "s1", models: { currentModelId: "auto", availableModels: [{ modelId: "auto", name: "Auto" }, { modelId: "gemini-pro", name: "Gemini Pro" }] } } });
   }
+  if (m.method === "session/set_model") return (model = m.params.modelId), send({ id: m.id, result: {} });
   if (m.method === "session/prompt") {
     const text = m.params.prompt[0].text;
     waiting = (r) => {
@@ -929,15 +930,15 @@ rl.on("line", (line) => {
   }
 });
 `;
-test("Gemini over ACP: models, streamed text, edits ask the owner, read-only refuses, sign-in message", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "walt-gemini-"));
-  const js = join(dir, "fake-gemini.cjs");
-  await writeFile(js, FAKE_GEMINI);
-  const cmd = { node: process.execPath, js };
-  const models = await geminiModels(cmd, dir);
+test("Antigravity over ACP: models, picked model, streamed text, edits ask the owner, read-only refuses, sign-in message", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-agy-"));
+  const js = join(dir, "fake-agy.cjs");
+  await writeFile(js, FAKE_AGY);
+  const cmd = { exe: process.execPath, args: [js] };
+  const models = await acpModels(cmd, dir);
   assert.deepEqual(models.map((m) => [m.id, m.label, !!m.isDefault]), [["auto", "Auto", true], ["gemini-pro", "Gemini Pro", false]]);
   const asked: any[] = [];
-  const s = new GeminiSession(cmd, dir, "gemini-pro", false, undefined, undefined, "Answer briefly");
+  const s = new AcpSession(cmd, dir, "gemini-pro", false, undefined, undefined, "Answer briefly");
   let streamed = "";
   const out = await s.run("please fix it", (d) => (streamed += d), async (tool, input) => (asked.push({ tool, input }), true));
   assert.equal(out, "[gemini-pro] (briefed) edit yes: please fix it", "Instructions go with the first message");
@@ -947,14 +948,14 @@ test("Gemini over ACP: models, streamed text, edits ask the owner, read-only ref
   assert.equal(await s.run("no thanks", () => {}, async () => false), "[gemini-pro] edit no: no thanks");
   await s.stop();
   // read-only (reviews, chats without a project): a change is refused without asking
-  const ro = new GeminiSession(cmd, dir, "", true);
+  const ro = new AcpSession(cmd, dir, "", true);
   let bothered = false;
   assert.equal(await ro.run("look only", () => {}, async () => ((bothered = true), true)), "[auto] edit no: look only");
   assert.equal(bothered, false);
   await ro.stop();
   // not signed in: say what to do
   process.env.FAKE_UNSIGNED = "1";
-  await assert.rejects(geminiModels(cmd, dir), /not signed in.*run gemini once/);
+  await assert.rejects(acpModels(cmd, dir), /not signed in.*run agy once/);
   delete process.env.FAKE_UNSIGNED;
   assert.equal(askFor({ kind: "execute", title: "npm test", rawInput: { command: "npm test" } }).tool, "Shell");
   assert.deepEqual(choose([{ optionId: "a", kind: "allow_always" }], true), { outcome: { outcome: "selected", optionId: "a" } });

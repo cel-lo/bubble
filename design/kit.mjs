@@ -187,6 +187,8 @@ export function av(e, s = 32, extra = "") {
   if (e === "codex") return `<div style="${st};background:${ENG.codex.tile}"><img src="${codexPng}" style="width:${s * 0.84}px;height:${s * 0.84}px;display:block"></div>`;
   if (e === "claude" || e === "sonnet") return `<div style="${st};background:${ENG[e].tile};position:relative">${clawd(s * 0.74)}${s >= 26 ? `<span style="position:absolute;right:${s * 0.06}px;bottom:${s * 0.05}px;font-size:${Math.max(7, s * 0.24)}px;font-weight:800;line-height:1;color:${e === "claude" ? "#B4532F" : "#9A6A12"}">${e === "claude" ? "O" : "S"}</span>` : ""}</div>`;
   if (e === "gemini") return `<div style="${st};background:${ENG.gemini.tile}"><img src="${geminiPng}" style="width:${s * 0.66}px;height:${s * 0.66}px;display:block"></div>`;
+  // Antigravity: Google's colours behind an A (no logo file shipped)
+  if (e === "antigravity") return `<div style="${st};background:linear-gradient(135deg,#4285F4,#9B72CB 55%,#D96570);font-size:${s * 0.5}px;font-weight:800;color:#fff">A</div>`;
   // an API provider ("api:groq"): its first letter on a colour picked from its id
   if (String(e).startsWith("api:")) {
     const id = String(e).slice(4);

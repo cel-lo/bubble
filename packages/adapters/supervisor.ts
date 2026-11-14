@@ -9,11 +9,11 @@ import { ClaudeSession, claudeModels } from "./claude";
 import { CodexSession, codexModels } from "./codex";
 import { Job } from "./job";
 import { ApiSession, type ApiTarget } from "./api";
-import { GeminiSession, geminiCommand, geminiModels, geminiSignedIn } from "./gemini";
+import { AcpSession, acpModels, SIGN_IN, type AcpCommand } from "./acp";
 import { isApi } from "../domain/model";
 import { tmpdir } from "node:os";
 import type { Engine, ModelInfo } from "../domain/model";
-type Session = ClaudeSession | CodexSession | ApiSession | GeminiSession;
+type Session = ClaudeSession | CodexSession | ApiSession | AcpSession;
 /** what every API model is told: it only talks */
 const API_SYSTEM = "You are chatting with the user inside Walt, a desktop app. You cannot open, read or change files or run commands; when you need a file, ask the user to paste it. Reply in the language the user writes in.";
 export class Supervisor {
@@ -36,11 +36,14 @@ export class Supervisor {
     return this.api.get(engine);
   }
   codex = "";
-  /** node + Gemini CLI's script, found once */
-  private gem?: ReturnType<typeof geminiCommand>;
-  geminiCmd() {
-    return (this.gem ||= geminiCommand(this.find("gemini")));
+  /** Antigravity CLI's ACP server: agy.exe acp (the installer puts agy in %LOCALAPPDATA%\agy\bin) */
+  agyCmd(): AcpCommand | undefined {
+    const local = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "agy", "bin", "agy.exe") : "";
+    const exe = this.find("agy") ?? (local && existsSync(local) ? local : undefined);
+    return exe ? { exe, args: ["acp"] } : undefined;
   }
+  /** the models Antigravity listed when the doctor signed in; [] until then */
+  private agyModels: ModelInfo[] = [];
   /** the native codex.exe behind npm's codex.cmd shim (Node cannot spawn .cmd without a shell) */
   codexExe(found = this.find("codex")) {
     if (!found || /\.exe$/i.test(found)) return found;
@@ -54,13 +57,13 @@ export class Supervisor {
   }
   async doctor(): Promise<EngineReport[]> {
     return Promise.all(
-      ["codex", "claude", "gemini"].map(async (engine) => {
+      ["codex", "claude", "antigravity"].map(async (engine) => {
         const exe =
           engine === "claude" && existsSync(this.claude)
             ? this.claude
             : engine === "codex"
               ? this.codexExe()
-              : this.geminiCmd()?.js;
+              : this.agyCmd()?.exe;
         if (!exe)
           return {
             engine,
@@ -70,7 +73,8 @@ export class Supervisor {
             detail: "Not installed / native executable not found",
           };
         try {
-          const version = engine === "gemini" ? await capture(this.geminiCmd()!.node, [exe, "--version"]) : await capture(exe, ["--version"]);
+          const version = await capture(exe, ["--version"]);
+          let detail = engine === "antigravity" ? "Google sign-in" : "CLI subscription login";
           let auth = "unknown";
           if (engine === "claude") {
             this.claude = exe;
@@ -82,16 +86,24 @@ export class Supervisor {
           } else if (engine === "codex") {
             this.codex = exe;
             auth = /logged in/i.test(await capture(exe, ["login", "status"]).catch(() => "")) ? "ok" : "required";
-          } else if (engine === "gemini") {
-            // gemini has no status command; its Google sign-in leaves a file, an API key choice is in settings
-            auth = geminiSignedIn() ? "ok" : "required";
+          } else if (engine === "antigravity") {
+            // agy has no status command and keeps its login in Windows Credential Manager: start its ACP server and
+            // open a session; that answers "signed in?" and brings the model list.
+            // shortcut: this may leave an empty conversation in Antigravity's history; use a status command if agy gets one
+            try {
+              this.agyModels = await acpModels(this.agyCmd()!, tmpdir());
+              auth = "ok";
+            } catch (e) {
+              auth = (e as Error).message === SIGN_IN ? "required" : "unknown";
+              detail = (e as Error).message;
+            }
           }
           return {
             engine,
             installed: true,
             version,
             auth,
-            detail: engine === "gemini" ? "Google sign-in" : "CLI subscription login",
+            detail,
           };
         } catch (e) {
           return {
@@ -131,8 +143,8 @@ export class Supervisor {
   async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, kit: ToolKit = NO_TOOLS) {
     if (isApi(p.engine) && !this.api.has(p.engine))
       throw new Error(`${p.name}'s API is not set up any more. Add it again in Customize · AI & models.`);
-    if (p.engine === "gemini" && !this.geminiCmd())
-      throw new Error("Gemini CLI was not found. Install it with npm install -g @google/gemini-cli, then run gemini once to sign in.");
+    if (p.engine === "antigravity" && !this.agyCmd())
+      throw new Error("Antigravity CLI was not found. Install it (Customize · AI & models shows how), then run agy once to sign in.");
     if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
       throw new Error("Codex CLI was not found. Install it with npm install -g @openai/codex, then sign in with codex login.");
     const key = room + ":" + p.id + ":" + readonly;
@@ -148,8 +160,8 @@ export class Supervisor {
     if (!s?.alive) {
       if ([...this.sessions.values()].filter((s) => s.alive && !(s instanceof ApiSession)).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
-      s = p.engine === "gemini"
-        ? new GeminiSession(this.geminiCmd()!, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit.instructions)
+      s = p.engine === "antigravity"
+        ? new AcpSession(this.agyCmd()!, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit.instructions)
         : isApi(p.engine)
         ? new ApiSession(this.api.get(p.engine)!, model, [API_SYSTEM, kit.instructions].filter(Boolean).join("\n\n"), effort)
         : p.engine === "codex"
@@ -172,7 +184,8 @@ export class Supervisor {
     await Promise.all([
       engines.includes("claude") && existsSync(this.claude) ? claudeModels(this.claude, tmpdir()).then((m) => (out.claude = m)).catch(() => {}) : null,
       engines.includes("codex") && (this.codex ||= this.codexExe() || "") ? codexModels(this.codex, tmpdir()).then((m) => (out.codex = m)).catch(() => {}) : null,
-      engines.includes("gemini") && this.geminiCmd() ? geminiModels(this.geminiCmd()!, tmpdir()).then((m) => (out.gemini = m)).catch(() => {}) : null,
+      // Antigravity's list came with the sign-in check; when it lists none, its own default model
+      engines.includes("antigravity") ? (out.antigravity = this.agyModels.length ? this.agyModels : [{ id: "default", label: "Default", efforts: [], isDefault: true }]) : null,
     ]);
     return out;
   }

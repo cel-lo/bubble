@@ -11,8 +11,8 @@ type Invoke = (method: string, input?: unknown) => Promise<any>;
 export const Html = ({ h }: { h: string }) => <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: h }} />;
 const pill = (t: string, c: string) => <span className="pill" style={{ background: c + "29", color: c }}>{t}</span>;
 export const ADAPTERS = new Set<string>(ENGINES_ON);
-export const ENGINE_LABEL: Record<string, string> = { codex: "Codex CLI", claude: "Claude Code", gemini: "Gemini CLI" };
-export const ENGINE_NAME: Record<string, string> = { codex: "ChatGPT · Codex", claude: "Claude", gemini: "Gemini" };
+export const ENGINE_LABEL: Record<string, string> = { codex: "Codex CLI", claude: "Claude Code", antigravity: "Antigravity CLI" };
+export const ENGINE_NAME: Record<string, string> = { codex: "ChatGPT · Codex", claude: "Claude", antigravity: "Antigravity" };
 /** API providers get their names from Customize; App calls this on every render, like setLocale */
 export function registerProviders(ps: Provider[] = []) {
   for (const p of ps) {
@@ -46,8 +46,8 @@ export function modelLabel(state: State, engine: Engine, id: string) {
 /** "Claude Code · Opus 5.5 · effort high" */
 export const personaLine = (p: PersonaDef, state?: State) =>
   [ENGINE_LABEL[p.engine], state ? modelLabel(state, p.engine, p.model || "default") : p.model || t("CLI default model"), p.effort && t("effort {0}", p.effort)].filter(Boolean).join(" · ");
-const INSTALL: Record<string, string> = { codex: "npm install -g @openai/codex", claude: "npm install -g @anthropic-ai/claude-code", gemini: "npm install -g @google/gemini-cli" };
-const LOGIN: Record<string, string> = { codex: "codex login", claude: "claude  →  /login", gemini: "gemini  →  Log in with Google" };
+const INSTALL: Record<string, string> = { codex: "npm install -g @openai/codex", claude: "npm install -g @anthropic-ai/claude-code", antigravity: "irm https://antigravity.google/cli/install.ps1 | iex" };
+const LOGIN: Record<string, string> = { codex: "codex login", claude: "claude  →  /login", antigravity: "agy  →  sign in with Google" };
 
 /** draggable title bar with only the window buttons */
 export function TitleBar() {
@@ -176,7 +176,7 @@ export function EngineCards({ state, invoke }: { state: State; invoke: Invoke })
             {r?.installed && r.auth === "required" && <><div className="s13 sub">{t("Sign in once in a terminal. Walt uses the same login afterwards.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
             {s.ready && <div className="s13 sub">{models.length ? t("Signed in. {0} models on this account.", models.length) : t("Signed in. Model list loads with the next check.")}</div>}
             {!!models.length && <div className="row g6" style={{ flexWrap: "wrap" }}>{models.filter((m) => !m.more).map((m) => <span key={m.id} className="chip" style={{ fontSize: 12 }}>{m.label}</span>)}</div>}
-            {s.ready && e !== "gemini" && (
+            {s.ready && e !== "antigravity" && (
               <div style={{ marginTop: 4 }}>
                 <div className="lbl">{t("Plan usage")}</div>
                 {state.usage?.[e] ? <UsageBars q={state.usage[e]!} /> : <div className="s12 dim">{t(e === "claude" ? "Shows after your next Claude message." : "Shows after the next check.")}</div>}

@@ -9,7 +9,7 @@ const host = new Host(new Store(dir));
 const persona = z.string().min(1).max(80);
 const effort = z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]);
 /** a CLI, or an API provider added in Customize */
-const engine = z.string().regex(/^(claude|codex|gemini|api:[a-z0-9-]{1,40})$/) as unknown as z.ZodType<import("../domain/model").Engine>;
+const engine = z.string().regex(/^(claude|codex|antigravity|api:[a-z0-9-]{1,40})$/) as unknown as z.ZodType<import("../domain/model").Engine>;
 const api = await controlServer(host, dir, (roomId) =>
   parent.postMessage({ type: "open", roomId }),
 );
@@ -173,7 +173,7 @@ parent.on("message", async ({ data }: any) => {
               model: z.string().regex(MODEL_ID, "Model id may only use letters, digits and . : / - _ (max 80)").or(z.literal("")),
               effort: effort.optional(),
               strengths: z.array(z.string().min(1).max(30)).max(6),
-              avatar: z.enum(["codex", "claude", "sonnet", "gemini"]).or(z.string().regex(/^api:[a-z0-9-]{1,40}$/)) as unknown as z.ZodType<import("../domain/model").Avatar>,
+              avatar: z.enum(["codex", "claude", "sonnet", "antigravity"]).or(z.string().regex(/^api:[a-z0-9-]{1,40}$/)) as unknown as z.ZodType<import("../domain/model").Avatar>,
             })
             .parse(input),
         );
