@@ -117,6 +117,8 @@ export interface Room {
   tune?: Record<Persona, Tune>;
   /** CLI session / thread id per "persona:readonly", so a chat resumes after a restart and can continue in the CLI */
   sessions?: Record<string, string>;
+  /** context use per persona, from its latest reply in this chat */
+  context?: Record<Persona, ContextUse & { at: number }>;
   /** Auto roles: before each build task Walt makes the best-fitting reviewer the builder */
   auto?: boolean;
 }
@@ -136,6 +138,13 @@ export interface EngineReport {
   detail: string;
   /** API providers: a key is saved for it */
   keyed?: boolean;
+}
+/** how full a model's context window is, as its CLI reported after the last reply */
+export interface ContextUse {
+  used: number;
+  size: number;
+  /** the model that reported it (Claude names its own; others leave it out) */
+  model?: string;
 }
 /** the plan usage the engine reported last: one bar per limit window (5 hours, a week), like the apps' usage popovers */
 export interface Quota {

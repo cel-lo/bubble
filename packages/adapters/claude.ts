@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { cleanEnv, gone } from "./environment";
-import { LEVELS, type ModelInfo } from "../domain/model";
+import { LEVELS, type ModelInfo, type ContextUse } from "../domain/model";
 import { NO_TOOLS, claudeQuota, usage, type ToolKit } from "./tools";
 /** tools that only read (files, the web's search results, a skill's instructions): never ask */
 const SAFE = ["Read", "Glob", "Grep", "WebSearch", "Skill"];
@@ -19,6 +19,8 @@ export function claudeTools(readonly: boolean, shell: boolean, kit: ToolKit) {
 export type Approval = (tool: string, input: unknown) => Promise<boolean>;
 export class ClaudeSession {
   private child: ChildProcessWithoutNullStreams;
+  /** context window use after the latest reply */
+  context?: ContextUse;
   /** the CLI process id, for the Job Object */
   get pid() {
     return this.child.pid;
@@ -130,6 +132,13 @@ export class ClaudeSession {
           void this.permission(e, readonly);
           return;
         }
+        // context: what the latest top-level reply carried in and out, of the window the turn's result names
+        if (e.type === "assistant" && !e.parent_tool_use_id && e.message?.usage) {
+          const u = e.message.usage;
+          this.context = { used: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0), size: this.context?.size ?? 0, model: e.message.model };
+        }
+        if (e.type === "result" && this.context && e.modelUsage)
+          this.context.size = e.modelUsage[this.context.model ?? ""]?.contextWindow ?? Math.max(0, ...Object.values<any>(e.modelUsage).map((m) => m?.contextWindow ?? 0));
         const p = this.pending;
         if (!p) return;
         if (

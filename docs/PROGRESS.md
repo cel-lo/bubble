@@ -168,7 +168,15 @@ Designed first in FigCraft (V01–V14, below the green divider in the Ce:L file)
 
 - cello hit "Budget exhausted" in a team chat: the counter never reset between messages, so a chat stopped after one task. Now every message starts a new task with the template's budget (like plain chats already did); the budget only caps the automatic build → review → fix loop. When a fix round does not fit, Walt says to send "fix the review findings". The "Continue · +2 turns" and "Continue with a new budget" buttons are gone (a new message does that). Unit test.
 
+## Side panel icons, context meter, marking pictures — 2026-11-15
+
+Taken from Claude's side panel and GPT's mark-and-ask, only what fits Walt:
+- Side panel tabs are icons with tooltips (Task, Files, Decisions, Context, Activity); names show next to them when the panel is 400 px or wider. At the narrowest panel (280 px) the row no longer gets cut off. Plain chats get the Context tab too.
+- Context tab: how full each model's context window is, from its latest reply in this chat (Claude: the last top-level reply's input + cache + output tokens of `modelUsage.contextWindow`; Codex: `thread/tokenUsage/updated` last.totalTokens of `modelContextWindow`; Antigravity: ACP `usage_update`). API models show "Not reported". Stored on the room (`room.context[persona]`, with the model used). Past 80% the chat header says "<model> context N%" in amber. The reviewer packet moved under "What the reviewers receive". Checked for real: Haiku 5.5 14% · 139k / 1M, GPT-6-Luna 10% · 26k / 258k, Gemini 3.8 Flash 1% · 9k / 1M.
+- Mark and ask: click an attached picture (or "Mark and ask" under a picture in the chat), drag numbered boxes, give each a note. "Add to message" draws the red boxes into a new PNG that replaces the attachment, and puts the numbered notes into the message. walt-img now sends a CORS header so the window can draw the picture onto a canvas. The dialog only closes on a click that starts and ends on the backdrop.
+- Not taken: Claude's per-category context breakdown (only Claude reports it), terminal pane (Continue in the CLI covers it), browser preview with element picking (large; later).
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
-2. Gemini adapter once cello signs in; API-key engines (Groq and others).
+2. Browser preview pane for a project's dev server, with mark-and-ask on page elements.

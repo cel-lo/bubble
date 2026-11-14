@@ -924,6 +924,7 @@ rl.on("line", (line) => {
       waiting = undefined;
       const said = r.outcome.optionId || r.outcome.outcome;
       for (const piece of ["[" + model + "] ", text.includes("Answer briefly") ? "(briefed) " : "", "edit " + said + ": ", text.split("\\n").pop()]) send({ method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } } } });
+      send({ method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "usage_update", used: 1200, size: 1000000 } } });
       send({ id: m.id, result: { stopReason: "end_turn" } });
     };
     send({ id: 900, method: "session/request_permission", params: { sessionId: "s1", options: [{ optionId: "yes", kind: "allow_once" }, { optionId: "no", kind: "reject_once" }], toolCall: { toolCallId: "t1", title: "Write a.txt", kind: text.includes("look around") ? "read" : "edit", content: [{ type: "diff", path: "a.txt", oldText: "old", newText: "new" }] } } });
@@ -945,6 +946,7 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   const out = await s.run("please fix it", (d) => (streamed += d), async (tool, input) => (asked.push({ tool, input }), true));
   assert.equal(out, "[gemini-pro] (briefed) edit yes: please fix it", "Instructions go with the first message");
   assert.equal(streamed, out);
+  assert.deepEqual(s.context, { used: 1200, size: 1000000 }, "usage_update becomes the context meter");
   assert.equal(asked[0].tool, "Edit");
   assert.deepEqual(asked[0].input.changes, [{ path: "a.txt", kind: "update", diff: "-old\n+new" }]);
   assert.equal(await s.run("no thanks", () => {}, async () => false), "[gemini-pro] edit no: no thanks");

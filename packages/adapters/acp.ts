@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
-import type { ModelInfo } from "../domain/model";
+import type { ContextUse, ModelInfo } from "../domain/model";
 
 /** how to start the agent's ACP server, e.g. { exe: "…\\agy.exe", args: ["acp"] } */
 export interface AcpCommand {
@@ -105,6 +105,8 @@ export class AcpSession {
   private ready: Promise<void>;
   sessionId?: string;
   lastActive = Date.now();
+  /** context window use, as the agent's usage_update says */
+  context?: ContextUse;
   private pending?: { delta: (t: string) => void; approve: Approval; text: string };
   /** Customize · Instructions go with the first message (ACP has no system prompt) */
   private brief: string;
@@ -150,7 +152,9 @@ export class AcpSession {
     if (m.method === "session/request_permission" && m.id != null) return void this.permission(m);
     if (m.id != null) return this.acp.write({ id: m.id, error: { code: -32601, message: `Walt does not offer ${m.method}` } });
     const u = m.params?.update;
-    if (m.method !== "session/update" || !this.pending || m.params?.sessionId !== this.sessionId) return;
+    if (m.method !== "session/update" || m.params?.sessionId !== this.sessionId) return;
+    if (u?.sessionUpdate === "usage_update" && u.size) return void (this.context = { used: u.used ?? 0, size: u.size });
+    if (!this.pending) return;
     if (u?.sessionUpdate === "agent_message_chunk" && u.content?.type === "text" && u.content.text) {
       this.pending.text += u.content.text;
       this.pending.delta(u.content.text);

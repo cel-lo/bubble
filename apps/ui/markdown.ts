@@ -1,10 +1,15 @@
 // Small Markdown for agent messages: fenced code, `code`, **bold**, # headings. Everything is escaped
 // first, so agent text can never inject HTML. Bubbles use white-space:pre-wrap, so lists and line breaks show as written.
+import { t } from "./i18n";
 export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** pictures Walt saved (generated or attached): walt-img links become images; also used in your own bubbles */
-export const pics = (s: string) => s.replace(/!\[([^\]\n]*)\]\(walt-img:\/\/img\/([\w.-]+\.(?:png|jpe?g|webp|gif))\)/g, '<img class="gen" src="walt-img://img/$2" alt="$1" title="$1" data-hot="img:$2" style="display:block;max-width:min(100%,420px);border-radius:12px;margin:8px 0;cursor:zoom-in">');
+export const pics = (s: string) =>
+  s.replace(
+    /!\[([^\]\n]*)\]\(walt-img:\/\/img\/([\w.-]+\.(?:png|jpe?g|webp|gif))\)/g,
+    `<img class="gen" src="walt-img://img/$2" alt="$1" title="$1" data-hot="img:$2" style="display:block;max-width:min(100%,420px);border-radius:12px;margin:8px 0 2px;cursor:zoom-in"><span role="button" data-hot="mark:$2" style="display:inline-block;font-size:12px;color:#64A8FF;cursor:pointer;margin-bottom:6px">${esc(t("Mark and ask"))}</span>`,
+  );
 const inline = (s: string) =>
   pics(s)
     .replace(/`([^`\n]+)`/g, '<span class="mono" style="font-size:.9em;background:#ffffff14;border-radius:5px;padding:1px 5px">$1</span>')

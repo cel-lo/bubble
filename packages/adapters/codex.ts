@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv, gone } from "./environment";
 import type { Approval } from "./claude";
-import { LEVELS, type ModelInfo } from "../domain/model";
+import { LEVELS, type ModelInfo, type ContextUse } from "../domain/model";
 import { NO_TOOLS, saveImage, codexQuota, usage, type ToolKit } from "./tools";
 
 /** Features Walt always turns off: hooks run the user's own commands, sub-agents run outside Walt's view */
@@ -60,6 +60,8 @@ export function onlyReads(actions: unknown) {
 type Pending = { resolve: (text: string) => void; reject: (e: Error) => void; delta: (t: string) => void; approve: Approval; text: string; last: string; images: string[] };
 export class CodexSession {
   private child: ChildProcessWithoutNullStreams;
+  /** context window use after the latest turn */
+  context?: ContextUse;
   /** the CLI process id, for the Job Object */
   get pid() {
     return this.child.pid;
@@ -152,6 +154,9 @@ export class CodexSession {
     const p = m.params || {};
     if (m.method === "account/rateLimits/updated") return void report(p.rateLimits ?? p);
     if (p.threadId && p.threadId !== this.sessionId) return;
+    // what the last request carried, of the model's window (as Codex's own status line counts it)
+    if (m.method === "thread/tokenUsage/updated" && p.tokenUsage?.modelContextWindow)
+      return void (this.context = { used: p.tokenUsage.last?.totalTokens ?? 0, size: p.tokenUsage.modelContextWindow });
     if (m.method === "item/started" || m.method === "item/completed") this.items.set(p.item.id, p.item);
     const run = this.pending;
     if (!run) return;

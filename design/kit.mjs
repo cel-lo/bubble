@@ -81,8 +81,8 @@ body{font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:
 .cbox{width:100%;max-width:740px;margin:0 auto;border:1px solid #3A3A3C;border-radius:22px;background:${T.card2};min-height:56px;display:flex;align-items:center;padding:0 10px 0 16px;gap:12px}
 .send{width:36px;height:36px;border-radius:18px;background:${T.green};display:flex;align-items:center;justify-content:center}
 .route{width:100%;max-width:740px;margin:8px auto 0;display:flex;align-items:center;gap:14px;font-size:12.5px;color:${T.dim};padding-left:14px}
-.tabs{display:flex;gap:4px;padding:12px 12px 0;border-bottom:1px solid ${T.line2}}
-.tab{font-size:13px;color:${T.dim};padding:7px 8px 10px;font-weight:600}
+.tabs{display:flex;gap:4px;padding:12px 12px 0;border-bottom:1px solid ${T.line2};overflow-x:auto;scrollbar-width:none;flex:none}
+.tab{font-size:13px;color:${T.dim};padding:7px 8px 10px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;flex:none}
 .tab.on{color:${T.text};box-shadow:inset 0 -2px 0 ${T.green}}
 .kv{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-bottom:1px solid ${T.line2}}
 .lbl{font-size:11px;font-weight:600;color:${T.dim};letter-spacing:.04em;text-transform:uppercase;margin:16px 0 8px}

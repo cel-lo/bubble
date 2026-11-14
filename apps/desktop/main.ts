@@ -17,7 +17,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { basename } from "node:path";
 // walt-img://img/<name>.png: pictures the AI made, served from <data>/images only
-protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 // API keys (Customize · AI & models): encrypted with Windows' own protection for this user (DPAPI) in
 // <data>/keys.json, decrypted only to hand them to the host process. Never in walt.sqlite, a backup or the window.
 const keysFile = () => join(app.getPath("userData"), "keys.json");
@@ -75,7 +75,9 @@ else {
   app.whenReady().then(async () => {
     protocol.handle("walt-img", (req) => {
       const file = imageFile(decodeURIComponent(new URL(req.url).pathname.slice(1)));
-      return file ? net.fetch(pathToFileURL(file).toString()) : new Response("not found", { status: 404 });
+      if (!file) return new Response("not found", { status: 404 });
+      // readable by the window's canvas (marking a picture draws it again with the marks)
+      return net.fetch(pathToFileURL(file).toString()).then((r) => new Response(r.body, { headers: { "content-type": r.headers.get("content-type") ?? "image/png", "access-control-allow-origin": "*" } }));
     });
     // how Ce:L starts Walt while it is not running (control.json only exists while Walt runs)
     writeFileSync(join(app.getPath("userData"), "launch.json"), JSON.stringify({ exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] }));

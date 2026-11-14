@@ -659,6 +659,8 @@ export class Host extends EventEmitter {
     } finally {
       // keep the CLI's session id on the chat: resume after a restart, and "Continue in Claude Code / Codex"
       if (session.sessionId) (r.sessions ??= {})[slot] = session.sessionId;
+      const c = "context" in session ? session.context : undefined;
+      if (c?.size) (r.context ??= {})[persona] = { used: c.used, size: c.size, model: tune.model ?? def.model, at: Date.now() };
     }
     m.text = result;
     this.commit("run.finished");

@@ -18,6 +18,7 @@ const avatarOf = (e: string, label = "") => (e === "claude" ? (/sonnet/i.test(la
 type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; description: string }[] };
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
+import { Marker } from "./marker";
 import { t, setLocale } from "./i18n";
 
 declare global {
@@ -708,7 +709,29 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
   const [pics, setPics] = useState<{ name: string; markdown: string }[]>([]);
   const [docs, setDocs] = useState<{ name: string; text: string }[]>([]);
   const [plus, setPlus] = useState<{ at: DOMRect; skills: SkillGroup[]; tools: ToolsView } | null>(null);
+  const [marking, setMarking] = useState<{ name: string; markdown: string } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  // "Mark and ask" under a picture in the chat: it becomes an attachment and opens for marking
+  useEffect(() => {
+    const open = (e: Event) => {
+      const name = (e as CustomEvent<string>).detail;
+      const p = { name, markdown: `![attached image](walt-img://img/${name})` };
+      setPics((all) => (all.some((x) => x.name === name) ? all : [...all, p]));
+      setMarking(p);
+    };
+    addEventListener("walt:mark", open);
+    return () => removeEventListener("walt:mark", open);
+  }, []);
+  // the marked copy replaces the picture; the notes go into the message, numbered like the marks
+  const marked = async (png: string, notes: string[]) => {
+    const old = marking!;
+    setMarking(null);
+    const saved = await window.walt.call("image.save", { data: png, ext: "png" }).catch(() => null);
+    if (!saved) return;
+    setPics((all) => all.map((x) => (x.name === old.name ? saved : x)));
+    if (notes.length) setText((v) => (v.trim() ? v.trimEnd() + "\n\n" : "") + t("On the marked picture:") + "\n" + notes.join("\n"));
+    ref.current?.focus();
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent;
   // a text or code file goes into the message itself
@@ -862,7 +885,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
         <div className="row g8" style={{ maxWidth: 760, margin: "0 auto 8px", width: "100%", flexWrap: "wrap" }}>
           {pics.map((p) => (
             <div key={p.name} style={{ position: "relative" }}>
-              <img src={`walt-img://img/${p.name}`} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, display: "block" }} />
+              <img src={`walt-img://img/${p.name}`} alt={t("Attached picture · click to mark it")} title={t("Click to mark it")} onClick={() => setMarking(p)} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, display: "block", cursor: "pointer" }} />
               <span role="button" aria-label={t("Remove picture")} onClick={() => setPics((x) => x.filter((y) => y !== p))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, background: T.card, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Icon n="x" s={11} w={2.4} /></span>
             </div>
           ))}
@@ -879,6 +902,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
       >
         <span className={`tbb ${plus ? "on" : ""}`} role="button" aria-label={t("Add files, skills and connectors")} aria-haspopup="menu" title={t("Add files, skills and connectors")} onClick={(e) => (plus ? setPlus(null) : void openPlus(e.currentTarget.getBoundingClientRect()))} style={{ alignSelf: "center" }}><Icon n="plus" s={18} /></span>
         {plus && <Menu at={plus.at} side="above" width={250} items={plusItems(plus)} onClose={() => setPlus(null)} />}
+        {marking && <Marker src={`walt-img://img/${marking.name}`} onDone={(png, notes) => void marked(png, notes)} onClose={() => setMarking(null)} />}
         <input ref={fileRef} type="file" accept={["image/png,image/jpeg,image/webp,image/gif", ...TEXT_EXT.map((x) => "." + x)].join(",")} multiple hidden onChange={(e) => { void addFiles(e.target.files ?? []); e.target.value = ""; }} />
         <textarea
           onPaste={(e) => {
@@ -1114,6 +1138,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     else if (h.startsWith("diff:")) setDiff(await invoke("diff", { roomId: room.id, revision: Number(h.slice(5)) }));
     else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
     else if (h.startsWith("img:")) window.walt.window("image:" + h.slice(4));
+    else if (h.startsWith("mark:")) dispatchEvent(new CustomEvent("walt:mark", { detail: h.slice(5) }));
     else if (h.startsWith("control:")) await invoke("control", { roomId: room.id, action: h.slice(8) });
     else if (h.startsWith("member:")) {
       const [, persona, role] = h.split(":");
@@ -1125,6 +1150,8 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
       await invoke("send", { roomId: room.id, text: direct || lastAi.author === room.builder ? o : `@${pd(lastAi.author)!.name} ${o}` });
     }
   };
+  // models whose context window is nearly full (shown in the header; details in the Context tab)
+  const full = Object.entries(room.context ?? {}).map(([id, c]) => [id, Math.round((c.used / c.size) * 100)] as const).filter(([, p]) => p >= 80);
   const status = t(room.state === "awaiting_user" ? "Waiting for your approval" : busy(room) ? (room.step === "review" ? "Reviewing" : room.step === "fix" ? "Fixing review findings" : "Working") : room.step === "awaiting decision" ? "Waiting for your choice" : "");
   return (
     <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
@@ -1139,6 +1166,9 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
                 <>
                   {project ? `${project.name} · ${project.root}` : t("Chat · no project folder")}
                   {status && <span style={{ color: room.state === "awaiting_user" ? T.amber : T.green }}> · {status}</span>}
+                  {full.map(([id, pct]) => (
+                    <span key={id} role="button" title={t("Past about 80% a model starts summing up older messages. A new chat keeps answers sharp.")} style={{ color: T.amber, cursor: "pointer" }} onClick={() => setTab("Context")}> · {t("{0} context {1}%", nameOf(id), pct)}</span>
+                  ))}
                 </>
               )}
             </div>
@@ -1203,7 +1233,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
       {panel > 0 && (
         <>
           <Grip side="right" width={panel} min={280} max={560} def={PANELS.rw} set={setRw} />
-          <div className="insp" style={{ width: panel }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab) }} />
+          <div className="insp" style={{ width: panel }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab, panel >= 400) }} />
         </>
       )}
     </div>
@@ -1262,7 +1292,28 @@ function decisionsHtml(state: State, room: Room) {
     .join("");
 }
 
-function inspectorHtml(state: State, room: Room, tab: string) {
+const TAB_ICON: Record<string, string> = { Task: "tasks", Files: "file", Decisions: "checkc", Context: "usage", Activity: "clock" };
+const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+/** Context tab: how full each model's window is, from its latest reply in this chat */
+function contextHtml(state: State, room: Room) {
+  const direct = room.template === "direct";
+  const ids = direct ? Object.keys(room.context ?? {}).sort((a, b) => room.context![b].at - room.context![a].at) : [room.builder, ...room.reviewers, ...(room.members || [])];
+  const rows = ids
+    .map((id) => {
+      const p = state.personas.find((x) => x.id === id);
+      if (!p) return "";
+      const c = room.context?.[id];
+      const pct = c ? Math.min(100, Math.round((c.used / c.size) * 100)) : 0;
+      const color = pct >= 80 ? T.amber : T.blue;
+      const name = direct ? label(state, p.engine, c?.model ?? p.model) : p.name;
+      const right = c ? `${pct}% · ${tokens(c.used)} / ${tokens(c.size)}` : t(isApi(p.engine) ? "Not reported" : "After its next reply");
+      return `<div style="margin:10px 0 14px"><div class="row g8 s13">${av(p.avatar, 20)}<span class="f1" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span><span class="s12 dim">${right}</span></div>${c ? `<div style="height:5px;border-radius:3px;background:${T.line};margin-top:7px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${color}"></div></div>` : ""}</div>`;
+    })
+    .join("");
+  const packet = room.packet ? `<details style="margin-top:18px"><summary class="s12 dim" style="cursor:pointer">${t("What the reviewers receive")}</summary><pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2))}</pre></details>` : "";
+  return `<div class="lbl">${t("Context window")}</div>${rows || `<div class="s13 dim">${t("Shows after the first reply.")}</div>`}<div class="s12 dim" style="line-height:1.5">${t("Each model keeps this chat in its own window. When it fills, the model sums up older messages by itself; past about 80%, a new chat gives sharper answers.")}</div>${packet}`;
+}
+function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
   const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
@@ -1278,7 +1329,7 @@ function inspectorHtml(state: State, room: Room, tab: string) {
     .join("");
   const body =
     tab === "Context"
-      ? `<pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2) || t("No packet yet"))}</pre>`
+      ? contextHtml(state, room)
       : tab === "Files"
         ? files
         : tab === "Decisions"
@@ -1286,8 +1337,11 @@ function inspectorHtml(state: State, room: Room, tab: string) {
           : tab === "Activity"
           ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
           : `<div class="lbl">${t("Who does what")}</div>${team}<div class="lbl">${t("This task")}</div><div>${t("{0} of {1} AI turns", room.used, room.budget)}</div><div class="s12 dim" style="margin-top:4px;line-height:1.5">${t("Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.")}</div><div class="col g8" style="margin-top:20px">${room.state === "paused" ? btn(t("Resume"), "control:resume") : ""}${btn(t("End chat"), "control:end")}</div>`;
-  const tabs = (direct ? ["Files", "Decisions", "Activity"] : ["Task", "Files", "Decisions", "Context", "Activity"]).map((x) => `<span class="tab ${tab === x ? "on" : ""}" data-hot="tab:${x}">${t(x)}</span>`).join("");
-  return `<div class="tabs">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
+  // icons like Claude's side panel; the names show when the panel is wide enough, and always as a tooltip
+  const tabs = (direct ? ["Files", "Decisions", "Context", "Activity"] : ["Task", "Files", "Decisions", "Context", "Activity"])
+    .map((x) => `<span class="tab ${tab === x ? "on" : ""}" role="tab" aria-selected="${tab === x}" aria-label="${t(x)}" title="${t(x)}" data-hot="tab:${x}">${ic(TAB_ICON[x], 17, tab === x ? T.text : T.dim)}${wide ? t(x) : ""}</span>`)
+    .join("");
+  return `<div class="tabs" role="tablist">${tabs}</div><div style="padding:18px;overflow:auto">${body}</div>`;
 }
 
 type Pick = { engine: Engine; model: string; role: "Builder" | "Reviewer" | "Member"; effort?: Effort };
