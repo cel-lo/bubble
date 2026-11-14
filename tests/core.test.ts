@@ -926,8 +926,10 @@ rl.on("line", (line) => {
       for (const piece of ["[" + model + "] ", text.includes("Answer briefly") ? "(briefed) " : "", "edit " + said + ": ", text.split("\\n").pop()]) send({ method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } } } });
       send({ id: m.id, result: { stopReason: "end_turn" } });
     };
-    send({ id: 900, method: "session/request_permission", params: { sessionId: "s1", options: [{ optionId: "yes", kind: "allow_once" }, { optionId: "no", kind: "reject_once" }], toolCall: { toolCallId: "t1", title: "Write a.txt", kind: "edit", content: [{ type: "diff", path: "a.txt", oldText: "old", newText: "new" }] } } });
+    send({ id: 900, method: "session/request_permission", params: { sessionId: "s1", options: [{ optionId: "yes", kind: "allow_once" }, { optionId: "no", kind: "reject_once" }], toolCall: { toolCallId: "t1", title: "Write a.txt", kind: text.includes("look around") ? "read" : "edit", content: [{ type: "diff", path: "a.txt", oldText: "old", newText: "new" }] } } });
+    return;
   }
+  if (m.id != null) send({ id: m.id, error: { code: -32601, message: "unknown method" } });
 });
 `;
 test("Antigravity over ACP: models, picked model, streamed text, edits ask the owner, read-only refuses, sign-in message", async () => {
@@ -946,6 +948,9 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   assert.equal(asked[0].tool, "Edit");
   assert.deepEqual(asked[0].input.changes, [{ path: "a.txt", kind: "update", diff: "-old\n+new" }]);
   assert.equal(await s.run("no thanks", () => {}, async () => false), "[gemini-pro] edit no: no thanks");
+  // reading is allowed without a card (agy runs strict, so it asks for reads too)
+  assert.equal(await s.run("look around", () => {}, async () => (asked.push("read"), false)), "[gemini-pro] edit yes: look around");
+  assert.equal(asked.length, 1);
   await s.stop();
   // read-only (reviews, chats without a project): a change is refused without asking
   const ro = new AcpSession(cmd, dir, "", true);
@@ -958,6 +963,8 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   await assert.rejects(acpModels(cmd, dir), /not signed in.*run agy once/);
   delete process.env.FAKE_UNSIGNED;
   assert.equal(askFor({ kind: "execute", title: "npm test", rawInput: { command: "npm test" } }).tool, "Shell");
+  // agy's write_file carries no diff, only the new file
+  assert.deepEqual((askFor({ kind: "edit", title: "File a.txt", rawInput: { Path: "a.txt", Content: "hi\nthere" } }).input as any).changes, [{ path: "a.txt", kind: "add", diff: "+hi\n+there" }]);
   assert.deepEqual(choose([{ optionId: "a", kind: "allow_always" }], true), { outcome: { outcome: "selected", optionId: "a" } });
   assert.deepEqual(choose([], false), { outcome: { outcome: "cancelled" } });
   // Windows holds the folder until the killed fake process has gone

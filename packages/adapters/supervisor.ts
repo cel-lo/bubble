@@ -40,7 +40,16 @@ export class Supervisor {
   agyCmd(): AcpCommand | undefined {
     const local = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "agy", "bin", "agy.exe") : "";
     const exe = this.find("agy") ?? (local && existsSync(local) ? local : undefined);
-    return exe ? { exe, args: ["acp"] } : undefined;
+    if (!exe) return undefined;
+    // agy's ACP server auto-approves workspace edits even in default mode (seen with agy 1.5.9); "strict" makes every
+    // tool ask, and Walt answers reads itself. Walt keeps its own agy data folder (~/.gemini/walt) so the owner's agy
+    // settings and history stay untouched; the Google login lives in Credential Manager and is shared.
+    const dir = join(homedir(), ".gemini", "walt");
+    try {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "settings.json"), JSON.stringify({ toolPermission: "strict" }, null, 2));
+    } catch {}
+    return { exe, args: ["acp", "--app-data-dir", "walt"] };
   }
   /** the models Antigravity listed when the doctor signed in; [] until then */
   private agyModels: ModelInfo[] = [];

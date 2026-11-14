@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 const HERE = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, "$1");
 const codexPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "codex.png")).toString("base64");
+const antigravityPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "antigravity.png")).toString("base64");
 const geminiPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "gemini.png")).toString("base64");
 const waltPng = "data:image/png;base64," + fs.readFileSync(path.join(HERE, "assets", "walt.png")).toString("base64");
 
@@ -16,6 +17,7 @@ export const ENG = {
   claude: { name: "Claude Opus", color: "#E08A68", tile: "#F7E4DB", engine: "Claude Code", model: "Opus 5.5" },
   sonnet: { name: "Claude Sonnet", color: "#E8B04B", tile: "#FBEED2", engine: "Claude Code", model: "Sonnet 5.5" },
   gemini: { name: "Gemini", color: "#22D3EE", tile: "#FFFFFF", engine: "Gemini CLI", model: "Default" },
+  antigravity: { name: "Antigravity", color: "#4F8EF7", tile: "#FFFFFF", engine: "Antigravity CLI", model: "Default" },
   cello: { name: "cello", color: "#30C759", tile: "#3A3A3C" },
 };
 
@@ -187,8 +189,7 @@ export function av(e, s = 32, extra = "") {
   if (e === "codex") return `<div style="${st};background:${ENG.codex.tile}"><img src="${codexPng}" style="width:${s * 0.84}px;height:${s * 0.84}px;display:block"></div>`;
   if (e === "claude" || e === "sonnet") return `<div style="${st};background:${ENG[e].tile};position:relative">${clawd(s * 0.74)}${s >= 26 ? `<span style="position:absolute;right:${s * 0.06}px;bottom:${s * 0.05}px;font-size:${Math.max(7, s * 0.24)}px;font-weight:800;line-height:1;color:${e === "claude" ? "#B4532F" : "#9A6A12"}">${e === "claude" ? "O" : "S"}</span>` : ""}</div>`;
   if (e === "gemini") return `<div style="${st};background:${ENG.gemini.tile}"><img src="${geminiPng}" style="width:${s * 0.66}px;height:${s * 0.66}px;display:block"></div>`;
-  // Antigravity: Google's colours behind an A (no logo file shipped)
-  if (e === "antigravity") return `<div style="${st};background:linear-gradient(135deg,#4285F4,#9B72CB 55%,#D96570);font-size:${s * 0.5}px;font-weight:800;color:#fff">A</div>`;
+  if (e === "antigravity") return `<div style="${st};background:${ENG.antigravity.tile}"><img src="${antigravityPng}" style="width:${s * 0.74}px;height:${s * 0.74}px;display:block"></div>`;
   // an API provider ("api:groq"): its first letter on a colour picked from its id
   if (String(e).startsWith("api:")) {
     const id = String(e).slice(4);

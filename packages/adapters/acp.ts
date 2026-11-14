@@ -21,13 +21,15 @@ export interface AcpCommand {
 export function askFor(tc: any): { tool: string; input: unknown } {
   const raw = tc?.rawInput ?? {};
   if (tc?.kind === "execute") return { tool: "Shell", input: { command: raw.command ?? raw.CommandLine ?? tc.title, cwd: raw.dir_path ?? raw.directory ?? raw.Cwd, reason: raw.description } };
-  const diffs = (tc?.content ?? []).filter((c: any) => c?.type === "diff");
+  let diffs = (tc?.content ?? []).filter((c: any) => c?.type === "diff");
+  // agy's write_file sends no diff, only { Path, Content }: show it as a new file
+  if (!diffs.length && raw.Path && raw.Content != null) diffs = [{ path: raw.Path, newText: raw.Content }];
   if (["edit", "delete", "move"].includes(tc?.kind) || diffs.length)
     return {
       tool: "Edit",
       input: {
         changes: diffs.map((d: any) => {
-          const lines = (s: unknown) => (s ? String(s).split("\n") : []);
+          const lines = (s: unknown) => (s ? String(s).replace(/\r?\n$/, "").split(/\r?\n/) : []);
           return { path: d.path, kind: d.oldText == null ? "add" : "update", diff: [...lines(d.oldText).map((l) => "-" + l), ...lines(d.newText).map((l) => "+" + l)].join("\n") };
         }),
         reason: tc.title,
@@ -44,6 +46,8 @@ export function choose(options: any[] = [], allow: boolean) {
 }
 /** what may run in a read-only chat (reviews, chats without a project): looking, never changing */
 const CHANGES = new Set(["edit", "delete", "move", "execute"]);
+/** looking around the project: allowed without a card (agy in strict mode asks for these too) */
+const LOOKS = new Set(["read", "search", "think"]);
 
 class Acp {
   readonly child: ChildProcessWithoutNullStreams;
@@ -156,6 +160,7 @@ export class AcpSession {
     const tc = m.params?.toolCall;
     // read-only chats never change anything; elsewhere every change asks the owner
     if (this.readonly && CHANGES.has(tc?.kind)) return this.acp.write({ id: m.id, result: choose(m.params?.options, false) });
+    if (LOOKS.has(tc?.kind)) return this.acp.write({ id: m.id, result: choose(m.params?.options, true) });
     const ask = askFor(tc);
     const allowed = !!this.pending && (await this.pending.approve(ask.tool, ask.input).catch(() => false));
     this.acp.write({ id: m.id, result: choose(m.params?.options, allowed) });
@@ -207,6 +212,8 @@ export async function acpModels(cmd: AcpCommand, cwd: string): Promise<ModelInfo
     const r = await acp.call("session/new", { cwd, mcpServers: [] }).catch((e) => {
       throw signIn(e);
     });
+    // close it so the check leaves no empty conversation behind (agy offers session/close)
+    await acp.call("session/close", { sessionId: r?.sessionId }).catch(() => {});
     const cur = r?.models?.currentModelId;
     return (r?.models?.availableModels ?? []).map((m: any) => ({ id: String(m.modelId), label: String(m.name ?? m.modelId), efforts: [], isDefault: m.modelId === cur }));
   } finally {

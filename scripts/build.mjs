@@ -7,7 +7,7 @@ fs.mkdirSync("apps/ui/generated", { recursive: true });
 let kit = fs.readFileSync("design/kit.mjs", "utf8");
 const start = kit.indexOf("export const T");
 kit = kit.slice(start);
-for (const key of ["codex", "gemini", "walt"])
+for (const key of ["codex", "gemini", "antigravity", "walt"])
   kit =
     `const ${key}Png=${JSON.stringify("data:image/png;base64," + fs.readFileSync(`design/assets/${key}.png`).toString("base64"))};\n` +
     kit;
