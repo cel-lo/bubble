@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { Dropdown } from "./menu";
 import type { State, PersonaDef, Engine, Effort, Room } from "../../packages/domain/model";
-import { EFFORTS, LEVELS, ENGINES_ON } from "../../packages/domain/model";
+import { EFFORTS, effortsOf, LEVELS, ENGINES_ON, enginesOn } from "../../packages/domain/model";
 import { aliases } from "../../packages/domain/command";
 import { T, av, ic, role as roleTag, dot } from "./generated/kit.mjs";
 import { esc } from "./markdown";
@@ -45,7 +45,7 @@ export function complete(before: string, state: State, room: Room): Suggestion[]
   const engines = (mentioned ? [mentioned] : [...inRoom]).map((id) => state.personas.find((p) => p.id === id)?.engine).filter(Boolean) as Engine[];
   const eff = before.match(/\/effort\s+(\w*)$/i);
   if (eff) {
-    const levels = LEVELS.filter((l) => engines.every((e) => EFFORTS[e].includes(l)));
+    const levels = LEVELS.filter((l) => engines.every((e) => effortsOf(e).includes(l)));
     if (!levels.length) return [{ label: "no effort setting", hint: "this engine has none", insert: "", replace: 0 }];
     return levels.filter((l) => l.startsWith(eff[1].toLowerCase())).map((l) => ({ label: l, hint: "this turn · add keep to save", insert: l + " ", replace: eff[1].length }));
   }
@@ -81,8 +81,8 @@ export function PersonaSettings({ state, invoke }: { state: State; invoke: Invok
   };
   const models = edit ? state.catalog?.[edit.engine] ?? [] : [];
   const info = edit ? models.find((m) => m.id === (edit.model || "default")) : undefined;
-  const levels = edit ? (info ? info.efforts : EFFORTS[edit.engine]) : [];
-  const shown = state.personas.filter((p) => ENGINES_ON.includes(p.engine));
+  const levels = edit ? (info ? info.efforts : effortsOf(edit.engine)) : [];
+  const shown = state.personas.filter((p) => enginesOn(state).includes(p.engine));
   return (
     <div className="col g12">
       <div className="row sb">
@@ -95,7 +95,7 @@ export function PersonaSettings({ state, invoke }: { state: State; invoke: Invok
           <div className="row g12" style={{ alignItems: "flex-end" }}>
             <label className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Name (used for @mention)")}</div><input aria-label={t("Persona name")} style={{ width: "100%" }} value={edit.name} maxLength={40} placeholder={t("e.g. GPT Builder")} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
             <div><div className="s12 dim" style={{ marginBottom: 4 }}>AI</div>
-              <Dropdown label="AI" value={edit.engine} width={170} onChange={(engine) => { setCustom(false); setEdit({ ...edit, engine, model: "default", effort: undefined, avatar: engine === "claude" ? "claude" : engine }); }} options={ENGINES_ON.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))} /></div>
+              <Dropdown label="AI" value={edit.engine} width={170} onChange={(engine) => { setCustom(false); setEdit({ ...edit, engine, model: "default", effort: undefined, avatar: engine === "claude" ? "claude" : engine }); }} options={enginesOn(state).map((e) => ({ value: e, label: ENGINE_LABEL[e] }))} /></div>
           </div>
           <div className="row g12" style={{ alignItems: "flex-end" }}>
             <div className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Model")}</div>

@@ -10,13 +10,41 @@ import {
   Tray,
   Menu,
   nativeImage,
+  safeStorage,
 } from "electron";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { basename } from "node:path";
 // walt-img://img/<name>.png: pictures the AI made, served from <data>/images only
 protocol.registerSchemesAsPrivileged([{ scheme: "walt-img", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+// API keys (Customize · AI & models): encrypted with Windows' own protection for this user (DPAPI) in
+// <data>/keys.json, decrypted only to hand them to the host process. Never in walt.sqlite, a backup or the window.
+const keysFile = () => join(app.getPath("userData"), "keys.json");
+function readKeys(): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(keysFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function plainKeys() {
+  const out: Record<string, string> = {};
+  for (const [id, enc] of Object.entries(readKeys()))
+    try {
+      out[id] = safeStorage.decryptString(Buffer.from(enc, "base64"));
+    } catch {}
+  return out;
+}
+function saveKey(id: string, key: string | null) {
+  const all = readKeys();
+  if (key) {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error("Windows cannot encrypt the key on this account, so Walt will not save it.");
+    all[id] = safeStorage.encryptString(key).toString("base64");
+  } else delete all[id];
+  writeFileSync(keysFile(), JSON.stringify(all));
+  child.postMessage({ type: "keys", keys: plainKeys() });
+}
 const imageFile = (name: string) => (/^[\w.-]+\.(png|jpe?g|webp|gif)$/.test(name) ? join(app.getPath("userData"), "images", basename(name)) : undefined);
 import { randomUUID } from "node:crypto";
 let win: BrowserWindow;
@@ -56,6 +84,7 @@ else {
       [app.getPath("userData")],
       { serviceName: "Walt Host" },
     );
+    child.postMessage({ type: "keys", keys: plainKeys() });
     child.on("message", (m: any) => {
       if (m.type === "state") {
         closeAction = m.state?.settings?.closeAction ?? "tray";
@@ -100,7 +129,16 @@ else {
     win.webContents.on("will-navigate", (e) => e.preventDefault());
     ipcMain.handle("walt:call", async (event, method, input) => {
       if (event.sender !== win.webContents) throw new Error("Invalid sender");
+      // an API key goes to the encrypted store here, not to the host's database; the window only hears "saved"
+      if (method === "provider.key") {
+        const { id, key } = (input ?? {}) as { id?: unknown; key?: unknown };
+        if (typeof id !== "string" || !/^[a-z0-9-]{1,40}$/.test(id)) throw new Error("Unknown API");
+        if (typeof key !== "string" || key.length > 1000 || /\s/.test(key.trim())) throw new Error("That does not look like an API key.");
+        saveKey(id, key.trim() || null);
+        return call("provider.check", id);
+      }
       const result: any = await call(method, input);
+      if (method === "provider.remove") saveKey(String(input), null);
       // the window reads the whole state once at load: the close setting is in there before any change
       if (method === "snapshot") closeAction = result?.settings?.closeAction ?? "tray";
       return result;

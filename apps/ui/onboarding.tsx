@@ -1,8 +1,8 @@
 // First launch (W01 language, W02 engines) and the New project / Team panels. Layout and classes follow the
 // FigCraft frames; every value comes from Walt's state. Only engines with a working adapter are shown.
 import React, { useEffect, useState } from "react";
-import type { State, EngineReport, PersonaDef, Engine, Quota } from "../../packages/domain/model";
-import { ENGINES_ON } from "../../packages/domain/model";
+import type { State, EngineReport, PersonaDef, Engine, Quota, Provider } from "../../packages/domain/model";
+import { ENGINES_ON, isApi } from "../../packages/domain/model";
 import { T, ic, av, wordmark } from "./generated/kit.mjs";
 import { Dropdown } from "./menu";
 import { t } from "./i18n";
@@ -13,9 +13,21 @@ const pill = (t: string, c: string) => <span className="pill" style={{ backgroun
 export const ADAPTERS = new Set<string>(ENGINES_ON);
 export const ENGINE_LABEL: Record<string, string> = { codex: "Codex CLI", claude: "Claude Code", gemini: "Gemini CLI" };
 export const ENGINE_NAME: Record<string, string> = { codex: "ChatGPT · Codex", claude: "Claude", gemini: "Gemini" };
+/** API providers get their names from Customize; App calls this on every render, like setLocale */
+export function registerProviders(ps: Provider[] = []) {
+  for (const p of ps) {
+    ENGINE_NAME["api:" + p.id] = p.name;
+    ENGINE_LABEL["api:" + p.id] = `${p.name} API`;
+  }
+}
 /** whether a persona on this engine can run here right now */
 export function personaStatus(engine: string, engines: EngineReport[]) {
   const e = engines.find((x) => x.engine === engine);
+  if (isApi(engine)) {
+    if (!e) return { ready: false, label: t("Checking…"), color: T.dim };
+    if (e.auth === "ok") return { ready: true, label: t("Ready"), color: T.green };
+    return e.auth === "required" ? { ready: false, label: t(e.keyed ? "Key refused" : "Key needed"), color: T.amber } : { ready: false, label: t("Not reachable"), color: T.red };
+  }
   if (!e || !e.installed) return { ready: false, label: t("Not installed"), color: T.dim };
   if (!ADAPTERS.has(e.engine)) return { ready: false, label: t("Adapter not built yet"), color: T.dim };
   if (e.auth !== "ok") return { ready: false, label: t("Login needed"), color: T.amber };

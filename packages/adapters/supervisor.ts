@@ -8,9 +8,13 @@ import { capture } from "./environment";
 import { ClaudeSession, claudeModels } from "./claude";
 import { CodexSession, codexModels } from "./codex";
 import { Job } from "./job";
+import { ApiSession, type ApiTarget } from "./api";
+import { isApi } from "../domain/model";
 import { tmpdir } from "node:os";
 import type { Engine, ModelInfo } from "../domain/model";
-type Session = ClaudeSession | CodexSession;
+type Session = ClaudeSession | CodexSession | ApiSession;
+/** what every API model is told: it only talks */
+const API_SYSTEM = "You are chatting with the user inside Walt, a desktop app. You cannot open, read or change files or run commands; when you need a file, ask the user to paste it. Reply in the language the user writes in.";
 export class Supervisor {
   sessions = new Map<string, Session>();
   /** every CLI process goes in here, so a crash of Walt still ends them and what they started */
@@ -20,6 +24,16 @@ export class Supervisor {
   claude = join(homedir(), ".local", "bin", "claude.exe");
   /** Settings · Permissions: Claude builders get Bash (approval per command) */
   claudeShell = false;
+  /** API providers by engine ("api:groq"): base URL and key, set by the host; keys live only in memory */
+  private api = new Map<string, ApiTarget>();
+  /** new providers or keys: idle API sessions end, so the next message uses the new key */
+  setApi(targets: Map<string, ApiTarget>) {
+    this.api = targets;
+    for (const [key, s] of this.sessions) if (s instanceof ApiSession && !s.busy) void this.retire(key, s);
+  }
+  apiTarget(engine: string) {
+    return this.api.get(engine);
+  }
   codex = "";
   /** the native codex.exe behind npm's codex.cmd shim (Node cannot spawn .cmd without a shell) */
   codexExe(found = this.find("codex")) {
@@ -109,6 +123,8 @@ export class Supervisor {
   }
   /** `resume`: the id saved on the chat, used when this process has none of its own (first turn after a restart); `kit`: its tools */
   async get(room: string, p: PersonaDef, root: string, readonly: boolean, tune: Tune = {}, resume?: string, kit: ToolKit = NO_TOOLS) {
+    if (isApi(p.engine) && !this.api.has(p.engine))
+      throw new Error(`${p.name}'s API is not set up any more. Add it again in Customize · AI & models.`);
     if (p.engine === "gemini")
       throw new Error(`${p.name} runs on gemini, and Walt's gemini adapter is not built yet.`);
     if (p.engine === "codex" && !(this.codex ||= this.codexExe() || ""))
@@ -124,9 +140,11 @@ export class Supervisor {
       await this.retire(key, s);
     }
     if (!s?.alive) {
-      if ([...this.sessions.values()].filter((s) => s.alive).length >= 6)
+      if ([...this.sessions.values()].filter((s) => s.alive && !(s instanceof ApiSession)).length >= 6)
         throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
-      s = p.engine === "codex"
+      s = isApi(p.engine)
+        ? new ApiSession(this.api.get(p.engine)!, model, [API_SYSTEM, kit.instructions].filter(Boolean).join("\n\n"), effort)
+        : p.engine === "codex"
         ? new CodexSession(this.codex, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit, codexPlugins())
         : new ClaudeSession(this.claude, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, this.claudeMcpFile(kit.mcp), shell, kit);
       this.mcpOf.set(key, mcpKey);
@@ -161,7 +179,8 @@ export class Supervisor {
   }
   async sleep(minutes: number) {
     for (const [key, s] of this.sessions)
-      if (!s.busy && Date.now() - s.lastActive > minutes * 60000) {
+      // an API session holds no process, only its conversation: it stays
+      if (!(s instanceof ApiSession) && !s.busy && Date.now() - s.lastActive > minutes * 60000) {
         await this.retire(key, s);
       }
   }

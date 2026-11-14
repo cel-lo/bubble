@@ -8,6 +8,8 @@ const dir = process.argv[2];
 const host = new Host(new Store(dir));
 const persona = z.string().min(1).max(80);
 const effort = z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]);
+/** a CLI, or an API provider added in Customize */
+const engine = z.string().regex(/^(claude|codex|gemini|api:[a-z0-9-]{1,40})$/) as unknown as z.ZodType<import("../domain/model").Engine>;
 const api = await controlServer(host, dir, (roomId) =>
   parent.postMessage({ type: "open", roomId }),
 );
@@ -23,6 +25,8 @@ const timer = setInterval(
   60000,
 );
 parent.on("message", async ({ data }: any) => {
+  // the desktop app hands over the decrypted API keys; they stay in memory and never reach the window or the database
+  if (data?.type === "keys") return void host.setKeys(data.keys ?? {}).catch(() => {});
   const { id, method, input } = data;
   try {
     let result: unknown;
@@ -32,6 +36,17 @@ parent.on("message", async ({ data }: any) => {
         break;
       case "doctor":
         result = await host.doctor();
+        break;
+      case "provider.save":
+        result = await host.saveProvider(
+          z.object({ id: z.string().max(60).optional(), name: z.string().max(40), baseUrl: z.string().max(300), model: z.string().regex(MODEL_ID).optional() }).parse(input),
+        );
+        break;
+      case "provider.remove":
+        result = host.removeProvider(z.string().max(60).parse(input));
+        break;
+      case "provider.check":
+        result = await host.checkApis(z.string().max(60).optional().parse(input));
         break;
       case "project":
         result = await host.project(
@@ -122,7 +137,7 @@ parent.on("message", async ({ data }: any) => {
               instructions: z.string().max(4000),
               notify: z.boolean(),
               // default model for new chats (also set by picking a model in a chat)
-              lastTarget: z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() }),
+              lastTarget: z.object({ engine, model: z.string().regex(MODEL_ID), effort: effort.optional() }),
             })
             .partial()
             .parse(input),
@@ -134,7 +149,7 @@ parent.on("message", async ({ data }: any) => {
         break;
       case "chat.target": {
         const v = z
-          .object({ roomId: z.string(), engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID), effort: effort.optional() })
+          .object({ roomId: z.string(), engine, model: z.string().regex(MODEL_ID), effort: effort.optional() })
           .parse(input);
         result = host.setTarget(v.roomId, v);
         break;
@@ -153,12 +168,12 @@ parent.on("message", async ({ data }: any) => {
             .object({
               id: z.string().max(80).optional(),
               name: z.string().min(1).max(40),
-              engine: z.enum(["codex", "claude", "gemini"]),
+              engine,
               // model ids go straight to the CLI as one argv entry; keep them to plain id characters
               model: z.string().regex(MODEL_ID, "Model id may only use letters, digits and . : / - _ (max 80)").or(z.literal("")),
               effort: effort.optional(),
               strengths: z.array(z.string().min(1).max(30)).max(6),
-              avatar: z.enum(["codex", "claude", "sonnet", "gemini"]),
+              avatar: z.enum(["codex", "claude", "sonnet", "gemini"]).or(z.string().regex(/^api:[a-z0-9-]{1,40}$/)) as unknown as z.ZodType<import("../domain/model").Avatar>,
             })
             .parse(input),
         );
@@ -186,7 +201,7 @@ parent.on("message", async ({ data }: any) => {
             .object({
               name: z.string().min(1).max(60),
               talk: z.boolean(),
-              picks: z.array(z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID).or(z.literal("")), role: z.enum(["Builder", "Reviewer", "Member"]), effort: effort.optional() })).min(2).max(8),
+              picks: z.array(z.object({ engine, model: z.string().regex(MODEL_ID).or(z.literal("")), role: z.enum(["Builder", "Reviewer", "Member"]), effort: effort.optional() })).min(2).max(8),
             })
             .parse(input),
         );
@@ -207,7 +222,7 @@ parent.on("message", async ({ data }: any) => {
         break;
       case "persona.for": {
         // a model picked from a list (Add model, new project): reuse or make its persona
-        const v = z.object({ engine: z.enum(["claude", "codex"]), model: z.string().regex(MODEL_ID).or(z.literal("")), effort: effort.optional() }).parse(input);
+        const v = z.object({ engine, model: z.string().regex(MODEL_ID).or(z.literal("")), effort: effort.optional() }).parse(input);
         result = host.personaFor(v);
         break;
       }

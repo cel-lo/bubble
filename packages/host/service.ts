@@ -15,10 +15,15 @@ import {
   type Tune,
   DEFAULT_PERSONAS,
   EFFORTS,
+  effortsOf,
+  isApi,
+  enginesOn,
+  type Provider,
   type Engine,
   type Effort,
   type TeamTemplate,
   defaultStrengths,
+  type EngineReport,
 } from "../domain/model";
 import { parseMessage, decision, autoBuilder, plain, usageLimit, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
@@ -28,6 +33,7 @@ import { homedir } from "node:os";
 import { spawn, execFile } from "node:child_process";
 import { cleanEnv } from "../adapters/environment";
 import { userMcpServers } from "../adapters/codex";
+import { ApiSession, apiModels } from "../adapters/api";
 import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, usage, syncedPlugin, attachments, saveImage, IMAGE_EXT, skillsIn, pluginSkills, codexPluginDir, type ToolKit } from "../adapters/tools";
 
 const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
@@ -49,6 +55,7 @@ export class Host extends EventEmitter {
     synced.dir = join(store.dir, "claude-skills");
     super();
     this.state = store.load();
+    this.syncApi();
     usage.report = (engine, q) => {
       this.state.usage = { ...this.state.usage, [engine]: q };
       this.commit("engine.usage");
@@ -98,8 +105,8 @@ export class Host extends EventEmitter {
     const t = { ...r.tune?.["*"], ...r.tune?.[p.id] };
     if (msg.effort) t.effort = msg.effort;
     if (msg.model) t.model = msg.model;
-    if (t.effort && !EFFORTS[p.engine].includes(t.effort))
-      throw new Error(EFFORTS[p.engine].length ? `${p.name} accepts effort ${EFFORTS[p.engine].join(", ")}.` : `${p.name} runs on ${p.engine}, which has no effort setting.`);
+    if (t.effort && !effortsOf(p.engine).includes(t.effort))
+      throw new Error(effortsOf(p.engine).length ? `${p.name} accepts effort ${effortsOf(p.engine).join(", ")}.` : `${p.name} runs on ${p.engine}, which has no effort setting.`);
     return t;
   }
   savePersona(input: Omit<PersonaDef, "id"> & { id?: string }) {
@@ -107,8 +114,14 @@ export class Host extends EventEmitter {
     if (!name) throw new Error("Give the persona a name.");
     if (this.state.personas.some((p) => p.id !== input.id && p.name.toLowerCase() === name.toLowerCase()))
       throw new Error("Another persona already has that name.");
-    if (input.effort && !EFFORTS[input.engine].includes(input.effort))
+    if (input.effort && !effortsOf(input.engine).includes(input.effort))
       throw new Error(`${input.engine} does not accept effort ${input.effort}.`);
+    // an API has no "default model": store the one Customize picked, so the persona keeps working
+    if (isApi(input.engine) && (!input.model || input.model === "default")) {
+      const def = this.state.catalog?.[input.engine]?.find((m) => m.isDefault)?.id;
+      if (!def) throw new Error("Walt has no model list for this API yet. Check its key in Customize · AI & models.");
+      input = { ...input, model: def };
+    }
     const old = input.id ? this.persona(input.id) : undefined;
     const id = old?.id ?? (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "persona") + "-" + randomUUID().slice(0, 4);
     const p: PersonaDef = { ...input, name, id };
@@ -122,7 +135,13 @@ export class Host extends EventEmitter {
   }
   /** the persona for an engine + model (+ effort), made on first use and named after the model, e.g. "Haiku 5.5" */
   personaFor(t: { engine: Engine; model: string; effort?: Effort }) {
-    const same = (p: PersonaDef) => p.engine === t.engine && (p.model || "default") === (t.model || "default") && p.effort === t.effort;
+    // an API has no "default model" of its own: use the one picked in Customize, else the first it lists
+    if (isApi(t.engine) && (!t.model || t.model === "default")) {
+      const id = this.state.catalog?.[t.engine]?.find((m) => m.isDefault)?.id;
+      if (!id) throw new Error("Walt has no model list for this API yet. Check its key in Customize · AI & models.");
+      t = { ...t, model: id, effort: undefined };
+    }
+    const same =(p: PersonaDef) => p.engine === t.engine && (p.model || "default") === (t.model || "default") && p.effort === t.effort;
     const hit = this.state.personas.find(same);
     if (hit) return hit;
     const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
@@ -130,7 +149,8 @@ export class Host extends EventEmitter {
     const base = (info && info.label !== "Default" ? info.label : `${t.engine === "codex" ? "Codex" : "Claude"} default`) + (t.effort ? ` ${t.effort}` : "");
     let name = base;
     for (let i = 2; this.state.personas.some((p) => p.name.toLowerCase() === name.toLowerCase()); i++) name = `${base} (${i})`;
-    return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: defaultStrengths(t.engine, t.model), avatar: t.engine === "codex" ? "codex" : "claude" });
+    const avatar = isApi(t.engine) ? t.engine : t.engine === "codex" ? "codex" : "claude";
+    return this.savePersona({ name, engine: t.engine, model: t.model, effort: t.effort, strengths: defaultStrengths(t.engine, t.model), avatar });
   }
   /** MCP servers found in the user's Claude Code and Codex configs */
   mcpServers() {
@@ -192,6 +212,7 @@ export class Host extends EventEmitter {
     if (!name) throw new Error("Give the template a name.");
     if (input.picks.length < 2) throw new Error("A team template needs at least two models.");
     if (!input.talk && input.picks.filter((p) => p.role === "Builder").length !== 1) throw new Error("A build team needs exactly one builder.");
+    if (!input.talk && input.picks.some((p) => p.role === "Builder" && isApi(p.engine))) throw new Error("An API model cannot edit files, so it cannot be the builder. Pick Claude or Codex to build.");
     const teams = (this.state.teams ??= []);
     const old = teams.find((x) => x.name.toLowerCase() === name.toLowerCase());
     const t: TeamTemplate = { ...input, name, id: old?.id ?? randomUUID() };
@@ -217,6 +238,7 @@ export class Host extends EventEmitter {
     this.persona(persona);
     if (persona === r.builder) throw new Error("Pick another builder before moving this persona.");
     if (role === "Builder" && r.template === "roundtable") throw new Error("A roundtable has no builder.");
+    if (role === "Builder" && r.template !== "direct") this.canBuild(persona);
     r.reviewers = r.reviewers.filter((p) => p !== persona);
     r.members = (r.members || []).filter((p) => p !== persona);
     if (role === "Builder") this.swapBuilder(r, persona);
@@ -240,12 +262,94 @@ export class Host extends EventEmitter {
     return r;
   }
   async doctor() {
-    this.state.engines = await this.supervisor.doctor();
+    const api = this.state.engines.filter((e) => isApi(e.engine));
+    this.state.engines = [...(await this.supervisor.doctor()), ...api];
     this.commit("engine.auth");
     const ok = this.state.engines.filter((e) => e.auth === "ok").map((e) => e.engine);
     this.state.catalog = { ...this.state.catalog, ...(await this.supervisor.catalog(ok)) };
     this.commit("engine.catalog");
+    await this.checkApis();
     return this.state.engines;
+  }
+
+  // ---------- API providers (Groq, 9Router …): settings here, keys only in memory ----------
+  private keys = new Map<string, string>();
+  /** the desktop app decrypts the saved keys and hands them over at start and after each change */
+  setKeys(keys: Record<string, string>) {
+    this.keys = new Map(Object.entries(keys));
+    this.syncApi();
+    return this.checkApis();
+  }
+  private syncApi() {
+    this.supervisor.setApi(new Map((this.state.settings.providers ?? []).map((p) => [`api:${p.id}`, { baseUrl: p.baseUrl, key: this.keys.get(p.id) }])));
+  }
+  /** list each provider's models with its key: that is the sign-in check, and the models go in the pickers */
+  async checkApis(only?: string) {
+    const providers = (this.state.settings.providers ?? []).filter((p) => !only || p.id === only);
+    await Promise.all(
+      providers.map(async (p) => {
+        const engine = `api:${p.id}` as const;
+        const keyed = this.keys.has(p.id);
+        let report: EngineReport;
+        try {
+          const models = await apiModels({ baseUrl: p.baseUrl, key: this.keys.get(p.id) });
+          if (!models.length) throw new Error("The API lists no chat models.");
+          const def = models.find((m) => m.id === p.model) ?? models[0];
+          this.state.catalog = { ...this.state.catalog, [engine]: models.map((m) => ({ ...m, isDefault: m === def })) };
+          report = { engine, installed: true, version: new URL(p.baseUrl).host, auth: "ok", detail: `${models.length} models`, keyed };
+        } catch (e) {
+          const msg = String((e as Error).message ?? e);
+          report = { engine, installed: true, version: new URL(p.baseUrl).host, auth: /\b40[13]\b/.test(msg) || (!keyed && /\b4\d\d\b/.test(msg)) ? "required" : "error", detail: /fetch failed|ECONNREFUSED|timeout/i.test(msg) ? `Cannot reach ${p.baseUrl}. Is it running?` : msg, keyed };
+        }
+        this.state.engines = [...this.state.engines.filter((x) => x.engine !== engine), report];
+      }),
+    );
+    this.commit("engine.api");
+    return this.state.engines.filter((e) => isApi(e.engine));
+  }
+  /** add or change a provider (name, base URL, default model); its key is saved by the desktop app */
+  async saveProvider(input: { id?: string; name: string; baseUrl: string; model?: string }) {
+    const name = input.name.trim();
+    if (!name || name.length > 40) throw new Error("Give the API a name (up to 40 characters).");
+    let base: URL;
+    try {
+      base = new URL(input.baseUrl.trim());
+    } catch {
+      throw new Error("The base URL is not a web address, e.g. https://api.groq.com/openai/v1");
+    }
+    if (!/^https?:$/.test(base.protocol)) throw new Error("The base URL must start with https:// (or http:// for one on this laptop).");
+    const list = (this.state.settings.providers ??= []);
+    const old = input.id ? list.find((p) => p.id === input.id) : undefined;
+    if (input.id && !old) throw new Error("That API was removed.");
+    if (list.some((p) => p !== old && p.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an API called ${name}.`);
+    let id = old?.id ?? (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "api");
+    for (let i = 2; !old && list.some((p) => p.id === id); i++) id = id.replace(/-\d+$/, "") + "-" + i;
+    const p: Provider = { id, name, baseUrl: base.toString().replace(/\/+$/, ""), ...(input.model ? { model: input.model } : {}) };
+    this.state.settings.providers = old ? list.map((x) => (x === old ? p : x)) : [...list, p];
+    this.syncApi();
+    this.commit("provider.saved");
+    await this.checkApis(id);
+    return p;
+  }
+  /** take a provider out; refused while a chat still has one of its models */
+  removeProvider(id: string) {
+    const engine = `api:${id}`;
+    const mine = new Set(this.state.personas.filter((p) => p.engine === engine).map((p) => p.id));
+    const used = this.state.rooms.filter((r) => r.state !== "ended" && this.inRoom(r).some((p) => mine.has(p)));
+    if (used.length) throw new Error(`Its models are still in ${used.map((r) => r.title).join(", ")}. Remove them or end those chats first.`);
+    this.state.settings.providers = (this.state.settings.providers ?? []).filter((p) => p.id !== id);
+    this.state.personas = this.state.personas.filter((p) => !mine.has(p.id));
+    this.state.engines = this.state.engines.filter((e) => e.engine !== engine);
+    if (this.state.catalog) delete this.state.catalog[engine as Engine];
+    if (this.state.settings.lastTarget?.engine === engine) delete this.state.settings.lastTarget;
+    this.keys.delete(id);
+    this.syncApi();
+    this.commit("provider.removed");
+  }
+  /** API models only talk: they cannot be the one who edits the project */
+  private canBuild(persona: string) {
+    const p = this.persona(persona);
+    if (isApi(p.engine)) throw new Error(`${p.name} works through an API, so it can chat and review but cannot edit files. Make a Claude or Codex model the builder.`);
   }
   projectOf(r: Room) {
     return r.projectId ? this.state.projects.find((p) => p.id === r.projectId) : undefined;
@@ -262,6 +366,8 @@ export class Host extends EventEmitter {
   private slot(r: Room, engine: Engine) {
     if (this.persona(r.builder).engine === engine) return r.builder;
     const p = this.state.personas.find((p) => p.engine === engine);
+    // an API added in Customize gets its first persona when a chat first picks it
+    if (!p && isApi(engine)) return this.personaFor({ engine, model: "default" }).id;
     if (!p) throw new Error(`No persona runs on ${engine}.`);
     return p.id;
   }
@@ -270,6 +376,7 @@ export class Host extends EventEmitter {
     const r = this.room(roomId);
     if (r.template !== "direct") throw new Error("Team chats pick models per member in the Team panel.");
     if (this.active.has(roomId)) throw new Error("Change the model after this reply.");
+    if (isApi(t.engine) && (!t.model || t.model === "default")) t = { ...t, model: this.state.catalog?.[t.engine]?.find((m) => m.isDefault)?.id ?? t.model };
     const info = this.state.catalog?.[t.engine]?.find((m) => m.id === t.model);
     if (this.state.catalog?.[t.engine] && !info) throw new Error(`${t.model} is not available for this account.`);
     if (t.effort && info && !info.efforts.includes(t.effort)) throw new Error(`${info.label} accepts effort ${info.efforts.join(", ") || "none"}.`);
@@ -304,6 +411,7 @@ export class Host extends EventEmitter {
     const dir = this.rootOf(r);
     // inside "…" cmd takes & | ^ < > literally, but still expands %VAR%
     if (/["%]/.test(dir)) throw new Error("The folder name has a % or quote, which the terminal cannot take. Open it yourself and resume there.");
+    if (isApi(p.engine) || p.engine === "gemini") throw new Error(`${p.name} has no terminal app to continue in.`);
     const exe = p.engine === "codex" ? this.supervisor.codex || this.supervisor.codexExe() : this.supervisor.claude;
     if (!exe || /["%]/.test(exe)) throw new Error(`${p.engine === "codex" ? "Codex CLI" : "Claude Code"} was not found.`);
     const args = p.engine === "codex" ? `resume ${id}` : `--resume ${id}`;
@@ -392,6 +500,7 @@ export class Host extends EventEmitter {
     if (!input.projectId && !["direct", "roundtable"].includes(input.template))
       throw new Error("A chat without a project can only talk; pick a project folder to build and review.");
     for (const p of [input.builder, ...input.reviewers]) this.persona(p);
+    if (input.template === "build_review" || input.template === "triad") this.canBuild(input.builder);
     const r: Room = {
       ...input,
       id: randomUUID(),
@@ -491,6 +600,11 @@ export class Host extends EventEmitter {
     this.supervisor.claudeShell = !!this.state.settings.claudeShell;
     // a read-only turn inside a project is a review (or a question to a member): project files only
     const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune, r.sessions?.[slot], this.kit(readonly && !!this.projectOf(r)));
+    // an API keeps no conversation of its own: a new session (first message, or after Walt restarted) gets the chat so far
+    if (session instanceof ApiSession && session.fresh) {
+      const before = this.unseen(r, "");
+      if (before) prompt = `The chat so far:\n${before}\n\nNow:\n${prompt}`;
+    }
     takeTurn(r);
     r.step = step;
     this.commit("run.started");
@@ -673,7 +787,7 @@ export class Host extends EventEmitter {
         await this.turn(r, mention, JSON.stringify(packet), true, msg, undefined, att.files);
       } else {
         if (r.auto) {
-          const team = [r.builder, ...r.reviewers].map((id) => ({ id, strengths: ((p) => (p?.strengths.length ? p.strengths : p ? defaultStrengths(p.engine, p.model) : []))(this.state.personas.find((p) => p.id === id)) }));
+          const team = [r.builder, ...r.reviewers].filter((id) => !isApi(this.persona(id).engine)).map((id) => ({ id, strengths: ((p) => (p?.strengths.length ? p.strengths : p ? defaultStrengths(p.engine, p.model) : []))(this.state.personas.find((p) => p.id === id)) }));
           const pick = autoBuilder(goal, team, r.builder);
           if (pick.id !== r.builder) {
             const name = (id: string) => this.state.personas.find((p) => p.id === id)?.name ?? id;

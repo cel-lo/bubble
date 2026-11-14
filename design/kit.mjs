@@ -187,6 +187,12 @@ export function av(e, s = 32, extra = "") {
   if (e === "codex") return `<div style="${st};background:${ENG.codex.tile}"><img src="${codexPng}" style="width:${s * 0.84}px;height:${s * 0.84}px;display:block"></div>`;
   if (e === "claude" || e === "sonnet") return `<div style="${st};background:${ENG[e].tile};position:relative">${clawd(s * 0.74)}${s >= 26 ? `<span style="position:absolute;right:${s * 0.06}px;bottom:${s * 0.05}px;font-size:${Math.max(7, s * 0.24)}px;font-weight:800;line-height:1;color:${e === "claude" ? "#B4532F" : "#9A6A12"}">${e === "claude" ? "O" : "S"}</span>` : ""}</div>`;
   if (e === "gemini") return `<div style="${st};background:${ENG.gemini.tile}"><img src="${geminiPng}" style="width:${s * 0.66}px;height:${s * 0.66}px;display:block"></div>`;
+  // an API provider ("api:groq"): its first letter on a colour picked from its id
+  if (String(e).startsWith("api:")) {
+    const id = String(e).slice(4);
+    const hue = [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+    return `<div style="${st};background:hsl(${hue} 55% 42%);font-size:${s * 0.46}px;font-weight:700;color:#fff">${(id[0] ?? "?").toUpperCase()}</div>`;
+  }
   return `<div style="${st};background:#3A3A3C;font-size:${s * 0.44}px;font-weight:700;color:#fff">c</div>`;
 }
 export const stack = (es, s = 26) => `<div class="row">${es.map((e, i) => av(e, s, `${i ? "margin-left:-7px;" : ""}box-shadow:0 0 0 2px #1C1C1E`)).join("")}</div>`;

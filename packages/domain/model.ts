@@ -1,9 +1,24 @@
 /** a persona id; the record lives in State.personas */
 export type Persona = string;
-export type Engine = "codex" | "claude" | "gemini";
+/** an app Walt runs (CLI), or an API provider added in Customize ("api:<provider id>") */
+export type Engine = "codex" | "claude" | "gemini" | ApiEngine;
+export type ApiEngine = `api:${string}`;
+export const isApi = (e: string): e is ApiEngine => e.startsWith("api:");
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-/** one of the design kit's avatar tiles */
-export type Avatar = "codex" | "claude" | "sonnet" | "gemini";
+/** one of the design kit's avatar tiles; an API provider gets a letter tile */
+export type Avatar = "codex" | "claude" | "sonnet" | "gemini" | ApiEngine;
+/** an OpenAI-compatible API (Groq, 9Router, OpenRouter …). Its key is kept encrypted by the desktop app, never here */
+export interface Provider {
+  /** short id: the engine is "api:" + id */
+  id: string;
+  name: string;
+  /** base URL ending before /chat/completions, e.g. https://api.groq.com/openai/v1 */
+  baseUrl: string;
+  /** model new chats with this provider start on; else the first one it lists */
+  model?: string;
+}
+/** the engines a chat can use now: the CLIs with an adapter, then the API providers */
+export const enginesOn = (s: { settings: { providers?: Provider[] } }): Engine[] => [...ENGINES_ON, ...(s.settings.providers ?? []).map((p) => `api:${p.id}` as ApiEngine)];
 export interface PersonaDef {
   id: string;
   name: string;
@@ -17,11 +32,13 @@ export interface PersonaDef {
 /** effort levels each CLI accepts. claude: `claude --help` 2.1.322. codex: app-server `model/list` on 0.167.2
  * (gpt-6/6.1 models; the luna models stop at max, Codex rejects ultra there). gemini has no effort flag. */
 export const LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
-export const EFFORTS: Record<Engine, Effort[]> = {
+export const EFFORTS: Record<"codex" | "claude" | "gemini", Effort[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: LEVELS,
   gemini: [],
 };
+/** API providers take no effort setting */
+export const effortsOf = (e: Engine): Effort[] => (EFFORTS as Record<string, Effort[]>)[e] ?? [];
 export const DEFAULT_PERSONAS: PersonaDef[] = [
   { id: "codex", name: "Codex", engine: "codex", model: "", strengths: ["Code changes", "Tests", "Refactors"], avatar: "codex" },
   { id: "claude", name: "Claude Opus", engine: "claude", model: "opus", strengths: ["Planning", "Hard reviews", "Architecture"], avatar: "claude" },
@@ -117,6 +134,8 @@ export interface EngineReport {
   version: string;
   auth: string;
   detail: string;
+  /** API providers: a key is saved for it */
+  keyed?: boolean;
 }
 /** the plan usage the engine reported last: one bar per limit window (5 hours, a week), like the apps' usage popovers */
 export interface Quota {
@@ -185,6 +204,8 @@ export interface State {
     notify?: boolean;
     /** onboarding (Welcome + Engines) seen */
     onboarded?: boolean;
+    /** Customize · AI & models · API providers */
+    providers?: Provider[];
   };
 }
 export const budgets: Record<Template, number> = {
@@ -206,6 +227,8 @@ export function takeTurn(room: Room) {
 /** "Good at" for a persona Walt makes from a model pick, so Auto roles has something to go on */
 export function defaultStrengths(engine: Engine, model: string) {
   if (engine === "codex") return ["Code changes", "Tests", "Refactors"];
+  // an API model only talks: it cannot read or edit the project
+  if (isApi(engine)) return ["Second opinion", "Explaining", "Writing"];
   if (/opus|fable/i.test(model)) return ["Planning", "Hard reviews", "Architecture"];
   if (/haiku/i.test(model)) return ["Quick features", "Docs", "Fix small bugs"];
   return ["Quick features", "Docs", "UI copy"];

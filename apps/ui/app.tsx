@@ -4,15 +4,17 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
-import { ENGINES_ON } from "../../packages/domain/model";
+import { ENGINES_ON, enginesOn, isApi } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
-import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst } from "./onboarding";
+import { Welcome, Engines, NewProject, EngineCards, personaStatus, ENGINE_NAME, ENGINE_LABEL, Html, usageColor, worst, registerProviders } from "./onboarding";
 /** short engine names: sidebar usage meter, the composer's plugin list */
 const SHORT: Record<string, string> = { codex: "GPT", claude: "Claude", gemini: "Gemini" };
 /** files the composer puts into the message as text (up to 200 KB each) */
 const TEXT_EXT = ["txt", "md", "csv", "tsv", "json", "jsonl", "xml", "yaml", "yml", "toml", "ini", "log", "html", "css", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "rs", "go", "java", "kt", "c", "h", "cpp", "hpp", "cs", "php", "rb", "swift", "sql", "sh", "ps1", "bat", "lua", "dart", "vue", "svelte"];
+/** the avatar tile for a model: Claude Sonnet has its own, an API provider gets a letter tile */
+const avatarOf = (e: string, label = "") => (e === "claude" ? (/sonnet/i.test(label) ? "sonnet" : "claude") : e);
 type SkillGroup = { engine: Engine; plugin: string; skills: { name: string; description: string }[] };
 import { PersonaSettings, personaMsg, metaChip, complete, type Suggestion } from "./personas";
 import { Menu, Dropdown, type Item } from "./menu";
@@ -182,6 +184,7 @@ function App() {
     }
   };
   setLocale(state?.settings.locale ?? "en");
+  registerProviders(state?.settings.providers);
   if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Walt · {error || t("Starting…")}</div>;
   // data from before the onboarded flag already has projects: do not walk that user through setup again
   if (!state.settings.onboarded && !state.projects.length) {
@@ -458,7 +461,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
         </span>
       </div>
     );
-  const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready);
+  const ready = enginesOn(state).filter((e) => personaStatus(e, state.engines).ready);
   const loose = sorted.filter((r) => !r.projectId);
   const proc = (p: Persona) => state.procs?.find((x) => x.room === sel && x.persona === p);
   return (
@@ -610,7 +613,7 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
         <div className="row sb" style={{ padding: "2px 4px 8px" }}><span className="s15 b">{t("Add a model to {0}", room.title)}</span><span role="button" aria-label={t("Close")} onClick={onClose}><Icon n="x" s={15} /></span></div>
         <input autoFocus aria-label={t("Search models")} placeholder={t("Search models")} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", padding: "7px 10px", fontSize: 13.5 }} />
         <div style={{ overflow: "auto", minHeight: 0, flex: 1, marginTop: 6 }}>
-          {ENGINES_ON.map((e) => {
+          {enginesOn(state).map((e) => {
             const all = (state.catalog?.[e] ?? []).filter((m) => m.id !== "default" && (!q || m.label.toLowerCase().includes(q.toLowerCase())));
             const list = q || older ? all : all.filter((m) => !m.more);
             return (
@@ -622,7 +625,7 @@ function AddModel({ state, room, invoke, at, onClose }: { state: State; room: Ro
                   const on = pick?.engine === e && pick.model === m.id;
                   return (
                     <div key={m.id} className={`mi ${on ? "act" : ""}`} role="option" aria-selected={on} aria-disabled={has} style={{ opacity: has ? 0.45 : 1, gap: 10 }} onClick={() => !has && (setPick({ engine: e, model: m.id }), setEffort(""))}>
-                      <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 22)} />
+                      <Html h={av(avatarOf(e, m.label), 22)} />
                       <span className="b f1">{m.label}</span>
                       {has ? <span className="h">{t("In this chat")}</span> : on && <Icon n="checkc" s={16} c={T.green} />}
                     </div>
@@ -658,7 +661,7 @@ function ModelChip({ state, value, pick }: { state: State; value: Target; pick: 
   const list0 = state.catalog?.[value.engine] ?? [];
   const info = list0.find((m) => m.id === value.model) ?? (value.model === "default" || !value.model ? list0.find((m) => m.isDefault) : undefined);
   const items: Item[] = [];
-  for (const e of ENGINES_ON) {
+  for (const e of enginesOn(state)) {
     const list = state.catalog?.[e] ?? [];
     items.push({ kind: "label", label: ENGINE_NAME[e] });
     if (!list.length) {
@@ -931,7 +934,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
 
 /** start screen: type and pick a model; the chat is created on send (like the Claude app) */
 function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened: (id: string) => void }) {
-  const ready = ENGINES_ON.filter((e) => personaStatus(e, state.engines).ready);
+  const ready = enginesOn(state).filter((e) => personaStatus(e, state.engines).ready);
   const [tg, setT] = useState<Target>(state.settings.lastTarget ?? { engine: ready[0] ?? "claude", model: "default" });
   const hour = new Date().getHours();
   return (
@@ -966,7 +969,7 @@ function limitCardFor(state: State, room: Room) {
     const name = room.template === "direct" && who ? label(state, who.engine, room.tune?.[who.id]?.model ?? who.model) : (who?.name ?? m.meta?.to ?? "");
     const others: [string, string][] =
       room.template === "direct"
-        ? ENGINES_ON.filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:${state.catalog?.[e]?.find((x) => x.isDefault)?.id ?? "default"}`, t("Continue with {0}", ENGINE_NAME[e])])
+        ? enginesOn(state).filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:${state.catalog?.[e]?.find((x) => x.isDefault)?.id ?? "default"}`, t("Continue with {0}", ENGINE_NAME[e])])
         : m.meta?.to === room.builder
           ? [room.builder, ...room.reviewers, ...(room.members || [])].filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
           : [[m.meta?.to ?? "", t("Continue without {0}'s review", name)]];
@@ -1358,7 +1361,7 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
       )}
       <div className="row" style={{ gap: 24, marginTop: 20, alignItems: "flex-start" }}>
         <div className="card f1" style={{ padding: 8, minWidth: 0 }}>
-          {ENGINES_ON.map((e) => {
+          {enginesOn(state).map((e) => {
             const all = (state.catalog?.[e] ?? []).filter((m) => m.id !== "default");
             const list = older ? all : all.filter((m) => !m.more);
             return (
@@ -1369,7 +1372,7 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
                   const i = picks.findIndex((p) => key(p) === key({ engine: e, model: m.id }));
                   return (
                     <div key={m.id} className={`navi ${i >= 0 ? "on" : ""}`} role="checkbox" aria-checked={i >= 0} onClick={() => toggle(e, m.id)} style={{ padding: "8px 12px" }}>
-                      <Html h={av(e === "codex" ? "codex" : /sonnet/i.test(m.label) ? "sonnet" : "claude", 28)} />
+                      <Html h={av(avatarOf(e, m.label), 28)} />
                       <span className="t b">{m.label}</span>
                       {i >= 0 && !talk && <span className="s12" style={{ color: T.green }}>{t(picks[i].role)}</span>}
                       <span style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", ...(i >= 0 ? { background: T.green } : { border: "1.5px solid #48484A" }) }}>{i >= 0 && <Icon n="check" s={13} c="#04170B" w={2.6} />}</span>
@@ -1389,10 +1392,10 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
               const info = state.catalog?.[p.engine]?.find((m) => m.id === p.model);
               return (
                 <div key={key(p)} className="row g10" style={{ padding: "10px 0", borderBottom: `1px solid ${T.line2}` }}>
-                  <Html h={av(p.engine === "codex" ? "codex" : /sonnet/i.test(info?.label ?? "") ? "sonnet" : "claude", 28)} />
+                  <Html h={av(avatarOf(p.engine, info?.label), 28)} />
                   <div className="f1" style={{ minWidth: 0 }}><div className="s13 b" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info?.label ?? p.model}</div><div className="s12 dim">{ENGINE_NAME[p.engine]}</div></div>
                   <Dropdown label={t("Effort for {0}", info?.label ?? "")} value={(p.effort ?? "") as string} width={112} disabled={!info?.efforts.length} onChange={(v) => set(i, { effort: (v || undefined) as Effort | undefined })} options={[{ value: "", label: t("Default") }, ...(info?.efforts ?? []).map((l) => ({ value: l as string, label: cap(l) }))]} />
-                  {!talk && <Dropdown label={t("Role for {0}", info?.label ?? "")} value={p.role} width={112} onChange={(v) => set(i, { role: v })} options={(["Builder", "Reviewer", "Member"] as const).map((r) => ({ value: r, label: t(r) }))} />}
+                  {!talk && <Dropdown label={t("Role for {0}", info?.label ?? "")} value={p.role} width={112} onChange={(v) => set(i, { role: v })} options={(isApi(p.engine) ? (["Reviewer", "Member"] as const) : (["Builder", "Reviewer", "Member"] as const)).map((r) => ({ value: r, label: t(r) }))} />}
                 </div>
               );
             })}
@@ -1456,9 +1459,96 @@ function Search({ state, open }: { state: State; open: (id: string) => void }) {
   );
 }
 
+/** ready-made API addresses; "Other" is any OpenAI-compatible one */
+const PRESETS: { name: string; baseUrl: string; where: string }[] = [
+  { name: "Groq", baseUrl: "https://api.groq.com/openai/v1", where: "console.groq.com → API Keys" },
+  { name: "9Router", baseUrl: "http://localhost:20128/v1", where: "9Router dashboard (localhost:20128/dashboard) → API key" },
+  { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", where: "openrouter.ai → Keys" },
+  { name: "", baseUrl: "", where: "" },
+];
+/** Customize · AI & models · API providers: paste a key once, the API's models join every model menu */
+function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
+  const providers = state.settings.providers ?? [];
+  const [form, setForm] = useState<{ preset: number; name: string; baseUrl: string; key: string } | null>(null);
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState("");
+  const preset = (i: number) => setForm({ preset: i, name: PRESETS[i].name, baseUrl: PRESETS[i].baseUrl, key: form?.key ?? "" });
+  const add = async () => {
+    if (!form) return;
+    setBusy("add");
+    const p = await invoke("provider.save", { name: form.name, baseUrl: form.baseUrl });
+    if (p && form.key.trim()) await invoke("provider.key", { id: p.id, key: form.key });
+    setBusy("");
+    if (p) setForm(null);
+  };
+  const saveKey = async (id: string) => {
+    setBusy(id);
+    const ok = await invoke("provider.key", { id, key: keys[id] ?? "" });
+    setBusy("");
+    if (ok) setKeys((k) => ({ ...k, [id]: "" }));
+  };
+  const keyInput = (value: string, onChange: (v: string) => void, saved?: boolean) => (
+    <input type="password" autoComplete="off" spellCheck={false} aria-label={t("API key")} placeholder={t(saved ? "Key saved · paste a new one to replace it" : "Paste the API key")} value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+  );
+  return (
+    <>
+      <div className="row sb" style={{ marginTop: 30 }}>
+        <div className="lbl" style={{ margin: 0 }}>{t("API providers")}</div>
+        {!form && <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => preset(0)}><Icon n="plus" s={14} />{t("Add an API")}</button>}
+      </div>
+      <div className="s12 dim" style={{ margin: "6px 0 12px", lineHeight: 1.5, maxWidth: 760 }}>{t("Groq, 9Router, OpenRouter or any OpenAI-compatible API. Paste its key once: Walt keeps it encrypted on this laptop and never shows it again. API models chat, answer and review; only Claude and Codex edit files.")}</div>
+      {form && (
+        <div className="card col g12" style={{ padding: 18, borderColor: T.green, maxWidth: 760, marginBottom: 12 }}>
+          <div className="seg" style={{ alignSelf: "flex-start" }}>{PRESETS.map((p, i) => <span key={i} className={form.preset === i ? "on" : ""} onClick={() => preset(i)}>{p.name || t("Other")}</span>)}</div>
+          <div className="row g12">
+            <label style={{ width: 200 }}><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Name")}</div><input aria-label={t("Name")} style={{ width: "100%" }} maxLength={40} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+            <label className="f1"><div className="s12 dim" style={{ marginBottom: 4 }}>{t("Base URL")}</div><input aria-label={t("Base URL")} style={{ width: "100%" }} placeholder="https://…/v1" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} /></label>
+          </div>
+          <label><div className="s12 dim" style={{ marginBottom: 4 }}>{t("API key")}{PRESETS[form.preset].where && <span> · {t("get it at {0}", PRESETS[form.preset].where)}</span>}</div><div className="row">{keyInput(form.key, (key) => setForm({ ...form, key }))}</div></label>
+          <div className="row g8" style={{ justifyContent: "flex-end" }}>
+            <button type="button" className="btn" style={{ border: 0 }} onClick={() => setForm(null)}>{t("Cancel")}</button>
+            <button type="button" className="btn g" style={{ border: 0 }} disabled={!form.name.trim() || !form.baseUrl.trim() || busy === "add"} onClick={add}>{t(busy === "add" ? "Checking…" : "Add and check")}</button>
+          </div>
+        </div>
+      )}
+      <div className="col g8" style={{ maxWidth: 760 }}>
+        {providers.map((p) => {
+          const e = `api:${p.id}`;
+          const r = state.engines.find((x) => x.engine === e);
+          const s = personaStatus(e, state.engines);
+          const models = state.catalog?.[e as Engine] ?? [];
+          return (
+            <div key={p.id} className="card col g10" style={{ padding: "14px 16px" }}>
+              <div className="row g12">
+                <Html h={av(e, 34)} />
+                <div className="f1" style={{ minWidth: 0 }}>
+                  <div className="s14 b">{p.name}</div>
+                  <div className="s12 dim" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.baseUrl}{r?.detail ? ` · ${r.auth === "ok" ? t("{0} models", models.length) : r.detail}` : ""}</div>
+                </div>
+                <span className="pill" style={{ background: s.color + "29", color: s.color }}>{busy === p.id ? t("Checking…") : s.label}</span>
+              </div>
+              {!!models.length && (
+                <div className="row g10">
+                  <span className="s13 dim f1">{t("Model for new chats")}</span>
+                  <Dropdown label={t("Model for new chats")} width={260} value={models.find((m) => m.isDefault)?.id ?? ""} onChange={(model) => void invoke("provider.save", { ...p, model })} options={models.map((m) => ({ value: m.id, label: m.label, hint: m.id !== m.label ? m.id.split("/")[0] : undefined }))} />
+                </div>
+              )}
+              <div className="row g8">
+                {keyInput(keys[p.id] ?? "", (v) => setKeys((k) => ({ ...k, [p.id]: v })), r?.keyed)}
+                <button type="button" className="btn sm" style={{ border: 0 }} disabled={!(keys[p.id] ?? "").trim() || busy === p.id} onClick={() => void saveKey(p.id)}>{t("Save key")}</button>
+                <button type="button" className="btn sm" style={{ border: 0 }} disabled={busy === p.id} onClick={async () => { setBusy(p.id); await invoke("provider.check", p.id); setBusy(""); }}>{t("Check again")}</button>
+                <button type="button" className="btn sm r" style={{ border: 0 }} onClick={() => confirm(t("Remove {0} and its saved key?", p.name)) && void invoke("provider.remove", p.id)}>{t("Remove")}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 const PLANNED: [string, string, string][] = [
   ["Gemini CLI", "Installed on this laptop. Its adapter comes next; sign in with gemini first.", "gemini"],
-  ["Groq, xAI Grok and other OpenAI-compatible APIs", "Need an API key (no CLI login). Chat and review only until Walt gives them file tools.", "globe"],
   ["Other ACP agents", "Any command-line agent that speaks ACP can be added as a new AI type.", "term"],
   ["Antigravity", "Desktop IDE; no command-line agent found on this laptop yet.", "sparkle"],
 ];
@@ -1678,7 +1768,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         }}
         options={[
           ...(s.lastTarget ? [] : [{ value: "", label: t("{0} default", "Claude") }]),
-          ...ENGINES_ON.flatMap((e) => (state.catalog?.[e] ?? []).filter((m) => !m.more).map((m) => ({ value: `${e}:${m.id}`, label: m.label === "Default" ? t("{0} default", ENGINE_NAME[e]) : m.label, hint: ENGINE_NAME[e] }))),
+          ...enginesOn(state).flatMap((e) => (state.catalog?.[e] ?? []).filter((m) => !m.more).map((m) => ({ value: `${e}:${m.id}`, label: m.label === "Default" ? t("{0} default", ENGINE_NAME[e]) : m.label, hint: ENGINE_NAME[e] }))),
         ]}
       />,
     ],
@@ -1698,6 +1788,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
             <h2>{t("AI & models")}</h2>
             <div className="s13 dim" style={{ marginBottom: 20 }}>{t("Walt uses the apps you are signed in to. The models in each chat's menu come from your account.")}</div>
             <EngineCards state={state} invoke={invoke} />
+            <ApiProviders state={state} invoke={invoke} />
             <div className="lbl" style={{ marginTop: 30 }}>{t("More AI · planned")}</div>
             <div className="col g8">
               {PLANNED.map(([title, d, i]) => (
@@ -1766,7 +1857,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
               <div><b>{t("Chats in a project")}</b> · {t("every file edit and command asks you first, with the full command or diff.")}</div>
               <div><b>{t("Team chats")}</b> · {t("one builder writes at a time; reviewers are read-only.")}</div>
               <div><b>{t("Ce:L island")}</b> · {t("can pause and answer questions; tool approvals always open Walt.")}</div>
-              <div className="dim">{t("Waiting never counts as allow. Walt does not use API keys or your passwords.")}</div>
+              <div className="dim">{t("Waiting never counts as allow. Walt never sees your passwords; API keys you add in AI & models stay encrypted on this laptop.")}</div>
             </div>
             <div className="card row g16" style={{ padding: "14px 16px", marginTop: 14, maxWidth: 720 }}>
               <div className="f1">

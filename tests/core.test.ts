@@ -819,3 +819,85 @@ test("skills for the + menu: name and description from SKILL.md", async () => {
   assert.deepEqual(pluginSkills(plug).map((x) => x.name), ["draw", "lint"]);
   await rm(dir, { recursive: true });
 });
+
+import { createServer } from "node:http";
+import { ApiSession, apiModels } from "../packages/adapters/api";
+/** a fake OpenAI-compatible API on localhost: key "test-key", streams back what it was asked */
+async function fakeApi() {
+  const seen: any[] = [];
+  const server = createServer((req, res) => {
+    if (req.headers.authorization !== "Bearer test-key") {
+      res.writeHead(401, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ error: { message: "Invalid API Key" } }));
+    }
+    if (req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ data: [{ id: "llama-fast" }, { id: "whisper-large" }, { id: "org/big-model" }] }));
+    }
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const b = JSON.parse(body);
+      seen.push(b);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const last = b.messages.at(-1).content;
+      for (const piece of ["echo: ", String(typeof last === "string" ? last : last[0].text).slice(-20)])
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  // never keeps the test run alive, even when an assertion fails before close()
+  server.unref();
+  return { url: `http://127.0.0.1:${(server.address() as any).port}/v1`, seen, close: () => (server.closeAllConnections(), server.close()) };
+}
+test("API models: list, stream a reply, keep the conversation, refuse a wrong key", async () => {
+  const api = await fakeApi();
+  assert.deepEqual((await apiModels({ baseUrl: api.url, key: "test-key" })).map((m) => m.id), ["llama-fast", "org/big-model"]);
+  await assert.rejects(apiModels({ baseUrl: api.url, key: "wrong" }), /401.*Invalid API Key/);
+  const s = new ApiSession({ baseUrl: api.url, key: "test-key" }, "llama-fast", "be brief");
+  assert.equal(s.fresh, true);
+  let streamed = "";
+  assert.equal(await s.run("hello there", (d) => (streamed += d), async () => true), "echo: hello there");
+  assert.equal(streamed, "echo: hello there");
+  await s.run("second", () => {}, async () => true);
+  assert.deepEqual(api.seen[1].messages.map((m: any) => m.role), ["system", "user", "assistant", "user"]);
+  assert.equal(s.fresh, false);
+  api.close();
+});
+test("API providers in the host: key in memory only, models in the catalog, chat works, never the builder", async () => {
+  const api = await fakeApi();
+  const dir = await mkdtemp(join(tmpdir(), "walt-api-"));
+  const host = new Host(new Store(join(dir, "data")));
+  const p = await host.saveProvider({ name: "Groq", baseUrl: api.url + "/" });
+  assert.equal(p.id, "groq");
+  assert.equal(p.baseUrl, api.url);
+  assert.equal(host.state.engines.find((e) => e.engine === "api:groq")?.auth, "required", "no key yet");
+  await host.setKeys({ groq: "test-key" });
+  const report = host.state.engines.find((e) => e.engine === "api:groq");
+  assert.equal(report?.auth, "ok");
+  assert.equal(report?.keyed, true);
+  assert.equal(host.state.catalog?.["api:groq"]?.find((m) => m.isDefault)?.id, "llama-fast");
+  assert.ok(!JSON.stringify(host.state).includes("test-key"), "the key never enters the saved state");
+  // a plain chat on the API's default model
+  const r = host.newChat("");
+  host.setTarget(r.id, { engine: "api:groq", model: "default" });
+  await host.send(r.id, "what is 2+2");
+  for (let i = 0; i < 50 && host.room(r.id).state === "running"; i++) await new Promise((ok) => setTimeout(ok, 20));
+  assert.equal(host.room(r.id).messages.at(-1)?.text, "echo: what is 2+2");
+  assert.equal(host.persona(host.room(r.id).builder).avatar, "api:groq");
+  // it may review or talk, never build
+  const g = host.persona(host.room(r.id).builder).id;
+  assert.throws(() => host.saveTeam({ name: "T", talk: false, picks: [{ engine: "api:groq", model: "llama-fast", role: "Builder" }, { engine: "claude", model: "opus", role: "Reviewer" }] }), /cannot be the builder/);
+  assert.throws(() => host.removeProvider("groq"), /still in/);
+  await assert.rejects(host.saveProvider({ name: "x", baseUrl: "ftp://nope" }), /must start with https/);
+  await assert.rejects(host.saveProvider({ name: "Bad", baseUrl: "not a url" }), /not a web address/);
+  // removing it takes its models (personas) and the chat's pick with it
+  host.deleteRoom(r.id);
+  host.removeProvider("groq");
+  assert.ok(!host.state.personas.some((x) => x.id === g));
+  assert.equal(host.state.catalog?.["api:groq"], undefined);
+  await host.close();
+  api.close();
+  await rm(dir, { recursive: true });
+});
