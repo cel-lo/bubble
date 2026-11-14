@@ -1080,7 +1080,9 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     const id = setTimeout(() => setNote(""), 6000);
     return () => clearTimeout(id);
   }, [note]);
-  const cli = (e: string) => (e === "codex" ? "Codex" : "Claude Code");
+  // only these two have a terminal app that can pick the conversation up (Antigravity runs from Walt's own data
+  // folder, an API has no CLI); the host refuses the others too
+  const cli = (e?: string) => (e === "codex" ? "Codex" : e === "claude" ? "Claude Code" : undefined);
   const resume = async (persona: string) => {
     const r = await invoke("cli.continue", { roomId: room.id, persona });
     if (r) setNote(t("Opened a terminal: {0}", r.command));
@@ -1092,18 +1094,20 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     await navigator.clipboard.writeText(r.text).then(() => setNote(t("Context copied")), () => setNote(t("Could not reach the clipboard")));
   };
   // "…" in the header: carry the chat on outside Walt
-  const chatMenu = (): Item[] => [
-    room.template === "direct"
-      ? { label: t("Continue in {0}", cli(pd(room.builder)?.engine ?? "claude")), hint: t("terminal"), onSelect: () => void resume(room.builder) }
-      : {
-          label: t("Continue in the CLI"),
-          submenu: team(room).flatMap((id) => {
-            const p = pd(id);
-            return p ? [{ label: p.name, hint: cli(p.engine), onSelect: () => void resume(id) }] : [];
-          }),
-        },
-    { label: project ? t("Export context to WALT.md") : t("Copy context"), hint: project ? project.name : "Markdown", onSelect: () => void exportIt() },
-  ];
+  const chatMenu = (): Item[] => {
+    const now = cli(pd(room.builder)?.engine);
+    const members = team(room).flatMap((id) => {
+      const p = pd(id);
+      const c = cli(p?.engine);
+      return p && c ? [{ label: p.name, hint: c, onSelect: () => void resume(id) }] : [];
+    });
+    return [
+      ...(room.template === "direct"
+        ? now ? [{ label: t("Continue in {0}", now), hint: t("terminal"), onSelect: () => void resume(room.builder) }] : []
+        : members.length ? [{ label: t("Continue in the CLI"), submenu: members }] : []),
+      { label: project ? t("Export context to WALT.md") : t("Copy context"), hint: project ? project.name : "Markdown", onSelect: () => void exportIt() },
+    ];
+  };
   const tl = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const project = room.projectId ? state.projects.find((p) => p.id === room.projectId) : undefined;
