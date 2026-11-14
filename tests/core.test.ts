@@ -437,6 +437,13 @@ test("build, review, fix, review again until the reviewers approve", async () =>
   for (let i = 0; i < 200 && r.step !== "awaiting acceptance"; i++) await new Promise((ok) => setTimeout(ok, 10));
   assert.equal(reviews, 2, "no review for an unchanged revision");
   assert.match(r.messages.at(-1)!.text, /nothing to review/);
+  // Accept: a file another chat added since does not block the revision; a change to its own file does
+  await writeFile(join(root, "other-chat.txt"), "made elsewhere");
+  await writeFile(join(root, "a.txt"), "edited by hand");
+  await assert.rejects(host.accept(r.id), /r\d+ is out of date: a\.txt changed after it was made/);
+  await writeFile(join(root, "a.txt"), "v2");
+  await host.accept(r.id);
+  assert.equal(r.artifacts.at(-1)!.accepted, true);
   await host.close();
   await rm(dir, { recursive: true });
 });

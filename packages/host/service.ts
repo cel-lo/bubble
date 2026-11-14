@@ -1027,8 +1027,14 @@ export class Host extends EventEmitter {
     const a = r.artifacts.at(-1);
     if (!a) throw new Error("No artifact");
     const p = this.state.projects.find((p) => p.id === r.projectId)!;
-    if ((await manifest(p.root)).hash !== a.hash)
-      throw new Error("Artifact is stale; review the new revision");
+    // you accept the files of this revision: one of them changed or gone since blocks it; a file that another chat
+    // (or you) added to the project later is not part of it
+    const now = (await manifest(p.root)).files;
+    const moved = Object.keys(a.files).filter((f) => now[f] !== a.files[f]);
+    if (moved.length)
+      throw new Error(
+        `r${a.revision} is out of date: ${moved.slice(0, 3).join(", ")}${moved.length > 3 ? ` and ${moved.length - 3} more` : ""} changed after it was made. Send a message so the builder makes a new revision, then accept that one.`,
+      );
     a.accepted = true;
     this.commit();
   }
