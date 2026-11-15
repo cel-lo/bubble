@@ -85,7 +85,7 @@
 .typing i{width:6px;height:6px;border-radius:6px;background:currentColor;animation:dots 1.2s ease-in-out infinite}
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 /* side panel · Who does what: one aligned grid row per member */
-.who{display:grid;grid-template-columns:22px minmax(0,1fr) auto 74px;align-items:center;gap:8px;margin:7px 0}
+.who{display:grid;grid-template-columns:22px minmax(0,1fr) 60px 74px;align-items:center;gap:8px;margin:7px 0}
 .who .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who .job{cursor:pointer;display:flex;border-radius:7px}
 .who .job:hover{filter:brightness(1.25)}

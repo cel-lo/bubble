@@ -539,10 +539,12 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
               return (
                 <div key={id} className="navi rich" title={`${p.name} · ${label(state, p.engine, p.model)}`}>
                   <Html h={av(p.avatar, 30)} />
+                  {/* name and status on the left, the job in its own column so every row lines up (like the side panel) */}
                   <div className="f1" style={{ minWidth: 0 }}>
-                    <div className="row g6"><span className="t b">{p.name}</span><Html h={roleTag(p.avatar, t(r))} /></div>
-                    <div className="pv row g6"><span style={{ width: 7, height: 7, borderRadius: 7, background: c, flex: "none" }} />{st} · {label(state, p.engine, room.tune?.[id]?.model ?? p.model)}</div>
+                    <div className="t b" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                    <div className="pv row g6"><span className={st === t("Working") ? "pulse" : ""} style={{ width: 7, height: 7, borderRadius: 7, background: c, flex: "none" }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{st} · {label(state, p.engine, room.tune?.[id]?.model ?? p.model)}</span></div>
                   </div>
+                  <span style={{ flex: "none", display: "flex", width: 60 }}><Html h={roleTag(p.avatar, t(r))} /></span>
                   {r !== "Talks" && (
                     <span className="x" role="button" aria-label={`${p.name} actions`} onClick={(e) => more(e, [
                       ...(r === "Builder" ? [] : [{ label: t("Make builder"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Builder" }) }]),
