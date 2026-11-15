@@ -200,6 +200,14 @@ Second pass (cello's feedback, same day):
 - Permissions page names Antigravity's strict mode and the Browser's limits; About lists API providers too.
 - Checked: the page, two settings saved through the host and back; Haiku replied with a link, clicking it opened example.com in the Browser tab; a blank tab takes the link. Unit tests for the search engine and which links open. Not tried: a real download with the Save as dialog.
 
+## API: Grok with X search, call log — 2026-11-15
+
+- Presets in Add an API: 9Router (first), Grok (https://api.x.ai/v1, key from console.x.ai), Groq, OpenRouter, Other.
+- Grok (any provider on api.x.ai) goes through xAI's Responses API (`/responses`, stream) with tools web_search and x_search, so answers can use what was posted on X minutes ago (the old Live Search was shut down by xAI in Jan 2026; chat completions get no search). Text from `response.output_text.delta`; usage and `server_side_tool_usage_details` from `response.completed`; Grok's `[[1]](url)` citations become links (they open in the Browser). Pictures go as input_image.
+- Other APIs ask for token counts with `stream_options.include_usage`; a server that refuses it (400 naming stream_options) gets the plain request again.
+- Every API call, also a failed or stopped one, goes to `state.apiCalls` (newest first, last 500): provider, chat, model, tokens in/out, search tools, time, result. Customize · AI & models shows per provider: calls (today), tokens in/out, search totals, failures, and a table of calls; Clear empties one provider's log.
+- Checked: unit tests with a fake API (usage, the stream_options fallback, a fake Grok Responses stream with tools and a citation, a wrong key logged as failed, the host log and clearing it); in the test Walt a localhost fake added through the form, two chats, the log showed 2 calls · 2.5k in · 112 out with the table. Not tried: real Grok or 9Router keys (cello has not decided yet). Cost in money is not shown (prices differ per provider and change).
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

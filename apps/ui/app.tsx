@@ -4,7 +4,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
-import { ENGINES_ON, enginesOn, isApi } from "../../packages/domain/model";
+import { ENGINES_ON, enginesOn, isApi, isXai } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
@@ -1556,11 +1556,64 @@ function Search({ state, open }: { state: State; open: (id: string) => void }) {
 
 /** ready-made API addresses; "Other" is any OpenAI-compatible one */
 const PRESETS: { name: string; baseUrl: string; where: string }[] = [
-  { name: "Groq", baseUrl: "https://api.groq.com/openai/v1", where: "console.groq.com → API Keys" },
   { name: "9Router", baseUrl: "http://localhost:20128/v1", where: "9Router dashboard (localhost:20128/dashboard) → API key" },
+  { name: "Grok", baseUrl: "https://api.x.ai/v1", where: "console.x.ai → API Keys" },
+  { name: "Groq", baseUrl: "https://api.groq.com/openai/v1", where: "console.groq.com → API Keys" },
   { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", where: "openrouter.ai → Keys" },
   { name: "", baseUrl: "", where: "" },
 ];
+const count = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${+(n / 1000).toFixed(1)}k` : String(n));
+const TOOL_NAME: Record<string, string> = { x_search_calls: "X searches", x_posts_fetched: "X posts", x_users_fetched: "X profiles", web_search_calls: "web searches" };
+const toolText = (tools: Record<string, number>) => Object.entries(tools).map(([k, v]) => `${count(v)} ${t(TOOL_NAME[k] ?? k)}`).join(" · ");
+/** one API's calls: totals, then every call (time, chat, model, tokens, search tools, seconds, result) */
+function ApiUsage({ state, invoke, id }: { state: State; invoke: Invoke; id: string }) {
+  const [open, setOpen] = useState(false);
+  const calls = (state.apiCalls ?? []).filter((c) => c.provider === id);
+  if (!calls.length) return <div className="s12 dim">{t("No calls yet. Each answer from this API shows up here with its tokens and time.")}</div>;
+  const sum = (k: "input" | "output") => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
+  const today = calls.filter((c) => new Date(c.at).toDateString() === new Date().toDateString()).length;
+  const tools: Record<string, number> = {};
+  for (const c of calls) for (const [k, v] of Object.entries(c.tools ?? {})) tools[k] = (tools[k] ?? 0) + v;
+  const failed = calls.filter((c) => !c.ok && c.error !== "stopped").length;
+  const room = (rid: string) => state.rooms.find((r) => r.id === rid)?.title ?? t("deleted chat");
+  return (
+    <div className="col g8" style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
+      <div className="row g8 s12">
+        <span className="f1" style={{ lineHeight: 1.5 }}>
+          <b>{t("{0} calls", calls.length)}</b> <span className="dim">({t("{0} today", today)})</span> · {t("{0} tokens in", count(sum("input")))} · {t("{0} tokens out", count(sum("output")))}
+          {!!Object.keys(tools).length && <> · {toolText(tools)}</>}
+          {!!failed && <span style={{ color: T.red }}> · {t("{0} failed", failed)}</span>}
+        </span>
+        <button type="button" className="btn sm" style={{ border: 0 }} aria-expanded={open} onClick={() => setOpen(!open)}>{t(open ? "Hide calls" : "Show calls")}</button>
+        <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => confirm(t("Clear the call log of this API?")) && void invoke("provider.calls.clear", id)}>{t("Clear")}</button>
+      </div>
+      {open && (
+        <div style={{ maxHeight: 320, overflow: "auto" }}>
+          <table className="s12" style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr className="dim" style={{ textAlign: "left" }}>
+                {["Time", "Chat", "Model", "Tokens in → out", "Tools", "Time taken", "Result"].map((h) => <th key={h} style={{ fontWeight: 600, padding: "4px 8px 6px 0", whiteSpace: "nowrap" }}>{t(h)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {calls.slice(0, 200).map((c, i) => (
+                <tr key={c.at + ":" + i} style={{ borderTop: `1px solid ${T.line}` }}>
+                  <td style={{ padding: "5px 8px 5px 0", whiteSpace: "nowrap" }}>{new Date(c.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                  <td style={{ padding: "5px 8px 5px 0", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={room(c.room)}>{room(c.room)}</td>
+                  <td className="mono" style={{ padding: "5px 8px 5px 0", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.model}>{c.model.split("/").pop()}</td>
+                  <td style={{ padding: "5px 8px 5px 0", whiteSpace: "nowrap" }}>{c.input == null && c.output == null ? "—" : `${count(c.input ?? 0)} → ${count(c.output ?? 0)}`}</td>
+                  <td style={{ padding: "5px 8px 5px 0" }}>{c.tools ? toolText(c.tools) : "—"}</td>
+                  <td style={{ padding: "5px 8px 5px 0", whiteSpace: "nowrap" }}>{(c.ms / 1000).toFixed(1)} s</td>
+                  <td style={{ padding: "5px 0", color: c.ok ? T.green : c.error === "stopped" ? T.dim : T.red, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.error}>{c.ok ? t("OK") : c.error === "stopped" ? t("Stopped") : c.error}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 /** Customize · AI & models · API providers: paste a key once, the API's models join every model menu */
 function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
   const providers = state.settings.providers ?? [];
@@ -1591,7 +1644,7 @@ function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
         <div className="lbl" style={{ margin: 0 }}>{t("API providers")}</div>
         {!form && <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => preset(0)}><Icon n="plus" s={14} />{t("Add an API")}</button>}
       </div>
-      <div className="s12 dim" style={{ margin: "6px 0 12px", lineHeight: 1.5, maxWidth: 760 }}>{t("Groq, 9Router, OpenRouter or any OpenAI-compatible API. Paste its key once: Walt keeps it encrypted on this laptop and never shows it again. API models chat, answer and review; only Claude and Codex edit files.")}</div>
+      <div className="s12 dim" style={{ margin: "6px 0 12px", lineHeight: 1.5, maxWidth: 760 }}>{t("9Router, Grok, Groq, OpenRouter or any OpenAI-compatible API. Paste its key once: Walt keeps it encrypted on this laptop and never shows it again. API models chat, answer and review; only Claude, Codex and Antigravity edit files. Every call is logged below with its tokens and time.")}</div>
       {form && (
         <div className="card col g12" style={{ padding: 18, borderColor: T.green, maxWidth: 760, marginBottom: 12 }}>
           <div className="seg" style={{ alignSelf: "flex-start" }}>{PRESETS.map((p, i) => <span key={i} className={form.preset === i ? "on" : ""} onClick={() => preset(i)}>{p.name || t("Other")}</span>)}</div>
@@ -1628,12 +1681,14 @@ function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
                   <Dropdown label={t("Model for new chats")} width={260} value={models.find((m) => m.isDefault)?.id ?? ""} onChange={(model) => void invoke("provider.save", { ...p, model })} options={models.map((m) => ({ value: m.id, label: m.label, hint: m.id !== m.label ? m.id.split("/")[0] : undefined }))} />
                 </div>
               )}
+              {isXai(p.baseUrl) && <div className="s12 dim" style={{ lineHeight: 1.5 }}>{t("Grok searches X and the web for every answer and links its sources. xAI bills the tokens plus each search (see console.x.ai).")}</div>}
               <div className="row g8">
                 {keyInput(keys[p.id] ?? "", (v) => setKeys((k) => ({ ...k, [p.id]: v })), r?.keyed)}
                 <button type="button" className="btn sm" style={{ border: 0 }} disabled={!(keys[p.id] ?? "").trim() || busy === p.id} onClick={() => void saveKey(p.id)}>{t("Save key")}</button>
                 <button type="button" className="btn sm" style={{ border: 0 }} disabled={busy === p.id} onClick={async () => { setBusy(p.id); await invoke("provider.check", p.id); setBusy(""); }}>{t("Check again")}</button>
                 <button type="button" className="btn sm r" style={{ border: 0 }} onClick={() => confirm(t("Remove {0} and its saved key?", p.name)) && void invoke("provider.remove", p.id)}>{t("Remove")}</button>
               </div>
+              <ApiUsage state={state} invoke={invoke} id={p.id} />
             </div>
           );
         })}

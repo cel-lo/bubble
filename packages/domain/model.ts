@@ -8,6 +8,32 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 /** one of the design kit's avatar tiles; an API provider gets a letter tile */
 export type Avatar = "codex" | "claude" | "sonnet" | "antigravity" | ApiEngine;
 /** an OpenAI-compatible API (Groq, 9Router, OpenRouter …). Its key is kept encrypted by the desktop app, never here */
+/** xAI (Grok): Walt uses its Responses API with web and X search instead of chat completions */
+export const isXai = (baseUrl: string) => {
+  try {
+    return /(^|\.)api\.x\.ai$/i.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+};
+/** one call to an API model, as the API reported it (tokens may be missing when the API does not say) */
+export interface ApiCall {
+  model: string;
+  input?: number;
+  output?: number;
+  /** server-side tools the API ran for it (Grok: x_search_calls, web_search_calls, x_posts_fetched …) */
+  tools?: Record<string, number>;
+  ms: number;
+  ok: boolean;
+  error?: string;
+}
+/** Customize · AI & models: the call log of every API provider, newest first */
+export interface ApiCallLog extends ApiCall {
+  at: number;
+  /** provider id (the engine is "api:" + id) */
+  provider: string;
+  room: string;
+}
 export interface Provider {
   /** short id: the engine is "api:" + id */
   id: string;
@@ -203,6 +229,8 @@ export interface State {
   catalog?: Partial<Record<Engine, ModelInfo[]>>;
   /** plan usage per engine; Codex reports it any time, Claude with each reply */
   usage?: Partial<Record<Engine, Quota>>;
+  /** API calls, newest first (the last 500) */
+  apiCalls?: ApiCallLog[];
   /** live agent processes; added to messages for the UI, never stored */
   procs?: { room: string; persona: Persona; busy: boolean }[];
   settings: {

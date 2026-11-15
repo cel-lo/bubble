@@ -213,6 +213,9 @@ parent.on("message", async ({ data }: any) => {
       case "persona.delete":
         result = host.deletePersona(z.string().parse(input));
         break;
+      case "provider.calls.clear":
+        host.clearCalls(z.string().regex(/^[a-z0-9-]{1,40}$/).parse(input));
+        break;
       case "cli.continue": {
         const v = z.object({ roomId: z.string(), persona: persona.optional() }).parse(input);
         result = host.continueInCli(v.roomId, v.persona);

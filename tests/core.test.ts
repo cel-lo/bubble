@@ -846,10 +846,22 @@ async function fakeApi() {
     req.on("end", () => {
       const b = JSON.parse(body);
       seen.push(b);
+      // an older server that does not know stream_options
+      if (b.model === "old-server" && b.stream_options) {
+        res.writeHead(400, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options" } }));
+      }
       res.writeHead(200, { "content-type": "text/event-stream" });
+      // xAI's Responses API: text deltas, then response.completed with usage and the search tools it ran
+      if (req.url === "/v1/responses") {
+        for (const piece of ["Latest on X ", "[[1]](https://x.com/a/status/1)"]) res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: piece })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 900, output_tokens: 40, server_side_tool_usage_details: { x_search_calls: 1, x_posts_fetched: 12, web_search_calls: 0 } } } })}\n\n`);
+        return res.end("data: [DONE]\n\n");
+      }
       const last = b.messages.at(-1).content;
       for (const piece of ["echo: ", String(typeof last === "string" ? last : last[0].text).slice(-20)])
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`);
+      if (b.stream_options?.include_usage) res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 } })}\n\n`);
       res.end("data: [DONE]\n\n");
     });
   });
@@ -870,6 +882,25 @@ test("API models: list, stream a reply, keep the conversation, refuse a wrong ke
   await s.run("second", () => {}, async () => true);
   assert.deepEqual(api.seen[1].messages.map((m: any) => m.role), ["system", "user", "assistant", "user"]);
   assert.equal(s.fresh, false);
+  // each call reports its tokens; a server that refuses stream_options still answers (no counts then)
+  assert.deepEqual({ ...s.lastCall, ms: 0 }, { model: "llama-fast", input: 12, output: 5, ms: 0, ok: true });
+  const old = new ApiSession({ baseUrl: api.url, key: "test-key" }, "old-server", "");
+  assert.equal(await old.run("hi", () => {}, async () => true), "echo: hi");
+  assert.equal(old.lastCall?.ok, true);
+  assert.equal(old.lastCall?.input, undefined);
+  // Grok: the Responses API with X and web search; citations become links; the searches are counted
+  const grok = new ApiSession({ baseUrl: api.url, key: "test-key", xai: true }, "grok-4.3", "be brief");
+  assert.equal(await grok.run("what is new", () => {}, async () => true), "Latest on X [1](https://x.com/a/status/1)");
+  const sent = api.seen.at(-1);
+  assert.deepEqual(sent.tools, [{ type: "web_search" }, { type: "x_search" }]);
+  assert.deepEqual(sent.input.map((m: any) => m.role), ["system", "user"]);
+  assert.deepEqual(grok.lastCall?.tools, { x_search_calls: 1, x_posts_fetched: 12 });
+  assert.equal(grok.lastCall?.input, 900);
+  // a wrong key is a failed call with the reason
+  const bad = new ApiSession({ baseUrl: api.url, key: "wrong" }, "llama-fast", "");
+  await assert.rejects(bad.run("x", () => {}, async () => true), /401/);
+  assert.equal(bad.lastCall?.ok, false);
+  assert.match(bad.lastCall?.error ?? "", /Invalid API Key/);
   api.close();
 });
 test("API providers in the host: key in memory only, models in the catalog, chat works, never the builder", async () => {
@@ -892,6 +923,12 @@ test("API providers in the host: key in memory only, models in the catalog, chat
   await host.send(r.id, "what is 2+2");
   for (let i = 0; i < 50 && host.room(r.id).state === "running"; i++) await new Promise((ok) => setTimeout(ok, 20));
   assert.equal(host.room(r.id).messages.at(-1)?.text, "echo: what is 2+2");
+  // the call is in the log for Customize · AI & models
+  assert.equal(host.state.apiCalls?.[0]?.provider, "groq");
+  assert.equal(host.state.apiCalls?.[0]?.room, r.id);
+  assert.equal(host.state.apiCalls?.[0]?.output, 5);
+  host.clearCalls("groq");
+  assert.equal(host.state.apiCalls?.length, 0);
   assert.equal(host.persona(host.room(r.id).builder).avatar, "api:groq");
   // it may review or talk, never build
   const g = host.persona(host.room(r.id).builder).id;

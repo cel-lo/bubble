@@ -659,6 +659,11 @@ export class Host extends EventEmitter {
     } finally {
       // keep the CLI's session id on the chat: resume after a restart, and "Continue in Claude Code / Codex"
       if (session.sessionId) (r.sessions ??= {})[slot] = session.sessionId;
+      // every API call goes to the log (tokens, search tools, time, result), also a failed one
+      if (session instanceof ApiSession && session.lastCall) {
+        (this.state.apiCalls ??= []).unshift({ ...session.lastCall, at: Date.now(), provider: def.engine.slice(4), room: r.id });
+        this.state.apiCalls.length = Math.min(this.state.apiCalls.length, 500);
+      }
       const c = "context" in session ? session.context : undefined;
       if (c?.size) (r.context ??= {})[persona] = { used: c.used, size: c.size, model: tune.model ?? def.model, at: Date.now() };
     }
@@ -1020,6 +1025,11 @@ export class Host extends EventEmitter {
       .filter((n) => /^walt-.*\.sqlite$/.test(n))
       .map((name) => ({ name, size: statSync(join(dir, name)).size, at: statSync(join(dir, name)).mtime.toISOString() }))
       .sort((a, b) => b.at.localeCompare(a.at));
+  }
+  /** Customize · AI & models: empty one provider's call log */
+  clearCalls(provider: string) {
+    this.state.apiCalls = (this.state.apiCalls ?? []).filter((c) => c.provider !== provider);
+    this.commit("api.calls.cleared");
   }
   async accept(id: string) {
     const r = this.room(id);
