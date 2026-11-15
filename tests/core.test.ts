@@ -214,14 +214,16 @@ import { parseMessage } from "../packages/domain/command";
 import { DEFAULT_PERSONAS } from "../packages/domain/model";
 test("composer shortcuts: @persona, /effort, /model, keep", () => {
   const ps = [...DEFAULT_PERSONAS, { id: "gpt61", name: "GPT 6.1 Sol", engine: "codex" as const, model: "gpt-6.1-sol", strengths: [], avatar: "codex" as const }];
-  assert.deepEqual(parseMessage("@Opus use /effort high fix borrow.js", ps), { text: "fix borrow.js", to: "claude", effort: "high", model: undefined, keep: false });
-  assert.deepEqual(parseMessage("@claude opus /effort max keep", ps), { text: "", to: "claude", effort: "max", model: undefined, keep: true });
+  assert.deepEqual(parseMessage("@Opus use /effort high fix borrow.js", ps), { text: "fix borrow.js", to: "claude", tos: ["claude"], effort: "high", model: undefined, keep: false });
+  assert.deepEqual(parseMessage("@claude opus /effort max keep", ps), { text: "", to: "claude", tos: ["claude"], effort: "max", model: undefined, keep: true });
   assert.equal(parseMessage("@GPT 6.1 Sol review this", ps).to, "gpt61");
   assert.equal(parseMessage("ping @sonnet, please", ps).to, "sonnet");
-  assert.deepEqual(parseMessage("/model gpt-6.1-sol keep", ps), { text: "", to: undefined, effort: undefined, model: "gpt-6.1-sol", keep: true });
+  assert.deepEqual(parseMessage("/model gpt-6.1-sol keep", ps), { text: "", to: undefined, tos: [], effort: undefined, model: "gpt-6.1-sol", keep: true });
   assert.equal(parseMessage("read src/a.ts and /etc stays text", ps).text, "read src/a.ts and /etc stays text");
   assert.throws(() => parseMessage("@Opus /effort turbo go", ps), /effort needs one of/);
-  assert.throws(() => parseMessage("@Opus and @Sonnet both", ps), /one persona/);
+  // two or more in one message, in the order written
+  assert.deepEqual(parseMessage("@Sonnet do A and @Opus do B", ps).tos, ["sonnet", "claude"]);
+  assert.equal(parseMessage("@Sonnet do A and @Opus do B", ps).text, "do A and do B");
   assert.throws(() => parseMessage("@nobody hi", ps), /No persona called @nobody/);
 });
 test("room settings from the composer: keep, effort per engine, members, custom persona", async () => {
@@ -437,6 +439,7 @@ test("build, review, fix, review again until the reviewers approve", async () =>
   for (let i = 0; i < 200 && r.step !== "awaiting acceptance"; i++) await new Promise((ok) => setTimeout(ok, 10));
   assert.equal(reviews, 2, "no review for an unchanged revision");
   assert.match(r.messages.at(-1)!.text, /nothing to review/);
+  assert.equal(r.artifacts.length, 2, "a reply that changed no file makes no revision");
   // Accept: a file another chat added since does not block the revision; a change to its own file does
   await writeFile(join(root, "other-chat.txt"), "made elsewhere");
   await writeFile(join(root, "a.txt"), "edited by hand");
@@ -547,7 +550,7 @@ test("team templates: save, replace by name, delete", async () => {
   const picks = [{ engine: "codex" as const, model: "gpt-6.1-sol", role: "Builder" as const }, { engine: "claude" as const, model: "opus", role: "Reviewer" as const }];
   const a = host.saveTeam({ name: "Web team", talk: false, picks });
   assert.throws(() => host.saveTeam({ name: "x", talk: false, picks: [picks[0]] }), /at least two/);
-  assert.throws(() => host.saveTeam({ name: "x", talk: false, picks: [{ ...picks[0], role: "Reviewer" }, picks[1]] }), /exactly one builder/);
+  assert.throws(() => host.saveTeam({ name: "x", talk: false, picks: [{ ...picks[0], role: "Reviewer" }, picks[1]] }), /at least one builder/);
   const b = host.saveTeam({ name: "web TEAM", talk: true, picks });
   assert.equal(b.id, a.id, "same name replaces the template");
   assert.equal(host.state.teams!.length, 1);
@@ -1034,4 +1037,53 @@ test("Browser address bar: local ports, web addresses, searches", () => {
   // a page address is never anything but http(s): no file:, javascript: or walt-img:
   assert.ok(address("javascript:alert(1)").startsWith("https://www.google.com/search?q="));
   assert.ok(address("file:///C:/x").startsWith("https://"));
+});
+
+test("two builders at once: mention both, each builds its part in parallel; jobs change only when idle", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-two-"));
+  const root = join(dir, "proj");
+  await mkdir(root);
+  const host = new Host(new Store(join(dir, "data")));
+  const p = await host.project({ name: "P", root, goal: "", constraints: "" });
+  const r = host.createRoom({ projectId: p.id, title: "T", template: "build_review", builder: "codex", reviewers: ["claude"] });
+  // Builder adds a builder now; the last builder cannot leave
+  host.member(r.id, "claude", "Builder");
+  assert.deepEqual([r.builder, r.builders, r.reviewers], ["codex", ["claude"], []]);
+  host.member(r.id, "sonnet", "Reviewer");
+  let live = 0, most = 0;
+  const prompts: Record<string, string> = {};
+  const ro: Record<string, boolean> = {};
+  (host.supervisor as any).get = async (_room: string, def: { id: string }, _root: string, readonly: boolean) => ({
+    run: async (prompt: string) => {
+      prompts[def.id] = prompt;
+      ro[def.id] = readonly;
+      most = Math.max(most, ++live);
+      await new Promise((ok) => setTimeout(ok, 60));
+      if (!readonly) await writeFile(join(root, def.id + ".txt"), "part of " + def.id);
+      live--;
+      return def.id + " did its part";
+    },
+    stop: async () => {},
+  });
+  await host.send(r.id, "@Codex build the API @Claude Opus build the page");
+  for (let i = 0; i < 200 && r.state === "running"; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(most, 2, "both builders ran at the same time");
+  assert.deepEqual([ro.codex, ro.claude], [false, false], "both may edit");
+  assert.match(prompts.codex, /working at the same time as Claude Opus/);
+  assert.match(prompts.claude, /Do only the part meant for you \(@Claude Opus\)/);
+  assert.equal(JSON.parse(prompts.claude).message, "@Codex build the API @Claude Opus build the page", "each sees the message with the @names");
+  assert.equal(r.artifacts.length, 1, "one revision for both parts");
+  assert.deepEqual(Object.keys(r.artifacts[0].files).sort(), ["claude.txt", "codex.txt"]);
+  assert.deepEqual(r.messages.filter((m) => m.author !== "cello").map((m) => m.text).sort(), ["claude did its part", "codex did its part"]);
+  assert.deepEqual(r.messages.find((m) => m.author === "cello")?.meta?.also, ["claude"]);
+  // a builder and a reviewer mentioned together: the reviewer answers read-only
+  await host.send(r.id, "@Codex add tests @Sonnet what do you think");
+  for (let i = 0; i < 200 && r.state === "running"; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.deepEqual([ro.codex, ro.sonnet], [false, true]);
+  // the first builder can leave while another builder stays; the last one cannot
+  host.member(r.id, "codex", "Member");
+  assert.deepEqual([r.builder, r.builders], ["claude", []]);
+  assert.throws(() => host.member(r.id, "claude", "Member"), /Pick another builder/);
+  await host.close();
+  await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
 });

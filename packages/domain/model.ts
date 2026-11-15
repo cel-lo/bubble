@@ -112,7 +112,8 @@ export interface Message {
   at: string;
   kind?: string;
   /** what Walt read from @mention and /commands in this message */
-  meta?: { to?: Persona; keep?: boolean; via?: "island"; reset?: string } & Tune;
+  /** to: the first persona mentioned; also: the others mentioned in the same message */
+  meta?: { to?: Persona; also?: Persona[]; keep?: boolean; via?: "island"; reset?: string } & Tune;
 }
 export interface Artifact {
   revision: number;
@@ -137,6 +138,8 @@ export interface Room {
   artifacts: Artifact[];
   packet?: unknown;
   queue: string[];
+  /** more builders besides `builder`: they edit files too when mentioned (several at once work in parallel) */
+  builders?: Persona[];
   /** personas in the room besides builder and reviewers (answer only when mentioned) */
   members?: Persona[];
   /** room defaults set with `/effort … keep` or `/model … keep`; key "*" = everyone */
@@ -269,6 +272,8 @@ export function overlaps(a: string, b: string) {
   b = b.replaceAll("\\", "/").replace(/\/$/, "").toLowerCase();
   return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
 }
+/** everyone in the room who may edit files: the builder first, then the extra builders */
+export const buildersOf = (r: Room): Persona[] => [r.builder, ...(r.builders ?? []).filter((p) => p !== r.builder)];
 export function takeTurn(room: Room) {
   if (room.used >= room.budget)
     throw new Error("Turn budget exhausted. Continue from Walt to add turns.");

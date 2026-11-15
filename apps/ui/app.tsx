@@ -4,7 +4,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
-import { ENGINES_ON, enginesOn, isApi, isXai } from "../../packages/domain/model";
+import { ENGINES_ON, enginesOn, isApi, isXai, buildersOf } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
 import { md, esc, pics } from "./markdown";
@@ -381,8 +381,18 @@ const when = (iso: string) => {
   return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { weekday: "short" });
 };
 /** everyone in a chat, builder first */
-const team = (r: Room) => [r.builder, ...r.reviewers, ...(r.members || [])];
-const roleIn = (r: Room, p: Persona) => (p === r.builder ? (r.template === "roundtable" ? "Talks" : "Builder") : r.reviewers.includes(p) ? (r.template === "roundtable" ? "Talks" : "Reviewer") : "Member");
+const team = (r: Room) => [...buildersOf(r), ...r.reviewers, ...(r.members || [])];
+/** who is working in a chat right now: a busy process, or a reply still empty since your last message (the process
+ * is marked busy a moment after the run starts) */
+function workingIn(state: State, r: Room) {
+  const on = new Set((state.procs ?? []).filter((x) => x.room === r.id && x.busy).map((x) => x.persona));
+  if (r.state === "running" || r.state === "awaiting_user") {
+    const from = r.messages.map((m) => m.author).lastIndexOf("cello") + 1;
+    for (const m of r.messages.slice(from)) if (!m.text.trim()) on.add(m.author);
+  }
+  return on;
+}
+const roleIn = (r: Room, p: Persona) => (buildersOf(r).includes(p) ? (r.template === "roundtable" ? "Talks" : "Builder") : r.reviewers.includes(p) ? (r.template === "roundtable" ? "Talks" : "Reviewer") : "Member");
 
 function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; view: View; go: (v: View) => void; invoke: Invoke; newChat: (projectId?: string) => void; width: number }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
@@ -524,7 +534,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
               const p = pd(id);
               if (!p) return null;
               const pr = proc(id);
-              const [st, c] = pr ? (pr.busy ? [t("Working"), T.green] : [t("Ready"), T.blue]) : [t("Asleep"), T.faint];
+              const [st, c] = workingIn(state, room).has(id) ? [t("Working"), T.green] : pr || isApi(p.engine) ? [t("Ready"), T.blue] : [t("Asleep"), T.faint];
               const r = roleIn(room, id);
               return (
                 <div key={id} className="navi rich" title={`${p.name} · ${label(state, p.engine, p.model)}`}>
@@ -533,10 +543,11 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
                     <div className="row g6"><span className="t b">{p.name}</span><Html h={roleTag(p.avatar, t(r))} /></div>
                     <div className="pv row g6"><span style={{ width: 7, height: 7, borderRadius: 7, background: c, flex: "none" }} />{st} · {label(state, p.engine, room.tune?.[id]?.model ?? p.model)}</div>
                   </div>
-                  {r !== "Builder" && r !== "Talks" && (
+                  {r !== "Talks" && (
                     <span className="x" role="button" aria-label={`${p.name} actions`} onClick={(e) => more(e, [
-                      { label: t("Make builder"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Builder" }) },
-                      { label: t(r === "Reviewer" ? "Make member" : "Make reviewer"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: r === "Reviewer" ? "Member" : "Reviewer" }) },
+                      ...(r === "Builder" ? [] : [{ label: t("Make builder"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Builder" }) }]),
+                      ...(r === "Reviewer" ? [] : [{ label: t("Make reviewer"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Reviewer" }) }]),
+                      ...(r === "Member" ? [] : [{ label: t("Make member"), onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Member" }) }]),
                       { label: t("Remove from chat"), danger: true, onSelect: () => invoke("member", { roomId: room.id, persona: id, role: "Remove" }) },
                     ])}>
                       <Icon n="more" s={15} />
@@ -839,7 +850,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
   };
   const manage = (tab: string) => dispatchEvent(new CustomEvent("walt:open", { detail: { kind: "customize", tab } }));
   // in a chat: the plugins of the engines in it; on the start screen: all of them
-  const engines = room ? new Set([room.builder, ...room.reviewers, ...(room.members || [])].map((id) => state.personas.find((p) => p.id === id)?.engine)) : undefined;
+  const engines = room ? new Set(team(room).map((id) => state.personas.find((p) => p.id === id)?.engine)) : undefined;
   const plusItems = (v: NonNullable<typeof plus>): Item[] => {
     const toggle = (key: string, on: boolean) => () => void window.walt.call("tools.set", { key, on });
     const groups = v.skills.filter((g) => !engines || engines.has(g.engine));
@@ -1014,8 +1025,8 @@ function limitCardFor(state: State, room: Room) {
     const others: [string, string][] =
       room.template === "direct"
         ? enginesOn(state).filter((e) => e !== who?.engine && (state.engines.find((x) => x.engine === e)?.auth ?? "ok") === "ok").map((e) => [`${e}:${state.catalog?.[e]?.find((x) => x.isDefault)?.id ?? "default"}`, t("Continue with {0}", ENGINE_NAME[e])])
-        : m.meta?.to === room.builder
-          ? [room.builder, ...room.reviewers, ...(room.members || [])].filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
+        : m.meta?.to && buildersOf(room).includes(m.meta.to)
+          ? team(room).filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
           : [[m.meta?.to ?? "", t("Continue without {0}'s review", name)]];
     const reset = m.meta?.reset ? t("It resets {0}.", m.meta.reset) : t("Walt cannot tell when it resets.");
     const buttons = live && others.length ? `<div class="row g8" style="margin-top:12px;flex-wrap:wrap">${others.map(([v, l]) => `<button class="btn" data-hot="handoff:${esc(v)}" style="border:0">${esc(l)}</button>`).join("")}</div>` : "";
@@ -1073,6 +1084,8 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   // the Browser stays loaded once opened in this chat, so switching tabs keeps the page
   const [browsed, setBrowsed] = useState(false);
   const [browse, setBrowse] = useState<{ url: string; n: number } | undefined>();
+  // Who does what: the job menu of one member (opened from its role pill)
+  const [jobAt, setJobAt] = useState<{ id: string; at: DOMRect } | null>(null);
   useEffect(() => void (tab === "Browser" && setBrowsed(true)), [tab]);
   useEffect(() => setBrowsed(false), [room.id]);
   const [menuAt, setMenuAt] = useState<DOMRect | null>(null);
@@ -1121,7 +1134,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   useLayoutEffect(() => {
     if (stick.current && tl.current) tl.current.scrollTop = tl.current.scrollHeight;
   }, [room.messages.length, last?.text.length, asks.length]);
-  const roleOf = (p: Persona) => (direct ? "" : p === room.builder ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : room.members?.includes(p) ? "Member" : "");
+  const roleOf = (p: Persona) => (direct ? "" : buildersOf(room).includes(p) ? "Builder" : room.reviewers.includes(p) ? "Reviewer" : room.members?.includes(p) ? "Member" : "");
   // plain chats name replies by the model that answered (stored on the message), team chats by persona
   const nameOf = (id: string, meta?: { model?: string }) => {
     const p = pd(id);
@@ -1135,16 +1148,18 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const choices = asking
     ? `<div class="row g8" style="margin:4px 0 0 44px;flex-wrap:wrap"><span class="s12 dim">${esc(t("Your choice"))}:</span>${asking.options.map((o, i) => `<button class="btn sm" data-hot="decide:${i}" style="border:0">${esc(o)}</button>`).join("")}</div>`
     : "";
+  const now = Date.now();
+  const typing = `<span class="typing" aria-label="${esc(t("Thinking…"))}">${[0, 1, 2].map((i) => `<i style="animation-delay:${-((now % 1200) - i * 150)}ms"></i>`).join("")}</span>`;
   const html =
     room.messages
-      .map((m) =>
+      .map((m) => `<div class="msg-in" style="animation-delay:-${Math.max(0, now - Date.parse(m.at))}ms">` + (
         m.author === "cello"
           ? mine(new Date(m.at).toLocaleTimeString(), pics(esc(m.text))) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
           : pd(m.author)
-            ? personaMsg(pd(m.author)!, t(roleOf(m.author)), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) && m === last ? '<span class="dim">Thinking…</span>' : "…"), nameOf(m.author, m.meta)) + (m === lastAi ? choices : "")
+            ? personaMsg(pd(m.author)!, t(roleOf(m.author)), new Date(m.at).toLocaleTimeString(), md(m.text) || (busy(room) ? typing : "…"), nameOf(m.author, m.meta)) + (m === lastAi ? choices : "")
             : m.kind === "limit"
               ? limitCard(m, m === room.messages.at(-1) && !busy(room))
-              : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`,
+              : `<div class="card s13" style="margin:12px 0;padding:12px;color:${m.kind === "error" ? T.red : T.sub}">${esc(m.text)}</div>`) + "</div>",
       )
       .join("") +
     asks
@@ -1168,6 +1183,11 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     else if (h.startsWith("handoff:")) await invoke("limit.handoff", { roomId: room.id, to: h.slice(8) });
     else if (h.startsWith("img:")) window.walt.window("image:" + h.slice(4));
     else if (h.startsWith("mark:")) dispatchEvent(new CustomEvent("walt:mark", { detail: h.slice(5) }));
+    else if (h.startsWith("role:")) {
+      // jobs change only while the chat is not working (Stop first); the host refuses it too
+      if (busy(room)) setNote(t("Stop the chat first, then change jobs."));
+      else setJobAt({ id: h.slice(5), at: (e.target as HTMLElement).closest("[data-hot]")!.getBoundingClientRect() });
+    }
     else if (h.startsWith("link:")) {
       const url = h.slice(5);
       if (state.settings.browser?.links === "system") void window.walt.call("browser.external", url).catch(() => {});
@@ -1224,6 +1244,25 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           </span>
         </div>
         {menuAt && <Menu at={menuAt} width={280} items={chatMenu()} onClose={() => setMenuAt(null)} />}
+        {jobAt && (
+          <Menu
+            at={jobAt.at}
+            width={310}
+            onClose={() => setJobAt(null)}
+            items={[
+              ...(room.template === "roundtable"
+                ? []
+                : (["Builder", "Reviewer", "Member"] as const).map((role) => ({
+                    label: t(role),
+                    hint: t(role === "Builder" ? "edits files" : role === "Reviewer" ? "checks each revision" : "answers when @mentioned"),
+                    checked: roleIn(room, jobAt.id) === role,
+                    onSelect: () => void invoke("member", { roomId: room.id, persona: jobAt.id, role }),
+                  }))),
+              { kind: "sep" as const },
+              { label: t("Remove from chat"), danger: true, onSelect: () => void invoke("member", { roomId: room.id, persona: jobAt.id, role: "Remove" }) },
+            ]}
+          />
+        )}
         {diff && <DiffView diff={diff} title={room.title} onClose={() => setDiff(null)} />}
         {adding && <AddModel state={state} room={room} invoke={invoke} at={new DOMRect(adding.right - 360, adding.y, 360, adding.height)} onClose={() => setAdding(null)} />}
         {!direct && (
@@ -1262,7 +1301,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           chip={direct ? <ModelChip state={state} value={tg} pick={(v) => invoke("chat.target", { roomId: room.id, ...v })} /> : undefined}
           footer={
             <span className="dim">
-              {direct ? (project ? t("Edits in {0} need your approval", project.name) : t("Chat only · the AI cannot edit files here")) : t("{0} · one writer at a time · @name to talk to one", t(TEMPLATE[room.template]))}
+              {direct ? (project ? t("Edits in {0} need your approval", project.name) : t("Chat only · the AI cannot edit files here")) : t("{0} · @name to talk to one, @two @names for both at once", t(TEMPLATE[room.template]))}
             </span>
           }
           onSend={async (text) => (await invoke("send", { roomId: room.id, text })) !== null}
@@ -1338,7 +1377,7 @@ const tokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.
 /** Context tab: how full each model's window is, from its latest reply in this chat */
 function contextHtml(state: State, room: Room) {
   const direct = room.template === "direct";
-  const ids = direct ? Object.keys(room.context ?? {}).sort((a, b) => room.context![b].at - room.context![a].at) : [room.builder, ...room.reviewers, ...(room.members || [])];
+  const ids = direct ? Object.keys(room.context ?? {}).sort((a, b) => room.context![b].at - room.context![a].at) : team(room);
   const rows = ids
     .map((id) => {
       const p = state.personas.find((x) => x.id === id);
@@ -1354,18 +1393,25 @@ function contextHtml(state: State, room: Room) {
   const packet = room.packet ? `<details style="margin-top:18px"><summary class="s12 dim" style="cursor:pointer">${t("What the reviewers receive")}</summary><pre class="s12" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(room.packet, null, 2))}</pre></details>` : "";
   return `<div class="lbl">${t("Context window")}</div>${rows || `<div class="s13 dim">${t("Shows after the first reply.")}</div>`}<div class="s12 dim" style="line-height:1.5">${t("Each model keeps this chat in its own window. When it fills, the model sums up older messages by itself; past about 80%, a new chat gives sharper answers.")}</div>${packet}`;
 }
+const teamOf = team;
 function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
   const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
   // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
   const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
-  const team = (direct ? [] : [room.builder, ...room.reviewers, ...(room.members || [])])
+  const locked = busy(room);
+  const working = workingIn(state, room);
+  const team = (direct ? [] : teamOf(room))
     .map((id) => {
       const p = state.personas.find((x) => x.id === id);
       if (!p) return "";
       const r = roleIn(room, id);
-      return `<div class="row g8 s13" style="margin:8px 0">${av(p.avatar, 22)}<span>${esc(p.name)}</span>${roleTag(p.avatar, t(r))}<span class="f1"></span><span class="s12 dim">${t(can[r])}</span></div>`;
+      const pr = state.procs?.find((x) => x.room === room.id && x.persona === id);
+      const on = working.has(id);
+      const [st, c] = on ? ["Working", T.green] : pr || isApi(p.engine) ? ["Ready", T.blue] : ["Asleep", T.faint];
+      const tip = `${t(r)} · ${t(can[r])} · ${t(locked ? "Stop the chat to change jobs" : "Click to change the job")}`;
+      return `<div class="who">${av(p.avatar, 22)}<span class="nm s13" title="${esc(p.name)}">${esc(p.name)}</span><span role="button" class="job${locked ? " off" : ""}" data-hot="role:${id}" title="${esc(tip)}">${roleTag(p.avatar, t(r))}</span><span class="st s12"><i class="${on ? "pulse" : ""}" style="background:${c}"></i>${t(st)}</span></div>`;
     })
     .join("");
   const body =
@@ -1377,7 +1423,7 @@ function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
           ? decisionsHtml(state, room)
           : tab === "Activity"
           ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
-          : `<div class="lbl">${t("Who does what")}</div>${team}<div class="lbl">${t("This task")}</div><div>${t("{0} of {1} AI turns", room.used, room.budget)}</div><div class="s12 dim" style="margin-top:4px;line-height:1.5">${t("Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.")}</div><div class="col g8" style="margin-top:20px">${room.state === "paused" ? btn(t("Resume"), "control:resume") : ""}${btn(t("End chat"), "control:end")}</div>`;
+          : `<div class="lbl">${t("Who does what")}</div>${team}<div class="s12 dim" style="margin:6px 0 4px;line-height:1.5">${t("Builders edit files (mention two to work in parallel) · Reviewers check each revision · Members answer when @mentioned.")}</div><div class="lbl">${t("This task")}</div><div>${t("{0} of {1} AI turns", room.used, room.budget)}</div><div class="s12 dim" style="margin-top:4px;line-height:1.5">${t("Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.")}</div><div class="col g8" style="margin-top:20px">${room.state === "paused" ? btn(t("Resume"), "control:resume") : ""}${btn(t("End chat"), "control:end")}</div>`;
   // icons like Claude's side panel; the names show when the panel is wide enough, and always as a tooltip
   const tabs = (direct ? ["Files", "Decisions", "Context", "Activity", "Browser"] : ["Task", "Files", "Decisions", "Context", "Activity", "Browser"])
     .map((x) => `<span class="tab ${tab === x ? "on" : ""}" role="tab" aria-selected="${tab === x}" aria-label="${t(x)}" title="${t(x)}" data-hot="tab:${x}">${ic(TAB_ICON[x], 17, tab === x ? T.text : T.dim)}${wide ? t(x) : ""}</span>`)
@@ -1404,8 +1450,8 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
       setPicks(rest);
     } else setPicks([...picks, { engine, model, role: picks.some((p) => p.role === "Builder") ? "Reviewer" : "Builder" }]);
   };
-  const set = (i: number, v: Partial<Pick>) =>
-    setPicks(picks.map((p, j) => (j === i ? { ...p, ...v } : v.role === "Builder" && p.role === "Builder" ? { ...p, role: "Reviewer" } : p)));
+  // several builders are fine: mention them together and they build their parts in parallel
+  const set = (i: number, v: Partial<Pick>) => setPicks(picks.map((p, j) => (j === i ? { ...p, ...v } : p)));
   const reviewers = picks.filter((p) => p.role === "Reviewer").length;
   const why =
     !picks.length ? t("Pick at least one model.") :
@@ -1434,7 +1480,7 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
       const template = talk ? "roundtable" : revs.length >= 2 ? "triad" : "build_review";
       const r = await invoke("room", { projectId, title: first ? "Main" : "Team chat", template, builder: builder.id, reviewers: revs.map((p) => p.id) });
       if (!r) return;
-      for (const m of talk ? [] : others.filter((p) => p.role === "Member")) await invoke("member", { roomId: r.id, persona: m.id, role: "Member" });
+      for (const m of talk ? [] : others.filter((p) => p.role === "Member" || p.role === "Builder")) await invoke("member", { roomId: r.id, persona: m.id, role: m.role });
       done(r.id);
     } finally {
       setBusy(false);

@@ -24,6 +24,7 @@ import {
   type TeamTemplate,
   defaultStrengths,
   type EngineReport,
+  buildersOf,
 } from "../domain/model";
 import { parseMessage, decision, autoBuilder, plain, usageLimit, type Parsed } from "../domain/command";
 import { canonicalRoot, manifest } from "./files";
@@ -102,7 +103,7 @@ export class Host extends EventEmitter {
     return p;
   }
   private inRoom(r: Room) {
-    return [r.builder, ...r.reviewers, ...(r.members || [])];
+    return [...buildersOf(r), ...r.reviewers, ...(r.members || [])];
   }
   /** effective model/effort: this message > room default for the persona > room default for everyone > persona */
   private tune(r: Room, p: PersonaDef, msg: Tune): Tune {
@@ -215,8 +216,8 @@ export class Host extends EventEmitter {
     const name = input.name.trim();
     if (!name) throw new Error("Give the template a name.");
     if (input.picks.length < 2) throw new Error("A team template needs at least two models.");
-    if (!input.talk && input.picks.filter((p) => p.role === "Builder").length !== 1) throw new Error("A build team needs exactly one builder.");
-    if (!input.talk && input.picks.some((p) => p.role === "Builder" && isApi(p.engine))) throw new Error("An API model cannot edit files, so it cannot be the builder. Pick Claude or Codex to build.");
+    if (!input.talk && !input.picks.some((p) => p.role === "Builder")) throw new Error("A build team needs at least one builder.");
+    if (!input.talk && input.picks.some((p) => p.role === "Builder" && isApi(p.engine))) throw new Error("An API model cannot edit files, so it cannot be the builder. Pick Claude, Codex or Antigravity to build.");
     const teams = (this.state.teams ??= []);
     const old = teams.find((x) => x.name.toLowerCase() === name.toLowerCase());
     const t: TeamTemplate = { ...input, name, id: old?.id ?? randomUUID() };
@@ -240,23 +241,31 @@ export class Host extends EventEmitter {
     const r = this.room(roomId);
     if (this.active.has(roomId)) throw new Error("Change the team after this run.");
     this.persona(persona);
-    if (persona === r.builder) throw new Error("Pick another builder before moving this persona.");
     if (role === "Builder" && r.template === "roundtable") throw new Error("A roundtable has no builder.");
     if (role === "Builder" && r.template !== "direct") this.canBuild(persona);
+    const builders = buildersOf(r);
+    // a chat can have several builders; the last one cannot leave until another takes its place
+    if (builders.includes(persona) && role !== "Builder") {
+      const rest = builders.filter((p) => p !== persona);
+      if (!rest.length) throw new Error("Pick another builder before moving this persona.");
+      r.builder = rest[0];
+      r.builders = rest.slice(1);
+    }
     r.reviewers = r.reviewers.filter((p) => p !== persona);
     r.members = (r.members || []).filter((p) => p !== persona);
-    if (role === "Builder") this.swapBuilder(r, persona);
+    if (role === "Builder" && !builders.includes(persona)) r.builders = [...(r.builders ?? []), persona];
     if (role === "Reviewer") r.reviewers.push(persona);
     if (role === "Member") r.members.push(persona);
     this.commit("room.members");
     return r;
   }
-  /** `persona` builds; the old builder reviews in its place */
+  /** `persona` builds; the old builder reviews in its place (Auto roles) */
   private swapBuilder(r: Room, persona: string) {
     const old = r.builder;
     r.reviewers = r.reviewers.map((p) => (p === persona ? old : p));
     if (!r.reviewers.includes(old)) r.reviewers.unshift(old);
     r.members = (r.members || []).filter((p) => p !== persona);
+    r.builders = (r.builders ?? []).filter((p) => p !== persona);
     r.builder = persona;
   }
   setAuto(roomId: string, on: boolean) {
@@ -555,15 +564,15 @@ export class Host extends EventEmitter {
     if (r.state === "ended" || r.state === "recovery_required")
       throw new Error("Resolve recovery or create a new room first.");
     const cmd = parseMessage(text, this.state.personas);
-    if (cmd.to && !this.inRoom(r).includes(cmd.to))
-      throw new Error(`${this.persona(cmd.to).name} is not in this room. Add it from the room header first.`);
+    const outside = cmd.tos.find((p) => !this.inRoom(r).includes(p));
+    if (outside) throw new Error(`${this.persona(outside).name} is not in this room. Add it from the room header first.`);
     // check the effort against every persona it could apply to, before anything is stored
-    for (const p of cmd.to ? [cmd.to] : this.inRoom(r)) this.tune(r, this.persona(p), { effort: cmd.effort, model: cmd.model });
-    const meta = cmd.to || cmd.effort || cmd.model ? { to: cmd.to, effort: cmd.effort, model: cmd.model, keep: cmd.keep } : undefined;
+    for (const p of cmd.tos.length ? cmd.tos : this.inRoom(r)) this.tune(r, this.persona(p), { effort: cmd.effort, model: cmd.model });
+    const also = cmd.tos.slice(1);
+    const meta = cmd.to || cmd.effort || cmd.model ? { to: cmd.to, ...(also.length && { also }), effort: cmd.effort, model: cmd.model, keep: cmd.keep } : undefined;
     if (cmd.keep) {
       r.tune ??= {};
-      const k = cmd.to ?? "*";
-      r.tune[k] = { ...r.tune[k], ...(cmd.effort && { effort: cmd.effort }), ...(cmd.model && { model: cmd.model }) };
+      for (const k of cmd.tos.length ? cmd.tos : ["*"]) r.tune[k] = { ...r.tune[k], ...(cmd.effort && { effort: cmd.effort }), ...(cmd.model && { model: cmd.model }) };
     }
     if (!cmd.text) {
       if (!meta) throw new Error("Write a task.");
@@ -691,8 +700,9 @@ export class Host extends EventEmitter {
     if (r.template === "direct") {
       const i = to.indexOf(":");
       this.setTarget(roomId, { engine: to.slice(0, i) as Engine, model: to.slice(i + 1) });
-    } else if (hit === r.builder) {
+    } else if (buildersOf(r).includes(hit)) {
       this.member(roomId, to, "Builder");
+      this.member(roomId, hit, "Member");
     } else {
       this.member(roomId, hit, "Member");
     }
@@ -702,7 +712,8 @@ export class Host extends EventEmitter {
   /** a plain chat: the message goes as written; the CLI session remembers the conversation */
   /** messages `who` has not seen: everything after its last reply, minus the message being sent now; newest kept, about 12k chars */
   unseen(r: Room, who: Persona) {
-    const msgs = r.messages.slice(0, -1);
+    const now = r.messages.map((m) => m.author).lastIndexOf("cello");
+    const msgs = r.messages.slice(0, now >= 0 ? now : r.messages.length);
     const from = msgs.map((m) => m.author).lastIndexOf(who) + 1;
     const name = (m: Message) => {
       if (m.author === "cello") return "User";
@@ -728,15 +739,29 @@ export class Host extends EventEmitter {
       if (p) this.leases.set(p.root, r.id);
       r.state = "running";
       r.pause = false;
-      const who = cmd.to || r.builder;
-      const first = !r.messages.some((m) => m.author === who);
-      const brief = p && first ? `Project ${p.name} (${p.root}). Goal: ${p.goal || "-"}. Constraints: ${p.constraints || "-"}. Reply in the language the user writes in.\n\n` : "";
-      // each CLI keeps its own session, so a model switched in mid-chat gets what it missed as a recap
-      const missed = this.unseen(r, who);
-      const recap = missed ? `Earlier in this chat another model was answering; you did not see these messages:\n${missed}\n\nNow the user writes:\n` : "";
-      const before = p ? await manifest(p.root) : undefined;
+      const whos = cmd.tos.length ? cmd.tos : [r.builder];
       const att = attachments(cmd.text);
-      await this.turn(r, who, brief + recap + att.text, !p, { effort: cmd.effort, model: cmd.model }, undefined, att.files);
+      // prompts first (each model's recap of what it missed), then every model at once
+      const prompts = whos.map((who) => {
+        const first = !r.messages.some((m) => m.author === who);
+        const brief = p && first ? `Project ${p.name} (${p.root}). Goal: ${p.goal || "-"}. Constraints: ${p.constraints || "-"}. Reply in the language the user writes in.\n\n` : "";
+        // each CLI keeps its own session, so a model switched in mid-chat gets what it missed as a recap
+        const missed = this.unseen(r, who);
+        const recap = missed ? `Earlier in this chat another model was answering; you did not see these messages:\n${missed}\n\nNow the user writes:\n` : "";
+        // several at once: the message as written, so each finds the part after its own @name
+        if (whos.length > 1) {
+          const others = whos.filter((x) => x !== who).map((x) => this.persona(x).name).join(" and ");
+          return `${brief}${recap}The user wrote to several of you at once (you are @${this.persona(who).name}; ${others} answer on their own):\n${attachments(cmd.said ?? cmd.text).text}\n\nAnswer only what is meant for you; if the whole message is meant for everyone, answer all of it.`;
+        }
+        return brief + recap + att.text;
+      });
+      const before = p ? await manifest(p.root) : undefined;
+      r.budget = Math.max(r.budget, r.used + whos.length);
+      const done = await Promise.allSettled(whos.map((who, i) => this.turn(r, who, prompts[i], !p, { effort: cmd.effort, model: cmd.model }, undefined, att.files)));
+      const lost = done.filter((d): d is PromiseRejectedResult => d.status === "rejected");
+      // one model failing alone is shown and the others keep their answers; all failing is the chat's error
+      if (lost.length === done.length) throw lost[0].reason;
+      for (const l of lost) this.failed(r, l.reason);
       if (p && before) {
         const after = await manifest(p.root);
         if (after.hash !== before.hash) {
@@ -788,12 +813,14 @@ export class Host extends EventEmitter {
       r.packet = packet;
       this.commit("handoff");
       const mention = cmd.to;
-      if (r.template === "roundtable") {
+      if (cmd.tos.length > 1 && r.template !== "roundtable") {
+        asked = await this.together(r, cmd.tos, { ...packet, message: attachments(cmd.said ?? cmd.text).text }, msg, att.files, p.root);
+      } else if (r.template === "roundtable") {
         for (const persona of [r.builder, ...r.reviewers]) {
           if (r.pause) break;
           await this.turn(r, persona, JSON.stringify(packet), true, msg, undefined, att.files);
         }
-      } else if (mention && mention !== r.builder) {
+      } else if (mention && !buildersOf(r).includes(mention)) {
         // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
         await this.turn(r, mention, JSON.stringify(packet), true, msg, undefined, att.files);
       } else {
@@ -807,6 +834,8 @@ export class Host extends EventEmitter {
             this.message(r, "Walt", `Auto roles: ${name(pick.id)} builds this one (good at ${pick.why}); ${name(old)} reviews. Stop now if you want it the other way.`);
           }
         }
+        // the builder for this task: the one you mentioned, else the chat's first builder
+        const builder = mention ?? r.builder;
         // build → review → (fix → review again) until every reviewer approves, the budget runs out, or a verdict is missing
         let findings: { reviewer: string; text: string }[] = [];
         let prevFiles = before.files;
@@ -820,8 +849,15 @@ export class Host extends EventEmitter {
                   "Reviewers asked for changes on your last revision. Fix the findings that are correct; if you disagree with one, say why instead of changing it. The same reviewers check the new revision.",
               })
             : JSON.stringify(packet);
-          const said = await this.turn(r, r.builder, prompt, false, msg, round ? "fix" : "build", round ? [] : att.files);
+          const said = await this.turn(r, builder, prompt, false, msg, round ? "fix" : "build", round ? [] : att.files);
           const after = await manifest(p.root);
+          // a reply that changed no file (an answer, a plan, tests run) makes no revision and leaves your acceptance alone
+          if (!Object.keys(after.files).some((f) => prevFiles[f] !== after.files[f]) && !Object.keys(prevFiles).some((f) => !(f in after.files))) {
+            if (decision(said)) asked = true;
+            else if (round) this.message(r, "Walt", `${this.persona(builder).name} changed nothing in fix round ${round}. Read its reply and decide: accept, or ask again.`);
+            else if (!mention && !r.pause) this.message(r, "Walt", "No files changed, so there is nothing to review.");
+            break;
+          }
           for (const a of r.artifacts) a.accepted = false;
           const artifact = {
             revision: r.artifacts.length + 1,
@@ -910,7 +946,7 @@ export class Host extends EventEmitter {
             this.message(r, "Walt", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, and the automatic loop has used its turns for this task. Send "fix the review findings" to start a fix round, or accept as it is.`);
             break;
           }
-          this.message(r, "Walt", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(r.builder)} fixes them.`);
+          this.message(r, "Walt", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(builder)} fixes them.`);
         }
       }
       r.state = r.pause ? "paused" : "idle";
@@ -924,6 +960,39 @@ export class Host extends EventEmitter {
       if (this.leases.get(p.root) === r.id) this.leases.delete(p.root);
       this.commit();
     }
+  }
+  /** several personas mentioned in one team message: all work at the same time. Builders among them edit (each told
+   * who else is working, so they keep to their own part); the others answer read-only. One revision afterwards when
+   * files changed; no automatic review (a mention is a direct task). Returns whether one of them asked a DECISION. */
+  private async together(r: Room, who: Persona[], packet: object, msg: Tune, files: string[], root: string) {
+    const name = (id: string) => this.persona(id).name;
+    const writers = who.filter((id) => buildersOf(r).includes(id));
+    const before = await manifest(root);
+    r.budget = Math.max(r.budget, r.used + who.length);
+    const done = await Promise.allSettled(
+      who.map((id) => {
+        const write = writers.includes(id);
+        const others = who.filter((x) => x !== id).map(name).join(" and ");
+        const prompt = JSON.stringify({
+          ...packet,
+          role: write ? `Builder, working at the same time as ${others}` : `Read-only member, answering together with ${others}`,
+          together: write
+            ? `The user addressed several of you in one message (see "message", as written with the @names). Do only the part meant for you (@${name(id)}); ${others} work on theirs at the same time in the same project. Do not edit files that belong to their part; if the parts overlap, say so instead of editing.`
+            : `The user addressed several of you in one message (see "message", as written with the @names). Answer only the part meant for you (@${name(id)}), read-only; ${others} answer theirs.`,
+        });
+        return this.turn(r, id, prompt, !write, msg, write ? "build" : "review", files);
+      }),
+    );
+    const lost = done.filter((d): d is PromiseRejectedResult => d.status === "rejected");
+    if (lost.length === done.length) throw lost[0].reason;
+    for (const l of lost) this.failed(r, l.reason);
+    const after = await manifest(root);
+    if (after.hash !== before.hash) {
+      for (const a of r.artifacts) a.accepted = false;
+      r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+      this.commit("artifact.registered");
+    }
+    return done.some((d) => d.status === "fulfilled" && !!decision(d.value));
   }
   control(id: string, action: string) {
     const r = this.room(id);

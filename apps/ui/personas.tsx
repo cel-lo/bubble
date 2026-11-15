@@ -21,7 +21,7 @@ export const personaMsg = (p: PersonaDef, r: string, time: string, body: string,
   `<div class="msg">${av(p.avatar, 32)}<div class="col" style="min-width:0"><div class="mh"><span class="n">${esc(name)}</span>${r ? roleTag(p.avatar, r) : ""}<span>${time}</span></div><div class="bub">${body}</div></div></div>`;
 /** the chip under cello's message that shows what Walt read from @mention and /commands */
 export function metaChip(meta: NonNullable<Room["messages"][number]["meta"]>, name: (id: string) => string, setting: boolean) {
-  const who = meta.to ? name(meta.to) : t("everyone");
+  const who = meta.to ? [meta.to, ...(meta.also ?? [])].map(name).join(" + ") : t("everyone");
   const what = [meta.effort && t("effort {0}", meta.effort), meta.model && t("model {0}", esc(meta.model))].filter(Boolean).join(" · ");
   const text = setting ? t("{0} now uses {1} in this room", who, what) : [`→ ${who}`, what, meta.keep && t("kept for this room")].filter(Boolean).join(" · ");
   return `<div class="row" style="justify-content:flex-end;margin:-8px 0 10px"><span class="chip">${ic("steer", 13, T.sub)}${text}</span></div>`;
@@ -30,7 +30,7 @@ export function metaChip(meta: NonNullable<Room["messages"][number]["meta"]>, na
 // ---------- composer autocomplete ----------
 export interface Suggestion { label: string; hint: string; insert: string; replace: number }
 export function complete(before: string, state: State, room: Room): Suggestion[] {
-  const inRoom = new Set([room.builder, ...room.reviewers, ...(room.members || [])]);
+  const inRoom = new Set([room.builder, ...(room.builders ?? []), ...room.reviewers, ...(room.members || [])]);
   // @ menu only while the text after @ can still start a persona name (so "@Opus /effort " moves on)
   const at = before.match(/(?:^|\s)@([^@/\n]{0,30})$/);
   const q = at?.[1].toLowerCase() ?? "";

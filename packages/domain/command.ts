@@ -6,7 +6,12 @@ import { LEVELS, type Effort, type Persona, type PersonaDef } from "./model";
 
 export interface Parsed {
   text: string;
+  /** the first persona mentioned (undefined when none) */
   to?: Persona;
+  /** every persona mentioned, in the order written: two or more answer at the same time */
+  tos: Persona[];
+  /** the message as written, @names included (several answering need it to find their own part) */
+  said?: string;
   effort?: Effort;
   model?: string;
   keep: boolean;
@@ -29,14 +34,16 @@ export function aliases(personas: PersonaDef[]) {
 
 export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   let text = input;
-  let to: Persona | undefined;
+  const found: { id: Persona; at: number }[] = [];
   for (const [alias, id] of aliases(personas)) {
     const re = new RegExp(`@${escapeRe(alias)}${END}`, "gi");
-    if (!re.test(text)) continue;
-    if (to && to !== id) throw new Error("Mention one persona per message.");
-    to = id;
+    const at = text.search(re);
+    if (at < 0) continue;
+    if (!found.some((f) => f.id === id)) found.push({ id, at });
     text = text.replace(re, " ");
   }
+  const tos = found.sort((a, b) => a.at - b.at).map((f) => f.id);
+  const to = tos[0];
   const leftover = text.match(/@[\w.-]+/);
   if (leftover && !to) throw new Error(`No persona called ${leftover[0]} in Walt.`);
   let effort: Effort | undefined, model: string | undefined, keep = false;
@@ -53,7 +60,7 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
     keep ||= !!k;
     return " ";
   });
-  return { text: text.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, ""), to, effort, model, keep };
+  return { text: text.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, ""), to, tos, effort, model, keep, ...(tos.length > 1 && { said: input.trim() }) };
 }
 
 /** a CLI error that means the subscription's usage limit was hit; `reset` = when it says it resets, if it does.
