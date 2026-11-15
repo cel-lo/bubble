@@ -48,7 +48,7 @@ export class Store {
     for (const room of state.rooms) if (!room.messages?.length) room.messages = byRoom.get(room.id) ?? [];
     return state;
   }
-  save(state: State, type = "state.updated") {
+  save(state: State) {
     state.revision++;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -72,9 +72,6 @@ export class Store {
           drop.run(id);
           this.written.delete(id);
         }
-      this.db
-        .prepare("INSERT INTO events(at,type,payload) VALUES(?,?,?)")
-        .run(new Date().toISOString(), type, JSON.stringify({ revision: state.revision }));
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");

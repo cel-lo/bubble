@@ -66,6 +66,8 @@ export class Host extends EventEmitter {
     for (const p of this.state.personas)
       if ((p.engine as string) === "gemini") Object.assign(p, { engine: "antigravity", avatar: "antigravity", model: "", effort: undefined, name: p.name === "Gemini" ? "Antigravity" : p.name });
     if (!this.state.personas.some((p) => p.engine === "antigravity")) this.state.personas.push(structuredClone(DEFAULT_PERSONAS.find((p) => p.engine === "antigravity")!));
+    // chats from before old revisions were trimmed
+    for (const r of this.state.rooms) this.trim(r);
     for (const r of this.state.rooms)
       if (["running", "awaiting_user"].includes(r.state)) {
         r.state = "recovery_required";
@@ -88,8 +90,9 @@ export class Host extends EventEmitter {
     this.state.asks = [];
     this.commit("recovery");
   }
-  commit(type = "state.updated") {
-    this.store.save(this.state, type);
+  /** save and tell the window; the name only labels the change where it is called */
+  commit(_change = "state.updated") {
+    this.store.save(this.state);
     this.emit("state", this.state);
   }
   room(id: string) {
@@ -594,7 +597,20 @@ export class Host extends EventEmitter {
     this.message(r, "cello", text).meta = via ? { ...meta, via } : meta;
     this.commit();
     this.active.add(id);
-    void this.exchange(r, cmd).finally(() => this.active.delete(id));
+    void this.exchange(r, cmd).finally(() => {
+      this.active.delete(id);
+      this.next(r);
+    });
+  }
+  /** a message you sent while the AI was working runs once it is done (not while the chat is paused: Resume runs it) */
+  private next(r: Room) {
+    if (r.pause || r.state === "ended" || r.state === "recovery_required" || this.active.has(r.id)) return;
+    const text = r.queue.shift();
+    if (text === undefined) return;
+    // it goes in again as an ordinary message, so the waiting copy leaves the timeline
+    const i = r.messages.findIndex((m) => m.kind === "queued" && m.text === text);
+    if (i >= 0) r.messages.splice(i, 1);
+    void this.send(r.id, text).catch((e) => this.failed(r, e));
   }
   private async turn(
     r: Room,
@@ -671,7 +687,7 @@ export class Host extends EventEmitter {
       // every API call goes to the log (tokens, search tools, time, result), also a failed one
       if (session instanceof ApiSession && session.lastCall) {
         (this.state.apiCalls ??= []).unshift({ ...session.lastCall, at: Date.now(), provider: def.engine.slice(4), room: r.id });
-        this.state.apiCalls.length = Math.min(this.state.apiCalls.length, 500);
+        this.state.apiCalls.length = Math.min(this.state.apiCalls.length, 200);
       }
       const c = "context" in session ? session.context : undefined;
       if (c?.size) (r.context ??= {})[persona] = { used: c.used, size: c.size, model: tune.model ?? def.model, at: Date.now() };
@@ -767,6 +783,7 @@ export class Host extends EventEmitter {
         if (after.hash !== before.hash) {
           for (const a of r.artifacts) a.accepted = false;
           r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+          this.trim(r);
           this.commit("artifact.registered");
         }
       }
@@ -866,6 +883,7 @@ export class Host extends EventEmitter {
             accepted: false,
           };
           r.artifacts.push(artifact);
+          this.trim(r);
           this.commit("artifact.registered");
           // the builder asked you to choose: wait for the answer instead of reviewing a half-done revision
           if (decision(said)) {
@@ -990,6 +1008,7 @@ export class Host extends EventEmitter {
     if (after.hash !== before.hash) {
       for (const a of r.artifacts) a.accepted = false;
       r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+      this.trim(r);
       this.commit("artifact.registered");
     }
     return done.some((d) => d.status === "fulfilled" && !!decision(d.value));
@@ -1022,6 +1041,8 @@ export class Host extends EventEmitter {
         throw new Error("Wait for the current run to finish.");
       r.pause = false;
       r.state = "idle";
+      this.commit();
+      return this.next(r);
     } else if (action === "continue") {
       if (this.active.has(id))
         throw new Error("Wait for the current run to finish.");
@@ -1041,9 +1062,19 @@ export class Host extends EventEmitter {
     if (!ask || !resolve) throw new Error("Approval is no longer active");
     this.answers.delete(id);
     this.state.asks = this.state.asks.filter((a) => a.id !== id);
-    this.room(ask.roomId).state = "running";
+    // two builders at once can both be waiting for you: the chat keeps waiting until the last card is answered
+    this.room(ask.roomId).state = this.state.asks.some((a) => a.roomId === ask.roomId) ? "awaiting_user" : "running";
     this.commit("ask.resolved");
     resolve(allow);
+  }
+  /** the whole state is saved and sent to the window on every change, and each revision lists every file of the
+   * project: only the latest 5 keep that list (Accept and diff use it); older ones keep their number and reviews */
+  private trim(r: Room) {
+    for (const a of r.artifacts.slice(0, -5))
+      if (!a.trimmed) {
+        a.files = {};
+        a.trimmed = true;
+      }
   }
   /** what the latest revision changed: git diff against HEAD when the project is a git repo, else the new text of each file */
   async diff(roomId: string, revision?: number) {
@@ -1052,6 +1083,7 @@ export class Host extends EventEmitter {
     const a = r.artifacts[at];
     const root = this.projectOf(r)?.root;
     if (!a || !root) return { revision: 0, files: [] };
+    if (a.trimmed || r.artifacts[at - 1]?.trimmed) throw new Error(`r${a.revision} is too old to compare here; the latest 5 revisions can be opened.`);
     // an older revision: compared with the one before it (git diff then shows today's file against HEAD, so it is only exact for the latest)
     const prev: Record<string, string> = r.artifacts[at - 1]?.files ?? (r.packet as { fileRefs?: Record<string, string> })?.fileRefs ?? {};
     const paths = [...new Set([...Object.keys(a.files), ...Object.keys(prev)])].filter((f) => prev[f] !== a.files[f]).sort();

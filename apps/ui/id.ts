@@ -399,6 +399,7 @@ export const ID: Record<string, string> = {
   "Remove mark {0}": "Hapus tanda {0}",
   "Marks: {0}": "Tanda: {0}",
   "Forward": "Maju",
+  "{0} reviews · older revision": "{0} review · revisi lama",
   "{0} · @name to talk to one, @two @names for both at once": "{0} · @nama untuk bicara ke satu, @dua @nama untuk keduanya sekaligus",
   "Stop the chat first, then change jobs.": "Hentikan chat dulu, lalu ganti tugas.",
   "edits files": "mengedit file",

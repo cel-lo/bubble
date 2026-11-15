@@ -83,6 +83,7 @@
 @keyframes dots{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .typing{display:inline-flex;align-items:center;gap:4px;height:18px;color:#909097}
 .typing i{width:6px;height:6px;border-radius:6px;background:currentColor;animation:dots 1.2s ease-in-out infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 /* side panel · Who does what: one aligned grid row per member */
 .who{display:grid;grid-template-columns:22px minmax(0,1fr) auto 74px;align-items:center;gap:8px;margin:7px 0}
 .who .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

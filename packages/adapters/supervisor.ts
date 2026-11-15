@@ -167,8 +167,13 @@ export class Supervisor {
       await this.retire(key, s);
     }
     if (!s?.alive) {
-      if ([...this.sessions.values()].filter((s) => s.alive && !(s instanceof ApiSession)).length >= 6)
-        throw new Error("Maximum 6 warm processes reached. Wait for idle sessions to sleep.");
+      const warm = [...this.sessions].filter(([, x]) => x.alive && !(x instanceof ApiSession));
+      if (warm.length >= 6) {
+        // full: the one idle the longest goes to sleep (it resumes its conversation when it is needed again)
+        const idle = warm.filter(([, x]) => !x.busy).sort(([, a], [, b]) => a.lastActive - b.lastActive)[0];
+        if (!idle) throw new Error("Six AIs are working at once. Wait for one to finish.");
+        await this.retire(idle[0], idle[1]);
+      }
       s = p.engine === "antigravity"
         ? new AcpSession(this.agyCmd()!, root, model, readonly, effort, this.resumeIds.get(key) ?? resume, kit.instructions)
         : isApi(p.engine)

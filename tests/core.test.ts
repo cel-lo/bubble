@@ -376,7 +376,7 @@ test("messages live in their own table and only changed ones are written", async
   const writes = () => (store.db.prepare("SELECT total_changes() n").get() as any).n;
   const before = writes();
   store.save(s);
-  assert.equal(writes() - before, 2, "unchanged message not rewritten (only the state row and the event)");
+  assert.equal(writes() - before, 1, "unchanged message not rewritten (only the state row)");
   s.rooms[0].messages.push({ id: "m2", author: "claude", text: "hello", at: "t" });
   s.rooms[0].messages[1].text += " there";
   store.save(s);
@@ -1084,6 +1084,53 @@ test("two builders at once: mention both, each builds its part in parallel; jobs
   host.member(r.id, "codex", "Member");
   assert.deepEqual([r.builder, r.builders], ["claude", []]);
   assert.throws(() => host.member(r.id, "claude", "Member"), /Pick another builder/);
+  await host.close();
+  await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+});
+
+import { Supervisor } from "../packages/adapters/supervisor";
+test("audit fixes: queued messages run, the process cap puts the idlest AI to sleep, approvals, old revisions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-fix-"));
+  const host = new Host(new Store(join(dir, "data")));
+  // 1. a message sent while the AI works runs after it, once, as an ordinary message
+  const r = host.newChat("");
+  const asked: string[] = [];
+  (host.supervisor as any).get = async () => ({ run: async (prompt: string) => (asked.push(prompt), await new Promise((ok) => setTimeout(ok, 50)), "re: " + prompt.split("\n").pop()), stop: async () => {} });
+  await host.send(r.id, "first");
+  await host.send(r.id, "second while busy");
+  assert.equal(r.messages.at(-1)?.kind, "queued");
+  for (let i = 0; i < 100 && (r.queue.length || (host as any).active.has(r.id)); i++) await new Promise((ok) => setTimeout(ok, 20));
+  assert.equal(asked.length, 2, "the queued message ran");
+  assert.ok(asked[1].endsWith("second while busy"));
+  assert.ok(!r.messages.some((m) => m.kind === "queued"), "no waiting copy left");
+  assert.deepEqual(r.messages.filter((m) => m.author === "cello").map((m) => m.text), ["first", "second while busy"]);
+  // 4. with two cards open, answering one keeps the chat waiting for the other
+  const answers = (host as any).answers as Map<string, (v: boolean) => void>;
+  for (const id of ["a1", "a2"]) {
+    host.state.asks.push({ id, roomId: r.id, kind: "tool_approval", title: "Edit", input: {}, persona: r.builder });
+    answers.set(id, () => {});
+  }
+  host.answer("a1", true);
+  assert.equal(r.state, "awaiting_user");
+  host.answer("a2", false);
+  assert.equal(r.state, "running");
+  // 5. only the latest 5 revisions keep their file list; diff says when one is too old
+  r.artifacts = Array.from({ length: 7 }, (_, i) => ({ revision: i + 1, hash: "h" + i, files: { "a.txt": "x" + i }, reviews: [], accepted: false }));
+  (host as any).trim(r);
+  assert.deepEqual(r.artifacts.map((a) => !!a.trimmed), [true, true, false, false, false, false, false]);
+  assert.deepEqual(r.artifacts[0].files, {});
+  // 2. six warm AIs and a seventh is needed: the one idle the longest sleeps; all six busy: a clear message
+  const sup = new Supervisor();
+  sup.setApi(new Map([["api:x", { baseUrl: "http://127.0.0.1:9/v1", key: "k" }]]));
+  const stopped: string[] = [];
+  const fake = (name: string, lastActive: number, busy = false) => ({ alive: true, busy, lastActive, stop: async () => void stopped.push(name) });
+  for (let i = 0; i < 6; i++) (sup as any).sessions.set(`room:p${i}:false`, fake("p" + i, 1000 + i));
+  const api = { id: "x1", name: "X", engine: "api:x", model: "m", strengths: [], avatar: "api:x" } as any;
+  await sup.get("room", api, dir, true);
+  assert.deepEqual(stopped, ["p0"], "the idlest went to sleep");
+  for (const [k] of [...(sup as any).sessions]) (sup as any).sessions.delete(k);
+  for (let i = 0; i < 6; i++) (sup as any).sessions.set(`room:b${i}:false`, fake("b" + i, 1000 + i, true));
+  await assert.rejects(sup.get("room", { ...api, id: "x2" }, dir, true), /Six AIs are working at once/);
   await host.close();
   await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
 });

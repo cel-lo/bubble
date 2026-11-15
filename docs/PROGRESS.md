@@ -208,6 +208,14 @@ Second pass (cello's feedback, same day):
 - Every API call, also a failed or stopped one, goes to `state.apiCalls` (newest first, last 500): provider, chat, model, tokens in/out, search tools, time, result. Customize · AI & models shows per provider: calls (today), tokens in/out, search totals, failures, and a table of calls; Clear empties one provider's log.
 - Checked: unit tests with a fake API (usage, the stream_options fallback, a fake Grok Responses stream with tools and a citation, a wrong key logged as failed, the host log and clearing it); in the test Walt a localhost fake added through the form, two chats, the log showed 2 calls · 2.5k in · 112 out with the table. Not tried: real Grok or 9Router keys (cello has not decided yet). Cost in money is not shown (prices differ per provider and change).
 
+## Several at once, several builders, audit fixes — 2026-11-15
+
+- @two @names in one message: they work at the same time; builders among them edit in parallel (each told who else works and to keep to its own part, each sees the message as written with the @names), the others answer read-only; one revision afterwards, no automatic review (a mention is a direct task). Chats without a project and plain chats answer side by side too.
+- Several builders per chat (`room.builders`): Make builder adds one; the last builder cannot leave; templates and New team chat allow several; a usage-limit hand-off replaces the builder that hit it.
+- Who does what: grid rows (avatar, name, job, status), live status Working (busy process or an empty reply since your last message), Ready, Asleep; click the job to change it, locked while the chat works. Messages slide in once (only messages younger than the animation), typing dots for empty replies.
+- Audit (ponytail-audit) and fixes: messages sent while an AI works were queued and never sent (now run after the run; Resume runs them after a pause); the 6-process cap threw instead of putting the idlest AI to sleep; answering one of two approval cards dropped "waiting for approval"; a builder reply that changed nothing made an identical revision and undid Accept; React rewrote the timeline on every render because the {__html} object was new each time (useMemo now: selection survives, pictures do not reload); only the latest 5 revisions keep their full file list (older ones say "older revision", diff refuses them); API log 200 calls; the events table (written on every save, read by nothing) is no longer written.
+- Checked live: two members answering their own parts at once, statuses, job menu, queued message ran after the first, timeline DOM kept across re-renders. 38 unit tests.
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).

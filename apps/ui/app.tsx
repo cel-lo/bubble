@@ -1,9 +1,9 @@
 // Walt main window: Claude-style sidebar (New chat, Search, Customize, Projects with their chats, Chats), the chat view
 // with a model picker like the Claude / ChatGPT apps, and the Customize pages. Message bodies, approval and result
 // cards still use the design-kit HTML helpers; everything interactive is React.
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { State, Room, Persona, PersonaDef, Engine, Effort } from "../../packages/domain/model";
+import type { State, Room, Persona, PersonaDef, Engine, Effort, Message } from "../../packages/domain/model";
 import { ENGINES_ON, enginesOn, isApi, isXai, buildersOf } from "../../packages/domain/model";
 import { decision } from "../../packages/domain/command";
 import { T, ic, av, stack, role as roleTag, wordmark, workflow, mine } from "./generated/kit.mjs";
@@ -1148,11 +1148,17 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   const choices = asking
     ? `<div class="row g8" style="margin:4px 0 0 44px;flex-wrap:wrap"><span class="s12 dim">${esc(t("Your choice"))}:</span>${asking.options.map((o, i) => `<button class="btn sm" data-hot="decide:${i}" style="border:0">${esc(o)}</button>`).join("")}</div>`
     : "";
+  // only a message younger than its slide-in animates; everything else renders the same every time, so the timeline's
+  // HTML changes only when its content does (a selection survives, pictures do not flicker)
   const now = Date.now();
-  const typing = `<span class="typing" aria-label="${esc(t("Thinking…"))}">${[0, 1, 2].map((i) => `<i style="animation-delay:${-((now % 1200) - i * 150)}ms"></i>`).join("")}</span>`;
+  const enter = (m: Message) => {
+    const age = now - Date.parse(m.at);
+    return age < 450 ? `<div class="msg-in" style="animation-delay:-${Math.max(0, age)}ms">` : "<div>";
+  };
+  const typing = `<span class="typing" aria-label="${esc(t("Thinking…"))}"><i></i><i></i><i></i></span>`;
   const html =
     room.messages
-      .map((m) => `<div class="msg-in" style="animation-delay:-${Math.max(0, now - Date.parse(m.at))}ms">` + (
+      .map((m) => enter(m) + (
         m.author === "cello"
           ? mine(new Date(m.at).toLocaleTimeString(), pics(esc(m.text))) + (m.meta?.to || m.meta?.effort || m.kind === "setting" ? metaChip(m.meta ?? {}, (id) => esc(nameOf(id)), m.kind === "setting") : "")
           : pd(m.author)
@@ -1210,6 +1216,11 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
   };
   // models whose context window is nearly full (shown in the header; details in the Context tab)
   const full = Object.entries(room.context ?? {}).map(([id, c]) => [id, Math.round((c.used / c.size) * 100)] as const).filter(([, p]) => p >= 80);
+  // React rewrites dangerouslySetInnerHTML whenever the {__html} object is new; keeping it while the text is the same
+  // leaves the DOM alone (a text selection survives, pictures do not reload)
+  const tlHtml = useMemo(() => ({ __html: html }), [html]);
+  const inspText = inspectorHtml(state, room, tab, panel >= 400);
+  const inspHtml = useMemo(() => ({ __html: inspText }), [inspText]);
   const status = t(room.state === "awaiting_user" ? "Waiting for your approval" : busy(room) ? (room.step === "review" ? "Reviewing" : room.step === "fix" ? "Fixing review findings" : "Working") : room.step === "awaiting decision" ? "Waiting for your choice" : "");
   return (
     <div className="row" style={{ flex: 1, minHeight: 0, alignItems: "stretch" }}>
@@ -1284,7 +1295,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           onClick={act}
         >
           {room.messages.length || asks.length ? (
-            <div className="tli" dangerouslySetInnerHTML={{ __html: html }} />
+            <div className="tli" dangerouslySetInnerHTML={tlHtml} />
           ) : (
             <div className="empty" style={{ height: "100%" }}>
               <div className="s16 b" style={{ color: T.text }}>{direct ? t("Chat with {0}", label(state, tg.engine, tg.model)) : `${t(TEMPLATE[room.template])} · ${project?.name ?? ""}`}</div>
@@ -1311,7 +1322,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
         <>
           <Grip side="right" width={panel} min={280} max={tab === "Browser" ? Math.max(560, Math.round(innerWidth * 0.6)) : 560} def={PANELS.rw} set={setRw} />
           <div className="insp" style={{ width: panel }}>
-            <div className="col" style={{ flex: tab === "Browser" ? "none" : 1, minHeight: 0 }} onClick={act} dangerouslySetInnerHTML={{ __html: inspectorHtml(state, room, tab, panel >= 400) }} />
+            <div className="col" style={{ flex: tab === "Browser" ? "none" : 1, minHeight: 0 }} onClick={act} dangerouslySetInnerHTML={inspHtml} />
             {browsed && <BrowserPane key={room.id} roomId={room.id} hidden={tab !== "Browser"} prefs={state.settings.browser ?? {}} open={browse} />}
           </div>
         </>
@@ -1397,7 +1408,7 @@ const teamOf = team;
 function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
-  const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
+  const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${a.trimmed ? t("{0} reviews · older revision", a.reviews.length) : t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
   // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
   const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
   const locked = busy(room);

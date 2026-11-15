@@ -121,6 +121,8 @@ export interface Artifact {
   files: Record<string, string>;
   reviews: { persona: Persona; text: string; hash: string }[];
   accepted: boolean;
+  /** an old revision whose file list was dropped to keep the saved state small (diff cannot open it) */
+  trimmed?: boolean;
 }
 export interface Room {
   id: string;
@@ -232,7 +234,7 @@ export interface State {
   catalog?: Partial<Record<Engine, ModelInfo[]>>;
   /** plan usage per engine; Codex reports it any time, Claude with each reply */
   usage?: Partial<Record<Engine, Quota>>;
-  /** API calls, newest first (the last 500) */
+  /** API calls, newest first (the last 200) */
   apiCalls?: ApiCallLog[];
   /** live agent processes; added to messages for the UI, never stored */
   procs?: { room: string; persona: Persona; busy: boolean }[];
