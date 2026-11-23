@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld("walt", {
     ipcRenderer.on("walt:state", listener);
     return () => ipcRenderer.removeListener("walt:state", listener);
   },
-  // Ce:L asked to open a chat
+  // the host asks to open a chat
   opened: (fn: (roomId: string) => void) => {
     const listener = (_event: unknown, id: string) => fn(id);
     ipcRenderer.on("walt:open", listener);

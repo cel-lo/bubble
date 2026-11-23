@@ -226,3 +226,14 @@ Second pass (cello's feedback, same day):
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
 2. Let a chat's AI look at and click in the side panel's Browser (would need a tool bridge per engine).
+
+## Bubble, stage 1 — 2026-11-24
+
+Bubble is a copy of Walt at `bc68621` with the same functions and the design from the Figma file "Bubble".
+- Name: Bubble everywhere in the app; package `bubble-desktop`, app id `local.cello.bubble`, data in `%APPDATA%\Bubble` (Walt's data is not read), Antigravity in `~/.gemini/bubble`, Codex client name `bubble`, export file `BUBBLE.md`. Logo and app icons from the Bubble app icon.
+- Ce:L is gone: no island API (`packages/control-api` and its test removed), no Island settings tab, no launch.json for Ce:L, no Ce:L wording. Start with Windows still starts Bubble in the tray.
+- Glass: the wallpaper (`design/assets/wallpaper.jpg`, inlined into design.css) sits behind a translucent, blurred window; sidebar, side panel, composer, cards, bubbles and menus are frosted glass. Your messages are violet. The light theme keeps its own solid colours.
+- Search is now List: search over projects, chats and messages, and Quick access with one folder per project, newest first (click opens its latest chat).
+- The hint line under the composer is gone.
+- Checked: 39 unit tests, typecheck, a test Bubble on a copy of the chat data (home, List, team chat; the Main chat's old revisions are cleaned up, Files says "No changes yet").
+- Not yet: Segoe is the system font already; the Figma-only parts (List board and calendar, the redesigned Customize and Settings pages, file viewer, reply, voice, pet) come in later stages.

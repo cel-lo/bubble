@@ -1,10 +1,10 @@
-// Dev helper: drive the running Walt window over the DevTools protocol (start Walt with --remote-debugging-port=9555).
+// Dev helper: drive the running Bubble window over the DevTools protocol (start Bubble with --remote-debugging-port=9555).
 // usage: node scripts/cdp.mjs shot out.png | reload | drag "x1,y1" "x2,y2" | eval "<js>" | click "<css selector>" | type "<css selector>" "<text>"
 import fs from "node:fs";
 const [cmd, a, b] = process.argv.slice(2);
 const list = await (await fetch("http://127.0.0.1:9555/json/list")).json();
 const page = list.find((t) => t.type === "page" && t.url.includes("index.html"));
-if (!page) throw new Error("Walt window not found on port 9555");
+if (!page) throw new Error("Bubble window not found on port 9555");
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0;

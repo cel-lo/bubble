@@ -58,7 +58,7 @@ function plainKeys() {
 function saveKey(id: string, key: string | null) {
   const all = readKeys();
   if (key) {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error("Windows cannot encrypt the key on this account, so Walt will not save it.");
+    if (!safeStorage.isEncryptionAvailable()) throw new Error("Windows cannot encrypt the key on this account, so Bubble will not save it.");
     all[id] = safeStorage.encryptString(key).toString("base64");
   } else delete all[id];
   writeFileSync(keysFile(), JSON.stringify(all));
@@ -83,11 +83,11 @@ function call(method: string, input?: unknown) {
     child.postMessage({ id, method, input });
   });
 }
-// WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Walt.
+// WALT_DATA: separate data folder for tests (fresh first launch); normal runs use %APPDATA%/Bubble.
 // Set before the lock: the lock lives in userData, so it guards one data folder (one writer per walt.sqlite).
-app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Walt"));
+app.setPath("userData", process.env.WALT_DATA || join(app.getPath("appData"), "Bubble"));
 // Windows shows notifications only for an app with an id
-app.setAppUserModelId("local.cello.walt");
+app.setAppUserModelId("local.cello.bubble");
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => win?.show());
@@ -98,12 +98,10 @@ else {
       // readable by the window's canvas (marking a picture draws it again with the marks)
       return net.fetch(pathToFileURL(file).toString()).then((r) => new Response(r.body, { headers: { "content-type": r.headers.get("content-type") ?? "image/png", "access-control-allow-origin": "*" } }));
     });
-    // how Ce:L starts Walt while it is not running (control.json only exists while Walt runs)
-    writeFileSync(join(app.getPath("userData"), "launch.json"), JSON.stringify({ exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] }));
     child = utilityProcess.fork(
       join(__dirname, "../host/index.cjs"),
       [app.getPath("userData")],
-      { serviceName: "Walt Host" },
+      { serviceName: "Bubble Host" },
     );
     child.postMessage({ type: "keys", keys: plainKeys() });
     child.on("message", (m: any) => {
@@ -126,7 +124,7 @@ else {
     });
     child.on("exit", () => {
       for (const p of pending.values())
-        p.reject(new Error("Walt Host stopped. Restart to recover."));
+        p.reject(new Error("Bubble Host stopped. Restart to recover."));
       pending.clear();
     });
     win = new BrowserWindow({
@@ -136,10 +134,10 @@ else {
       minHeight: 700,
       frame: false,
       icon: join(__dirname, "icon.ico"),
-      // Ce:L's Start Walt runs it with --background: it waits in the tray until something opens it
+      // Start with Windows runs it with --background: it waits in the tray until you open it
       show: !process.argv.includes("--background"),
       backgroundColor: "#1C1C1E",
-      title: "Walt",
+      title: "Bubble",
       webPreferences: {
         preload: join(__dirname, "preload.cjs"),
         contextIsolation: true,
@@ -217,12 +215,12 @@ else {
     });
     await win.loadFile(join(__dirname, "../ui/index.html"));
     tray = new Tray(nativeImage.createFromPath(join(__dirname, "icon.ico")));
-    tray.setToolTip("Walt");
+    tray.setToolTip("Bubble");
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: "Open Walt", click: () => win.show() },
+        { label: "Open Bubble", click: () => win.show() },
         {
-          label: "Quit Walt",
+          label: "Quit Bubble",
           click: async () => {
             const state: any = await call("snapshot");
             if (
@@ -234,7 +232,7 @@ else {
                 type: "question",
                 buttons: ["Cancel", "Interrupt and quit"],
                 defaultId: 0,
-                message: "Interrupt running agents and quit Walt?",
+                message: "Interrupt running agents and quit Bubble?",
               });
               if (result.response === 0) return;
             }
@@ -252,7 +250,7 @@ else {
       closeAction === "quit" ? app.quit() : win.hide();
     });
     // Settings · General · Start with Windows: Windows' own startup list, so it is the one source of truth.
-    // Started that way Walt waits in the tray (--background) and the island connects to it.
+    // Started that way Bubble waits in the tray (--background), ready when you open it.
     const login = { path: process.execPath, args: [...(app.isPackaged ? [] : [app.getAppPath()]), "--background"] };
     ipcMain.handle("walt:login", (_e, on?: boolean) => {
       if (typeof on === "boolean") app.setLoginItemSettings({ ...login, openAtLogin: on });
@@ -265,7 +263,7 @@ else {
     quitting = true;
     if (stopped || !child) return;
     // let the host stop every AI process tree (taskkill /T also ends the commands they started) and close the
-    // database before Walt exits; give it 5 s, then kill it anyway
+    // database before Bubble exits; give it 5 s, then kill it anyway
     e.preventDefault();
     const exited = new Promise((ok) => child.once("exit", ok));
     void call("quit").catch(() => {});

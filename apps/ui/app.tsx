@@ -1,4 +1,4 @@
-// Walt main window: Claude-style sidebar (New chat, Search, Customize, Projects with their chats, Chats), the chat view
+// Bubble main window: Claude-style sidebar (New chat, List, Customize, Projects with their chats, Chats), the chat view
 // with a model picker like the Claude / ChatGPT apps, and the Customize pages. Message bodies, approval and result
 // cards still use the design-kit HTML helpers; everything interactive is React.
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -147,7 +147,7 @@ function App() {
     const offOpen = window.walt.opened((id) => setView({ kind: "chat", id }));
     return () => (off(), offDelta(), offOpen());
   }, []);
-  // a Windows notification when an AI needs you or finishes while Walt is in the background
+  // a Windows notification when an AI needs you or finishes while Bubble is in the background
   const seen = useRef<{ asks: Set<string>; busy: Set<string> } | null>(null);
   useEffect(() => {
     if (!state) return;
@@ -163,13 +163,13 @@ function App() {
       };
     };
     const name = (id: string) => state.personas.find((p) => p.id === id)?.name ?? id;
-    const title = (id: string) => state.rooms.find((r) => r.id === id)?.title ?? "Walt";
+    const title = (id: string) => state.rooms.find((r) => r.id === id)?.title ?? "Bubble";
     for (const a of state.asks) if (!prev.asks.has(a.id)) tell(a.roomId, t("{0} needs you", title(a.roomId)), t("{0} wants to use {1}", name(a.persona), a.title));
     for (const id of prev.busy)
       if (!busyNow.has(id)) {
         const r = state.rooms.find((x) => x.id === id);
         const last = r?.messages.at(-1);
-        if (r) tell(id, t("{0} finished", r.title), last ? `${last.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, state.personas.find((p) => p.id === last.author)?.engine ?? "claude", last.meta?.model) : name(last.author)}: ${last.text.replace(/\s+/g, " ")}` : "");
+        if (r) tell(id, t("{0} finished", r.title), last ? `${last.author === "Bubble" ? "Bubble" : r.template === "direct" ? label(state, state.personas.find((p) => p.id === last.author)?.engine ?? "claude", last.meta?.model) : name(last.author)}: ${last.text.replace(/\s+/g, " ")}` : "");
       }
   }, [state]);
   useEffect(() => {
@@ -188,7 +188,7 @@ function App() {
   };
   setLocale(state?.settings.locale ?? "en");
   registerProviders(state?.settings.providers);
-  if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Walt · {error || t("Starting…")}</div>;
+  if (!state) return <div style={{ padding: 40, color: T.text, background: T.bg, height: "100%" }}>Bubble · {error || t("Starting…")}</div>;
   // data from before the onboarded flag already has projects: do not walk that user through setup again
   if (!state.settings.onboarded && !state.projects.length) {
     if (step === "welcome") return <Welcome state={state} invoke={invoke} go={() => setStep("engines")} />;
@@ -209,7 +209,7 @@ function App() {
   else if (view.kind === "settings") (crumb = t("Settings")), (main = <Settings state={state} invoke={invoke} tab={view.tab} setTab={(tab) => setView({ kind: "settings", tab })} />);
   else if (view.kind === "project-new") (crumb = t("New project")), (main = <NewProject invoke={invoke} back={() => setView({ kind: "home" })} done={(id) => setView({ kind: "join", projectId: id, first: true })} />);
   else if (view.kind === "join") (crumb = t(view.first ? "New project" : "New team chat")), (main = <Joins key={view.projectId} state={state} invoke={invoke} projectId={view.projectId} first={view.first} back={() => (view.first ? newChat(view.projectId) : setView({ kind: "home" }))} done={open} />);
-  else if (view.kind === "search") (crumb = t("Search")), (main = <Search state={state} open={open} />);
+  else if (view.kind === "search") (crumb = t("List")), (main = <List state={state} open={open} />);
   else (crumb = t("New chat")), (main = <Home state={state} invoke={invoke} opened={open} />);
   return (
     <div style={{ width: "100%", height: "100%" }}>
@@ -264,7 +264,7 @@ function Palette({ state, close, go, run }: { state: State; close: () => void; g
         return { label: r.title, hint: p ? p.name : t("Chat"), icon: r.template === "direct" ? "chat" : "users", on: () => go({ kind: "chat", id: r.id }) };
       }),
     ...state.projects.map((p) => ({ label: p.name, hint: t("New team chat"), icon: "folder", on: () => go({ kind: "join", projectId: p.id, first: false }) })),
-    ...([["general", "General"], ["permissions", "Permissions"], ["island", "Island (Ce:L)"], ["data", "Data & backup"], ["shortcuts", "Shortcuts"], ["about", "About"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Settings"), icon: "gear", on: page("settings", k) })),
+    ...([["general", "General"], ["permissions", "Permissions"], ["data", "Data & backup"], ["shortcuts", "Shortcuts"], ["about", "About"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Settings"), icon: "gear", on: page("settings", k) })),
     ...([["ai", "AI & models"], ["personas", "Personas"], ["teams", "Team templates"], ["plugins", "Plugins & tools"], ["instructions", "Instructions"]] as const).map(([k, l]) => ({ label: t(l), hint: t("Customize"), icon: "sparkle", on: page("customize", k) })),
     { label: t("Show or hide the sidebar"), hint: "Ctrl B", icon: "sidebar", on: () => run("sidebar") },
     { label: t("Show or hide the side panel"), hint: "Ctrl Alt B", icon: "panel", on: () => run("panel") },
@@ -410,7 +410,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
   const preview = (r: Room) => {
     const m = [...r.messages].reverse().find((m) => m.text.trim());
     if (!m) return t("No messages yet");
-    const who = m.author === "cello" ? t("You") : m.author === "Walt" ? "Walt" : r.template === "direct" ? label(state, pd(m.author)?.engine ?? "claude", m.meta?.model) : pd(m.author)?.name ?? m.author;
+    const who = m.author === "cello" ? t("You") : m.author === "Bubble" ? "Bubble" : r.template === "direct" ? label(state, pd(m.author)?.engine ?? "claude", m.meta?.model) : pd(m.author)?.name ?? m.author;
     return `${who}: ${m.text.replace(/\s+/g, " ").slice(0, 90)}`;
   };
   const actions = (r: Room): Item[] => [
@@ -420,7 +420,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
       danger: true,
       disabled: busy(r),
       onSelect: () => {
-        if (!confirm(t('Delete "{0}"? Its messages are removed from Walt. Project files are not touched.', r.title))) return;
+        if (!confirm(t('Delete "{0}"? Its messages are removed from Bubble. Project files are not touched.', r.title))) return;
         void invoke("chat.delete", r.id).then(() => sel === r.id && go({ kind: "home" }));
       },
     },
@@ -478,10 +478,10 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
   const loose = sorted.filter((r) => !r.projectId);
   const proc = (p: Persona) => state.procs?.find((x) => x.room === sel && x.persona === p);
   return (
-    <nav className="nav" aria-label={t("Walt")} style={{ width }}>
+    <nav className="nav" aria-label={t("Bubble")} style={{ width }}>
       <div style={{ padding: "4px 10px 12px" }}><Html h={wordmark(19)} /></div>
       <div className={`navi ${view.kind === "home" ? "on" : ""}`} role="button" onClick={() => newChat("")}><Icon n="plus" /><span className="t">{t("New chat")}</span></div>
-      <div className={`navi ${view.kind === "search" ? "on" : ""}`} role="button" onClick={() => go({ kind: "search" })}><Icon n="search" /><span className="t">{t("Search")}</span></div>
+      <div className={`navi ${view.kind === "search" ? "on" : ""}`} role="button" onClick={() => go({ kind: "search" })}><Icon n="list" /><span className="t">{t("List")}</span></div>
       <div className={`navi ${view.kind === "customize" ? "on" : ""}`} role="button" onClick={() => go({ kind: "customize", tab: "ai" })}><Icon n="sparkle" /><span className="t">{t("Customize")}</span></div>
       <div className="scroll">
         <div className="nhead">
@@ -525,7 +525,7 @@ function Sidebar({ state, view, go, invoke, newChat, width }: { state: State; vi
               </span>
             </div>
             {room.template !== "roundtable" && (
-              <div className="row g8 s12" style={{ padding: "2px 12px 6px" }} title={t("Before each task Walt makes the reviewer whose Good at fits best the builder.")}>
+              <div className="row g8 s12" style={{ padding: "2px 12px 6px" }} title={t("Before each task Bubble makes the reviewer whose Good at fits best the builder.")}>
                 <span className="f1 dim">{t("Auto roles")}</span>
                 <div className="seg">{([[false, "Off"], [true, "On"]] as const).map(([v, l]) => <span key={l} className={!!room.auto === v ? "on" : ""} onClick={() => invoke("room.auto", { roomId: room.id, on: v })}>{t(l)}</span>)}</div>
               </div>
@@ -714,8 +714,8 @@ function ModelChip({ state, value, pick }: { state: State; value: Target; pick: 
 }
 
 /** message box: Enter sends, Shift+Enter breaks the line, @ and / open the shortcut menu */
-function Composer({ state, room, placeholder, chip, footer, onSend, onStop, working }: {
-  state: State; room?: Room; placeholder: string; chip?: React.ReactNode; footer?: React.ReactNode; onSend: (text: string) => Promise<boolean>; onStop?: () => void; working?: boolean;
+function Composer({ state, room, placeholder, chip, onSend, onStop, working }: {
+  state: State; room?: Room; placeholder: string; chip?: React.ReactNode; onSend: (text: string) => Promise<boolean>; onStop?: () => void; working?: boolean;
 }) {
   const [text, setText] = useState("");
   const [list, setList] = useState<Suggestion[]>([]);
@@ -766,7 +766,7 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
     await attach(png, old.title, notes, old.name);
   };
   const fileRef = useRef<HTMLInputElement>(null);
-  // a picture from the clipboard, a drop or the file picker: saved by Walt, shown as a thumbnail until sent;
+  // a picture from the clipboard, a drop or the file picker: saved by Bubble, shown as a thumbnail until sent;
   // a text or code file goes into the message itself
   const addFiles = async (files: Iterable<File>) => {
     for (const f of files) {
@@ -984,7 +984,6 @@ function Composer({ state, room, placeholder, chip, footer, onSend, onStop, work
           <button type="button" className="send" aria-label={t("Send")} disabled={!can} style={{ border: 0, cursor: can ? "pointer" : "default", opacity: can ? 1 : 0.4 }} onClick={send}><Icon n="up" s={18} c="#04170B" w={2.2} /></button>
         )}
       </div>
-      {footer && <div className="route" style={{ maxWidth: 760 }}>{footer}</div>}
     </div>
   );
 }
@@ -1003,9 +1002,8 @@ function Home({ state, invoke, opened }: { state: State; invoke: Invoke; opened:
       </div>
       <Composer
         state={state}
-        placeholder={t("How can Walt help today?")}
+        placeholder={t("How can Bubble help today?")}
         chip={<ModelChip state={state} value={tg} pick={setT} />}
-        footer={<span className="dim">{t("A chat without a project can read and talk, not edit files.")}</span>}
         onSend={async (text) => {
           const r = await invoke("chat.new", "");
           if (!r) return false;
@@ -1030,9 +1028,9 @@ function limitCardFor(state: State, room: Room) {
         : m.meta?.to && buildersOf(room).includes(m.meta.to)
           ? team(room).filter((p) => p !== m.meta?.to).map((p) => [p, t("Hand it to {0}", state.personas.find((x) => x.id === p)?.name ?? p)])
           : [[m.meta?.to ?? "", t("Continue without {0}'s review", name)]];
-    const reset = m.meta?.reset ? t("It resets {0}.", m.meta.reset) : t("Walt cannot tell when it resets.");
+    const reset = m.meta?.reset ? t("It resets {0}.", m.meta.reset) : t("Bubble cannot tell when it resets.");
     const buttons = live && others.length ? `<div class="row g8" style="margin-top:12px;flex-wrap:wrap">${others.map(([v, l]) => `<button class="btn" data-hot="handoff:${esc(v)}" style="border:0">${esc(l)}</button>`).join("")}</div>` : "";
-    return `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("clock", 17, T.amber)}<span class="s14 b">${esc(t("{0} reached its usage limit", name))}</span></div><div class="s13 sub" style="margin-top:6px;line-height:1.5">${esc(reset)} ${esc(t("Your message was not lost: another model can take over and Walt sends it again."))}</div><div class="s12 dim mono" style="margin-top:6px;overflow-wrap:anywhere">${esc(m.text.slice(0, 200))}</div>${buttons}</div>`;
+    return `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("clock", 17, T.amber)}<span class="s14 b">${esc(t("{0} reached its usage limit", name))}</span></div><div class="s13 sub" style="margin-top:6px;line-height:1.5">${esc(reset)} ${esc(t("Your message was not lost: another model can take over and Bubble sends it again."))}</div><div class="s12 dim mono" style="margin-top:6px;overflow-wrap:anywhere">${esc(m.text.slice(0, 200))}</div>${buttons}</div>`;
   };
 }
 
@@ -1106,7 +1104,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     const id = setTimeout(() => setNote(""), 6000);
     return () => clearTimeout(id);
   }, [note]);
-  // only these two have a terminal app that can pick the conversation up (Antigravity runs from Walt's own data
+  // only these two have a terminal app that can pick the conversation up (Antigravity runs from Bubble's own data
   // folder, an API has no CLI); the host refuses the others too
   const cli = (e?: string) => (e === "codex" ? "Codex" : e === "claude" ? "Claude Code" : undefined);
   const resume = async (persona: string) => {
@@ -1119,7 +1117,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     if (r.path) return setNote(t("Saved {0}", r.path));
     await navigator.clipboard.writeText(r.text).then(() => setNote(t("Context copied")), () => setNote(t("Could not reach the clipboard")));
   };
-  // "…" in the header: carry the chat on outside Walt
+  // "…" in the header: carry the chat on outside Bubble
   const chatMenu = (): Item[] => {
     const now = cli(pd(room.builder)?.engine);
     const members = team(room).flatMap((id) => {
@@ -1131,7 +1129,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
       ...(room.template === "direct"
         ? now ? [{ label: t("Continue in {0}", now), hint: t("terminal"), onSelect: () => void resume(room.builder) }] : []
         : members.length ? [{ label: t("Continue in the CLI"), submenu: members }] : []),
-      { label: project ? t("Export context to WALT.md") : t("Copy context"), hint: project ? project.name : "Markdown", onSelect: () => void exportIt() },
+      { label: project ? t("Export context to BUBBLE.md") : t("Copy context"), hint: project ? project.name : "Markdown", onSelect: () => void exportIt() },
     ];
   };
   const tl = useRef<HTMLDivElement>(null);
@@ -1187,7 +1185,7 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
     (room.artifacts.length && !busy(room) ? (direct ? changed(room) : deliverable(state, room, room.artifacts.at(-1)!)) : "") +
     // a run cut off by a crash or a forced close: the project stays locked until you have looked at the files
     (room.state === "recovery_required"
-      ? `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${esc(t("The last run stopped before it finished"))}</span></div><div class="s13 sub" style="margin:8px 0 12px;line-height:1.5">${esc(t("Walt closed or crashed while an AI was working. Check the project files (some edits may be half done); Walt does not retry on its own."))}</div><button class="btn g" data-hot="control:recovered" style="border:0">${esc(t("I checked, continue"))}</button></div>`
+      ? `<div class="card" style="padding:14px;margin:12px 0 0 44px;border-color:${T.amber}80"><div class="row g8">${ic("warn", 17, T.amber)}<span class="s14 b">${esc(t("The last run stopped before it finished"))}</span></div><div class="s13 sub" style="margin:8px 0 12px;line-height:1.5">${esc(t("Bubble closed or crashed while an AI was working. Check the project files (some edits may be half done); Bubble does not retry on its own."))}</div><button class="btn g" data-hot="control:recovered" style="border:0">${esc(t("I checked, continue"))}</button></div>`
       : "");
   const act = async (e: React.MouseEvent) => {
     const h = (e.target as HTMLElement).closest<HTMLElement>("[data-hot]")?.dataset.hot;
@@ -1320,11 +1318,6 @@ function ChatView({ state, room, invoke, panel, setRw }: { state: State; room: R
           working={busy(room)}
           onStop={() => invoke("control", { roomId: room.id, action: "interrupt" })}
           chip={direct ? <ModelChip state={state} value={tg} pick={(v) => invoke("chat.target", { roomId: room.id, ...v })} /> : undefined}
-          footer={
-            <span className="dim">
-              {direct ? (project ? t("Edits in {0} need your approval", project.name) : t("Chat only · the AI cannot edit files here")) : t("{0} · @name to talk to one, @two @names for both at once", t(TEMPLATE[room.template]))}
-            </span>
-          }
           onSend={async (text) => (await invoke("send", { roomId: room.id, text })) !== null}
         />
       </div>
@@ -1357,7 +1350,7 @@ function changed(room: Room) {
   return `<div class="card" style="padding:12px 14px;margin:10px 0 0 44px"><div class="row g8 s13">${ic("diff", 16, T.sub)}<span class="b">${t("Files changed · r{0}", a.revision)}</span><span class="f1"></span><button class="btn sm" data-hot="diff" style="border:0">${t("Open diff")}</button>${a.accepted ? `<span class="pill" style="background:${T.green}29;color:${T.green}">${t("Accepted")}</span>` : `<button class="btn sm g" data-hot="accept" style="border:0">${t("Accept")}</button>`}</div><div class="s12 dim mono" style="margin-top:6px">manifest ${a.hash.slice(0, 8)} · ${t("{0} files tracked", Object.keys(a.files).length)}</div></div>`;
 }
 
-// W09 result card: only facts Walt holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
+// W09 result card: only facts Bubble holds (revision, manifest, which reviewer read which hash); no test box until tests are tracked
 function deliverable(state: State, room: Room, a: Room["artifacts"][number]) {
   const pd = (id: string) => state.personas.find((p) => p.id === id);
   const box = (k: string, inner: string, sub: string, dashed = false) =>
@@ -1443,7 +1436,7 @@ function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
         : tab === "Decisions"
           ? decisionsHtml(state, room)
           : tab === "Activity"
-          ? room.messages.filter((m) => m.author === "Walt").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
+          ? room.messages.filter((m) => m.author === "Bubble").map((m) => `<p class="s12 dim">${esc(m.text)}</p>`).join("") || `<div class="s13 dim">${t("Nothing yet.")}</div>`
           : `<div class="lbl">${t("Who does what")}</div>${team}<div class="s12 dim" style="margin:6px 0 4px;line-height:1.5">${t("Builders edit files (mention two to work in parallel) · Reviewers check each revision · Members answer when @mentioned.")}</div><div class="lbl">${t("This task")}</div><div>${t("{0} of {1} AI turns", room.used, room.budget)}</div><div class="s12 dim" style="margin-top:4px;line-height:1.5">${t("Caps the automatic build, review and fix loop so the AIs cannot go round forever. Every new message starts again from 0.")}</div><div class="col g8" style="margin-top:20px">${room.state === "paused" ? btn(t("Resume"), "control:resume") : ""}${btn(t("End chat"), "control:end")}</div>`;
   // icons like Claude's side panel; the names show when the panel is wide enough, and always as a tooltip
   const tabs = (direct ? ["Files", "Decisions", "Context", "Activity", "Browser"] : ["Task", "Files", "Decisions", "Context", "Activity", "Browser"])
@@ -1591,19 +1584,45 @@ function Joins({ state, invoke, projectId, first, back, done }: { state: State; 
   );
 }
 
-function Search({ state, open }: { state: State; open: (id: string) => void }) {
+/** List: search over projects, chats and messages, and Quick access to the projects you used last */
+function List({ state, open }: { state: State; open: (id: string) => void }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
+  const projectName = (r: Room) => (r.projectId ? state.projects.find((p) => p.id === r.projectId)?.name ?? "" : "");
   const hits = needle
     ? state.rooms.flatMap((r) => {
         const m = r.messages.find((m) => m.text.toLowerCase().includes(needle));
-        return r.title.toLowerCase().includes(needle) || m ? [{ r, snip: m?.text ?? "" }] : [];
+        return r.title.toLowerCase().includes(needle) || projectName(r).toLowerCase().includes(needle) || m ? [{ r, snip: m?.text ?? "" }] : [];
       })
     : [];
+  // ISO times sort as text
+  const recent = (rooms: Room[]) => [...rooms].sort((a, b) => lastAt(b).localeCompare(lastAt(a)));
+  const folders = state.projects
+    .map((p) => {
+      const rooms = recent(state.rooms.filter((r) => r.projectId === p.id));
+      return { p, rooms, at: rooms[0] ? lastAt(rooms[0]) : "" };
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div className="panel">
-      <h2>{t("Search")}</h2>
-      <input autoFocus aria-label={t("Search chats")} placeholder={t("Search chats and messages")} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", maxWidth: 640, marginTop: 12 }} />
+      <h2>{t("List")}</h2>
+      <div className="s13 dim">{t("Every project and chat in one place.")}</div>
+      <input autoFocus aria-label={t("Search projects, chats and messages")} placeholder={t("Search projects, chats and messages")} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", maxWidth: 640, marginTop: 14 }} />
+      {!needle && (
+        <>
+          <div className="s15 b" style={{ marginTop: 26 }}>{t("Quick access")}</div>
+          {!folders.length && <div className="s13 dim" style={{ marginTop: 8 }}>{t("No projects yet. Make one with + next to Projects.")}</div>}
+          <div className="qa">
+            {folders.map(({ p, rooms }) => (
+              <div key={p.id} className={`folder ${rooms.length ? "" : "off"}`} role="button" tabIndex={rooms.length ? 0 : -1} aria-label={p.name} title={p.root} onClick={() => rooms[0] && open(rooms[0].id)} onKeyDown={(e) => e.key === "Enter" && rooms[0] && open(rooms[0].id)}>
+                <div className="fo"><span className="fb" /><span className="pp" /><span className="ff" /></div>
+                <div className="s13 b nm">{p.name}</div>
+                <div className="s12 dim">{[rooms.length === 1 ? t("1 chat") : rooms.length ? t("{0} chats", rooms.length) : t("No chats yet"), when(lastAt(rooms[0] ?? ({ messages: [] } as unknown as Room)))].filter(Boolean).join(" · ")}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       <div className="col g8" style={{ marginTop: 18, maxWidth: 640 }}>
         {hits.map(({ r, snip }) => {
           const i = snip.toLowerCase().indexOf(needle);
@@ -1711,7 +1730,7 @@ function ApiProviders({ state, invoke }: { state: State; invoke: Invoke }) {
         <div className="lbl" style={{ margin: 0 }}>{t("API providers")}</div>
         {!form && <button type="button" className="btn sm" style={{ border: 0 }} onClick={() => preset(0)}><Icon n="plus" s={14} />{t("Add an API")}</button>}
       </div>
-      <div className="s12 dim" style={{ margin: "6px 0 12px", lineHeight: 1.5, maxWidth: 760 }}>{t("9Router, Grok, Groq, OpenRouter or any OpenAI-compatible API. Paste its key once: Walt keeps it encrypted on this laptop and never shows it again. API models chat, answer and review; only Claude, Codex and Antigravity edit files. Every call is logged below with its tokens and time.")}</div>
+      <div className="s12 dim" style={{ margin: "6px 0 12px", lineHeight: 1.5, maxWidth: 760 }}>{t("9Router, Grok, Groq, OpenRouter or any OpenAI-compatible API. Paste its key once: Bubble keeps it encrypted on this laptop and never shows it again. API models chat, answer and review; only Claude, Codex and Antigravity edit files. Every call is logged below with its tokens and time.")}</div>
       {form && (
         <div className="card col g12" style={{ padding: 18, borderColor: T.green, maxWidth: 760, marginBottom: 12 }}>
           <div className="seg" style={{ alignSelf: "flex-start" }}>{PRESETS.map((p, i) => <span key={i} className={form.preset === i ? "on" : ""} onClick={() => preset(i)}>{p.name || t("Other")}</span>)}</div>
@@ -1777,7 +1796,7 @@ function Instructions({ state, invoke }: { state: State; invoke: Invoke }) {
     <>
       <h2>{t("Instructions")}</h2>
       <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>
-        {t("Every AI in Walt gets this, in every chat: who you are, what you work on, how you like answers. It works like custom instructions in ChatGPT. To bring your ChatGPT memory along, copy it from ChatGPT · Settings · Personalization · Memory and paste the parts you want here.")}
+        {t("Every AI in Bubble gets this, in every chat: who you are, what you work on, how you like answers. It works like custom instructions in ChatGPT. To bring your ChatGPT memory along, copy it from ChatGPT · Settings · Personalization · Memory and paste the parts you want here.")}
       </div>
       <textarea
         value={text}
@@ -1838,7 +1857,7 @@ function Plugins({ state, invoke }: { state: State; invoke: Invoke }) {
     <>
       <h2>{t("Plugins & tools")}</h2>
       <div className="s13 dim" style={{ maxWidth: 760, lineHeight: 1.55 }}>
-        {t("Walt connects the plugins, apps and MCP servers you already set up in Claude Code and ChatGPT · Codex. Changes apply from the next message. Reviewers never get these: they only read the project.")}
+        {t("Bubble connects the plugins, apps and MCP servers you already set up in Claude Code and ChatGPT · Codex. Changes apply from the next message. Reviewers never get these: they only read the project.")}
       </div>
       <div className="s12 b dim" style={{ margin: "20px 0 8px", letterSpacing: ".04em" }}>{t("BUILT IN")}</div>
       <div className="card col" style={{ maxWidth: 820 }}>{built.map(([k, title, d, tag], i) => row(t(title), t(d), toggle(s[k], k, t(title)), i, tag === "Both" ? t("Claude + ChatGPT") : tag))}</div>
@@ -1877,45 +1896,6 @@ const SHORTCUTS: [string, string][] = [
   ["/effort, /model", "Change effort or model for one message (add keep for the chat)"],
   ["Esc", "Close a menu or dialog"],
 ];
-/** Ce:L's dynamic island follows Walt over a local API (127.0.0.1, a new token each start) */
-function IslandPage({ state, invoke }: { state: State; invoke: Invoke }) {
-  const [on, setOn] = useState<boolean | null>(null);
-  useEffect(() => {
-    const look = () => void invoke("island").then((v) => v && setOn(v.connected));
-    look();
-    const t = setInterval(look, 3000);
-    return () => clearInterval(t);
-  }, []);
-  const answers = state.settings.islandAnswers !== false;
-  const row = (title: string, d: string, c: React.ReactNode, i: number) => (
-    <div className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
-      <div className="f1"><div className="s14">{title}</div>{d && <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{d}</div>}</div>
-      {c}
-    </div>
-  );
-  return (
-    <>
-      <h2>{t("Island (Ce:L)")}</h2>
-      <div className="s13 dim" style={{ maxWidth: 720, lineHeight: 1.55 }}>{t("Ce:L shows what Walt is doing at the top of the screen: who is working, questions for you, and when a chat is done.")}</div>
-      <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
-        {row(
-          on ? t("Connected to Ce:L") : t("Ce:L is not connected"),
-          t("Over a local API on 127.0.0.1, with a new token each time Walt starts."),
-          <span style={{ width: 9, height: 9, borderRadius: 5, background: on ? T.green : T.faint, flex: "none" }} />,
-          0,
-        )}
-        {row(
-          t("Answer decisions from the island"),
-          t("When an AI asks you to choose, the options show on the island and one click answers."),
-          <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={answers === v ? "on" : ""} onClick={() => invoke("settings", { islandAnswers: v })}>{t(l)}</span>)}</div>,
-          1,
-        )}
-        {row(t("Tool approvals from the island"), t("Always opened in Walt, so you read the full command or diff first."), <span className="row g6 s13 dim"><Icon n="lock" s={14} />{t("Never")}</span>, 2)}
-      </div>
-    </>
-  );
-}
-
 function DataPage({ invoke }: { invoke: Invoke }) {
   const [info, setInfo] = useState<{ dir: string; list: { name: string; size: number; at: string }[] } | null>(null);
   const load = () => void invoke("backups").then((v) => v && setInfo(v));
@@ -1930,7 +1910,7 @@ function DataPage({ invoke }: { invoke: Invoke }) {
           <button type="button" className="btn g" style={{ border: 0 }} onClick={() => void invoke("backup").then(load)}>{t("Back up now")}</button>
           <button type="button" className="btn" style={{ border: 0 }} onClick={() => window.walt.window("data")}>{t("Open data folder")}</button>
         </div>
-        <div className="s12 dim">{t("Walt keeps the newest 10 backups in the backups folder. To restore one, quit Walt and copy it over walt.sqlite.")}</div>
+        <div className="s12 dim">{t("Bubble keeps the newest 10 backups in the backups folder. To restore one, quit Bubble and copy it over walt.sqlite.")}</div>
         {info?.list.map((b) => (
           <div key={b.name} className="row g8 s13">
             <Icon n="db" s={15} />
@@ -1944,20 +1924,20 @@ function DataPage({ invoke }: { invoke: Invoke }) {
 }
 
 type PageProps = { state: State; invoke: Invoke; tab: string; setTab: (t: string) => void };
-/** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Walt itself behaves */
+/** Customize = what the AI can do; Settings (gear at the bottom of the sidebar) = how Bubble itself behaves */
 const Customize = (p: PageProps) => <Pages {...p} title={t("Customize")} tabs={[["ai", "AI & models", "bolt"], ["personas", "Personas", "users"], ["teams", "Team templates", "branch"], ["plugins", "Plugins & tools", "clip"], ["instructions", "Instructions", "file"]]} />;
-const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["browser", "Browser", "globe"], ["island", "Island (Ce:L)", "island"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
+const Settings = (p: PageProps) => <Pages {...p} title={t("Settings")} tabs={[["general", "General", "gear"], ["permissions", "Permissions", "shield"], ["browser", "Browser", "globe"], ["data", "Data & backup", "db"], ["shortcuts", "Shortcuts", "key"], ["about", "About", "eye"]]} />;
 function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title: string; tabs: [string, string, string][] }) {
   const s = state.settings;
   const [login, setLogin] = useState<boolean | null>(null);
   useEffect(() => void window.walt.login().then(setLogin).catch(() => setLogin(null)), []);
   const rows: [string, string, React.ReactNode][] = [
     ["Language", "Interface language. The AI replies in the language you write in.", <div className="seg">{([["en", "English"], ["id", "Indonesia"]] as const).map(([v, l]) => <span key={v} className={s.locale === v ? "on" : ""} onClick={() => invoke("settings", { locale: v })}>{t(l)}</span>)}</div>],
-    ["Notifications", "When an AI needs you or finishes while Walt is in the background.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={(s.notify !== false) === v ? "on" : ""} onClick={() => invoke("settings", { notify: v })}>{t(l)}</span>)}</div>],
-    ["Start with Windows", "Walt waits in the tray, so the Ce:L island is connected from the start.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={login === v ? "on" : ""} onClick={() => void window.walt.login(v).then(setLogin)}>{t(l)}</span>)}</div>],
+    ["Notifications", "When an AI needs you or finishes while Bubble is in the background.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={(s.notify !== false) === v ? "on" : ""} onClick={() => invoke("settings", { notify: v })}>{t(l)}</span>)}</div>],
+    ["Start with Windows", "Bubble waits in the tray, ready when you open it.", <div className="seg">{([[true, "On"], [false, "Off"]] as const).map(([v, l]) => <span key={l} className={login === v ? "on" : ""} onClick={() => void window.walt.login(v).then(setLogin)}>{t(l)}</span>)}</div>],
     [
       "Close button",
-      "Hiding keeps Walt and the island running; quitting stops every AI.",
+      "Hiding keeps Bubble running in the tray; quitting stops every AI.",
       <Dropdown
         label="Close button"
         value={s.closeAction ?? "tray"}
@@ -1965,7 +1945,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         onChange={(v) => void invoke("settings", { closeAction: v })}
         options={[
           { value: "tray", label: t("Hide to the tray") },
-          { value: "quit", label: t("Quit Walt") },
+          { value: "quit", label: t("Quit Bubble") },
         ]}
       />,
     ],
@@ -2001,7 +1981,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         {tab === "ai" && (
           <>
             <h2>{t("AI & models")}</h2>
-            <div className="s13 dim" style={{ marginBottom: 20 }}>{t("Walt uses the apps you are signed in to. The models in each chat's menu come from your account.")}</div>
+            <div className="s13 dim" style={{ marginBottom: 20 }}>{t("Bubble uses the apps you are signed in to. The models in each chat's menu come from your account.")}</div>
             <EngineCards state={state} invoke={invoke} />
             <ApiProviders state={state} invoke={invoke} />
             <div className="lbl" style={{ marginTop: 30 }}>{t("More AI · planned")}</div>
@@ -2053,7 +2033,7 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         {tab === "general" && (
           <>
             <h2>{t("General")}</h2>
-            <div className="s13 dim">{t("How Walt behaves on this laptop. What the AI can do lives in Customize.")}</div>
+            <div className="s13 dim">{t("How Bubble behaves on this laptop. What the AI can do lives in Customize.")}</div>
             <div className="card col" style={{ marginTop: 18, maxWidth: 720 }}>
               {rows.map(([title, d, c], i) => (
                 <div key={title} className="row g16" style={{ padding: "14px 16px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
@@ -2071,15 +2051,14 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
               <div><b>{t("Chats without a project")}</b> · {t("the AI can talk and read, never edit.")}</div>
               <div><b>{t("Chats in a project")}</b> · {t("every file edit and command asks you first, with the full command or diff.")}</div>
               <div><b>{t("Team chats")}</b> · {t("one builder writes at a time; reviewers are read-only.")}</div>
-              <div><b>{t("Ce:L island")}</b> · {t("can pause and answer questions; tool approvals always open Walt.")}</div>
               <div><b>{t("Antigravity")}</b> · {t("runs in strict mode from its own folder: it reads by itself, every edit and command asks you.")}</div>
               <div><b>{t("Browser")}</b> · {t("pages have their own cookies, no access to your files, no camera, microphone or location; the AIs cannot use it.")}</div>
-              <div className="dim">{t("Waiting never counts as allow. Walt never sees your passwords; API keys you add in AI & models stay encrypted on this laptop.")}</div>
+              <div className="dim">{t("Waiting never counts as allow. Bubble never sees your passwords; API keys you add in AI & models stay encrypted on this laptop.")}</div>
             </div>
             <div className="card row g16" style={{ padding: "14px 16px", marginTop: 14, maxWidth: 720 }}>
               <div className="f1">
                 <div className="s14">{t("Let Claude builders run commands")}</div>
-                <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{t("Tests, builds, git. Each command still asks you first, and every process ends when Walt closes. Codex builders always have this. Reviewers never do.")}</div>
+                <div className="s12 dim" style={{ marginTop: 2, lineHeight: 1.5 }}>{t("Tests, builds, git. Each command still asks you first, and every process ends when Bubble closes. Codex builders always have this. Reviewers never do.")}</div>
               </div>
               <div className="seg">{([[false, "Off"], [true, "On"]] as const).map(([v, l]) => <span key={l} className={!!s.claudeShell === v ? "on" : ""} onClick={() => invoke("settings", { claudeShell: v })}>{t(l)}</span>)}</div>
             </div>
@@ -2087,7 +2066,6 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         )}
         {tab === "browser" && <BrowserSettings state={state} invoke={invoke} />}
         {tab === "data" && <DataPage invoke={invoke} />}
-        {tab === "island" && <IslandPage state={state} invoke={invoke} />}
         {tab === "shortcuts" && (
           <>
             <h2>{t("Shortcuts")}</h2>
@@ -2103,9 +2081,9 @@ function Pages({ state, invoke, tab, setTab, title, tabs }: PageProps & { title:
         )}
         {tab === "about" && (
           <>
-            <h2>{t("About Walt")}</h2>
+            <h2>{t("About Bubble")}</h2>
             <div className="s13 dim" style={{ marginTop: 8, lineHeight: 1.7 }}>
-              Version 0.1.0 · child app of Ce:L<br />{t("History and settings stay on this laptop.")}<br />
+              Version 0.1.0<br />{t("History and settings stay on this laptop.")}<br />
               {t("Engines")}: {[...ENGINES_ON.map((e) => ENGINE_LABEL[e]), ...(state.settings.providers ?? []).map((p) => p.name)].join(", ")}
             </div>
           </>

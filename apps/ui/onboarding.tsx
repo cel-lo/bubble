@@ -1,5 +1,5 @@
 // First launch (W01 language, W02 engines) and the New project / Team panels. Layout and classes follow the
-// FigCraft frames; every value comes from Walt's state. Only engines with a working adapter are shown.
+// FigCraft frames; every value comes from Bubble's state. Only engines with a working adapter are shown.
 import React, { useEffect, useState } from "react";
 import type { State, EngineReport, PersonaDef, Engine, Quota, Provider } from "../../packages/domain/model";
 import { ENGINES_ON, isApi } from "../../packages/domain/model";
@@ -105,12 +105,12 @@ export function Welcome({ state, invoke, go }: { state: State; invoke: Invoke; g
   const set = (locale: "en" | "id") => invoke("settings", { locale });
   const system = navigator.language.toLowerCase().startsWith("id") ? "id" : "en";
   return (
-    <Frame steps={STEPS} at={0} footer={<><span className="s13 dim">{t("No Walt account needed. Everything stays on this laptop.")}</span><Btn kind="g" onClick={go}>{t("Continue")}{next}</Btn></>}>
+    <Frame steps={STEPS} at={0} footer={<><span className="s13 dim">{t("No Bubble account needed. Everything stays on this laptop.")}</span><Btn kind="g" onClick={go}>{t("Continue")}{next}</Btn></>}>
       <div className="col" style={{ alignItems: "center", textAlign: "center", paddingTop: 40 }}>
         <Html h={wordmark(44)} />
         <div className="s24 b" style={{ marginTop: 26 }}>{t("One project. Your AI team. You lead.")}</div>
         <div className="s15 dim" style={{ marginTop: 10, maxWidth: 560, lineHeight: 1.55 }}>
-          Walt puts your AI models in one place with you. Chat with one, or let them build and review each other's work, and follow it from the Ce:L island.
+          Bubble puts your AI models in one place with you. Chat with one, or let them build and review each other's work.
         </div>
         <div className="row g20" style={{ marginTop: 34 }}>
           {ENGINES_ON.map((e) => (
@@ -139,7 +139,7 @@ const resetText = (at: number) => {
   if (!h) return t("Resets in {0} min", Math.max(1, m));
   return h < 24 ? t("Resets in {0} h {1} min", h, m) : t("Resets {0}", new Date(at * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }));
 };
-/** a reading is from the moment Walt last heard from the app; a window that has reset since then is empty again */
+/** a reading is from the moment Bubble last heard from the app; a window that has reset since then is empty again */
 const gone = (w: Quota["windows"][number]) => !!w.resetsAt && w.resetsAt * 1000 <= Date.now();
 const used = (w: Quota["windows"][number]) => (gone(w) ? 0 : w.percent);
 const isLimited = (q: Quota) => q.limited && !q.windows.some(gone);
@@ -163,7 +163,7 @@ export function UsageBars({ q, engine }: { q: Quota; engine: string }) {
         </div>
       ))}
       {/* Claude reports usage only with a reply; Codex is asked on every check */}
-      <div className="s12 dim">{engine === "claude" ? t("As of {0} · updates when Claude replies in Walt", at) : t("As of {0}", at)}</div>
+      <div className="s12 dim">{engine === "claude" ? t("As of {0} · updates when Claude replies in Bubble", at) : t("As of {0}", at)}</div>
     </div>
   );
 }
@@ -182,7 +182,7 @@ export function EngineCards({ state, invoke }: { state: State; invoke: Invoke })
           <div key={e} className="card f1" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12, minWidth: 320 }}>
             <div className="row g12"><Html h={av(e, 44)} /><div className="f1"><div className="s16 b">{ENGINE_LABEL[e]}</div><div className="s12 dim" style={{ marginTop: 2 }}>{r ? (r.installed ? r.version : "not found on PATH") : checking ? "checking…" : "not checked"}</div></div>{pill(checking ? "Checking" : s.label, checking ? T.dim : s.color)}</div>
             {r && !r.installed && <><div className="s13 sub">{t("Install it, then sign in once in a terminal.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{INSTALL[e]}</div></>}
-            {r?.installed && r.auth === "required" && <><div className="s13 sub">{t("Sign in once in a terminal. Walt uses the same login afterwards.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
+            {r?.installed && r.auth === "required" && <><div className="s13 sub">{t("Sign in once in a terminal. Bubble uses the same login afterwards.")}</div><div className="mono" style={{ background: "#141416", borderRadius: 10, padding: "10px 12px", fontSize: 13, userSelect: "text" }}>{LOGIN[e]}</div></>}
             {s.ready && <div className="s13 sub">{models.length ? t("Signed in. {0} models on this account.", models.length) : t("Signed in. Model list loads with the next check.")}</div>}
             {!!models.length && <div className="row g6" style={{ flexWrap: "wrap" }}>{models.filter((m) => !m.more).map((m) => <span key={m.id} className="chip" style={{ fontSize: 12 }}>{m.label}</span>)}</div>}
             {s.ready && e !== "antigravity" && (
@@ -206,10 +206,10 @@ export function Engines({ state, invoke, back: goBack, go }: { state: State; inv
   return (
     <Frame steps={STEPS} at={1} footer={<><Btn kind="o" onClick={goBack}>{back}{t("Back")}</Btn><div className="row g12"><span className="s13 dim">{t("{0} of {1} ready · you can start with one", ready, ENGINES_ON.length)}</span><Btn kind="g" disabled={!ready} onClick={go}>Start chatting{next}</Btn></div></>}>
       <div className="s24 b">Connect your AI</div>
-      <div className="s14 dim" style={{ marginTop: 6, marginBottom: 26 }}>{t("Walt runs the official apps you are already signed in to. No API keys, and Walt never sees your password. More AI can be added later in Customize.")}</div>
+      <div className="s14 dim" style={{ marginTop: 6, marginBottom: 26 }}>{t("Bubble runs the official apps you are already signed in to. No API keys, and Bubble never sees your password. More AI can be added later in Customize.")}</div>
       <EngineCards state={state} invoke={invoke} />
       <div className="row g10 s13" style={{ marginTop: 22, padding: "12px 14px", background: "#202022", borderRadius: 12 }}>
-        <Html h={ic("shield", 17, T.green)} /><span className="sub">{t("API key variables are removed before Walt starts an engine, so your subscription is always the one used.")}</span>
+        <Html h={ic("shield", 17, T.green)} /><span className="sub">{t("API key variables are removed before Bubble starts an engine, so your subscription is always the one used.")}</span>
       </div>
     </Frame>
   );
@@ -231,15 +231,15 @@ export function NewProject({ invoke, back: goBack, done }: { invoke: Invoke; bac
             <div className="s13 dim" style={{ marginBottom: 6 }}>{t("Folder")}</div>
             <div className="card" style={{ padding: "12px 14px", borderColor: f.root ? T.green : undefined }}>
               <div className="row g10"><Html h={ic("folder", 16, T.sub)} /><span className={`mono s13 ${f.root ? "" : "dim"}`}>{f.root || "No folder chosen yet"}</span><span className="f1" /><Btn kind="sm" onClick={choose}>{t("Choose…")}</Btn></div>
-              <div className="s12 dim" style={{ marginTop: 8 }}>{t("Walt checks the folder when you continue. It is never moved.")}</div>
+              <div className="s12 dim" style={{ marginTop: 8 }}>{t("Bubble checks the folder when you continue. It is never moved.")}</div>
             </div>
           </div>
           <label><div className="s13 dim" style={{ marginBottom: 6 }}>Goal</div><textarea aria-label="Project goal" rows={3} style={{ width: "100%", resize: "vertical" }} value={f.goal} onChange={set("goal")} /></label>
           <label><div className="s13 dim" style={{ marginBottom: 6 }}>Constraints</div><textarea aria-label="Constraints" rows={2} style={{ width: "100%", resize: "vertical" }} placeholder="One per line, e.g. Keep the API contract" value={f.constraints} onChange={set("constraints")} /></label>
         </div>
         <div className="card" style={{ width: 340, padding: 18, marginTop: 52 }}>
-          <div className="s14 b">{t("What Walt saves")}</div>
-          {[["file", "Project brief", "goal, constraints, folder"], ["shield", "One writer at a time", "AI never edit this folder together"], ["db", "History on this laptop", "%APPDATA%\\Walt · nothing in the cloud"], ["eye", "Your folder is not moved", "Walt only reads and edits inside it"]].map(([i, t, d]) => (
+          <div className="s14 b">{t("What Bubble saves")}</div>
+          {[["file", "Project brief", "goal, constraints, folder"], ["shield", "One writer at a time", "AI never edit this folder together"], ["db", "History on this laptop", "%APPDATA%\\Bubble · nothing in the cloud"], ["eye", "Your folder is not moved", "Bubble only reads and edits inside it"]].map(([i, t, d]) => (
             <div key={t} className="row g10" style={{ marginTop: 14, alignItems: "flex-start" }}><Html h={ic(i, 17, T.sub)} /><div><div className="s13 b">{t}</div><div className="s12 dim" style={{ marginTop: 2 }}>{d}</div></div></div>
           ))}
         </div>

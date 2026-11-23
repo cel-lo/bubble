@@ -37,7 +37,7 @@ import { userMcpServers } from "../adapters/codex";
 import { ApiSession, apiModels } from "../adapters/api";
 import { NO_TOOLS, resolveTools, claudePlugins, codexPlugins, media, synced, usage, syncedPlugin, attachments, saveImage, IMAGE_EXT, skillsIn, pluginSkills, codexPluginDir, type ToolKit } from "../adapters/tools";
 
-const WALT_MD = "<!-- Written by Walt from a chat. Export again to refresh it; delete it any time. -->";
+const WALT_MD = "<!-- Written by Bubble from a chat. Export again to refresh it; delete it any time. -->";
 
 /** a reviewer's last "VERDICT: APPROVE | CHANGES" line: true, false, or undefined when it gave none */
 export function verdict(text: string) {
@@ -61,7 +61,7 @@ export class Host extends EventEmitter {
   private answers = new Map<string, (allow: boolean) => void>();
   private active = new Set<string>();
   constructor(readonly store: Store) {
-    // generated pictures live with the rest of Walt's data
+    // generated pictures live with the rest of Bubble's data
     media.dir = join(store.dir, "images");
     synced.dir = join(store.dir, "claude-skills");
     super();
@@ -87,7 +87,7 @@ export class Host extends EventEmitter {
         r.pause = true;
         r.messages.push({
           id: randomUUID(),
-          author: "Walt",
+          author: "Bubble",
           text: "The previous run has no terminal receipt. Inspect project files before retrying; nothing was replayed.",
           at: new Date().toISOString(),
         });
@@ -140,7 +140,7 @@ export class Host extends EventEmitter {
     // an API has no "default model": store the one Customize picked, so the persona keeps working
     if (isApi(input.engine) && (!input.model || input.model === "default")) {
       const def = this.state.catalog?.[input.engine]?.find((m) => m.isDefault)?.id;
-      if (!def) throw new Error("Walt has no model list for this API yet. Check its key in Customize · AI & models.");
+      if (!def) throw new Error("Bubble has no model list for this API yet. Check its key in Customize · AI & models.");
       input = { ...input, model: def };
     }
     const old = input.id ? this.persona(input.id) : undefined;
@@ -159,7 +159,7 @@ export class Host extends EventEmitter {
     // an API has no "default model" of its own: use the one picked in Customize, else the first it lists
     if (isApi(t.engine) && (!t.model || t.model === "default")) {
       const id = this.state.catalog?.[t.engine]?.find((m) => m.isDefault)?.id;
-      if (!id) throw new Error("Walt has no model list for this API yet. Check its key in Customize · AI & models.");
+      if (!id) throw new Error("Bubble has no model list for this API yet. Check its key in Customize · AI & models.");
       t = { ...t, model: id, effort: undefined };
     }
     const same =(p: PersonaDef) => p.engine === t.engine && (p.model || "default") === (t.model || "default") && p.effort === t.effort;
@@ -190,7 +190,7 @@ export class Host extends EventEmitter {
     const md = saveImage(`att-${Date.now()}-${randomUUID().slice(0, 8)}`, base64, "attached image", ext);
     return { markdown: md, name: md.match(/img\/([^)]+)\)/)![1] };
   }
-  /** Settings · Plugins & tools: the switches, and every plugin and MCP server Walt found */
+  /** Settings · Plugins & tools: the switches, and every plugin and MCP server Bubble found */
   tools() {
     const t = this.state.settings.tools ?? {};
     const off = new Set(t.off ?? []);
@@ -383,7 +383,7 @@ export class Host extends EventEmitter {
   projectOf(r: Room) {
     return r.projectId ? this.state.projects.find((p) => p.id === r.projectId) : undefined;
   }
-  /** a chat without a project runs in its own empty folder under Walt's data, read-only */
+  /** a chat without a project runs in its own empty folder under Bubble's data, read-only */
   rootOf(r: Room) {
     const p = this.projectOf(r);
     if (p) return p.root;
@@ -429,14 +429,14 @@ export class Host extends EventEmitter {
   /** starts a command line in a new terminal window (tests replace it) */
   launch = (cmdline: string) =>
     spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdline], { windowsVerbatimArguments: true, detached: true, stdio: "ignore", env: cleanEnv() }).unref();
-  /** open a terminal in the chat's folder that resumes the CLI session, so the conversation continues outside Walt */
+  /** open a terminal in the chat's folder that resumes the CLI session, so the conversation continues outside Bubble */
   continueInCli(roomId: string, persona?: Persona) {
     const r = this.room(roomId);
     const who = persona ?? r.builder;
     const p = this.persona(who);
     const id = r.sessions?.[`${who}:false`] ?? r.sessions?.[`${who}:true`];
     if (!id) throw new Error(`${p.name} has not answered in this chat yet, so there is nothing to continue.`);
-    if (!/^[\w-]{1,100}$/.test(id)) throw new Error("This chat's session id looks wrong; Walt will not pass it to a terminal.");
+    if (!/^[\w-]{1,100}$/.test(id)) throw new Error("This chat's session id looks wrong; Bubble will not pass it to a terminal.");
     const dir = this.rootOf(r);
     // inside "…" cmd takes & | ^ < > literally, but still expands %VAR%
     if (/["%]/.test(dir)) throw new Error("The folder name has a % or quote, which the terminal cannot take. Open it yourself and resume there.");
@@ -444,7 +444,7 @@ export class Host extends EventEmitter {
     const exe = p.engine === "codex" ? this.supervisor.codex || this.supervisor.codexExe() : this.supervisor.claude;
     if (!exe || /["%]/.test(exe)) throw new Error(`${p.engine === "codex" ? "Codex CLI" : "Claude Code"} was not found.`);
     const args = p.engine === "codex" ? `resume ${id}` : `--resume ${id}`;
-    const cmdline = `start "Walt" /D "${dir}" "${exe}" ${args}`;
+    const cmdline = `start "Bubble" /D "${dir}" "${exe}" ${args}`;
     this.launch(cmdline);
     return { command: `${p.engine === "codex" ? "codex" : "claude"} ${args}`, dir };
   }
@@ -466,7 +466,7 @@ export class Host extends EventEmitter {
     return [
       WALT_MD,
       `# ${p ? p.name + " · " : ""}${r.title}`,
-      `Exported ${new Date().toLocaleString("sv-SE").slice(0, 16)} from Walt.`, // sv-SE gives local time as YYYY-MM-DD HH:MM
+      `Exported ${new Date().toLocaleString("sv-SE").slice(0, 16)} from Bubble.`, // sv-SE gives local time as YYYY-MM-DD HH:MM
       p && `## Project\n\n- Folder: ${p.root}\n- Goal: ${p.goal || "-"}\n- Rules: ${p.constraints.trim().replace(/\n+/g, "; ") || "-"}`,
       r.template !== "direct" && `## Team\n\n${[r.builder, ...r.reviewers, ...(r.members || [])].map((id) => `- ${name(id)}: ${role(id)}`).join("\n")}`,
       a && `## Latest revision\n\nr${a.revision} · ${a.accepted ? "accepted" : "not accepted yet"} · reviewed by ${a.reviews.map((v) => name(v.persona)).join(", ") || "nobody"}`,
@@ -474,19 +474,19 @@ export class Host extends EventEmitter {
       ...r.messages
         .filter((m) => m.text.trim() && m.kind !== "setting")
         .slice(-40)
-        .map((m) => `**${m.author === "Walt" ? "Walt" : name(m.author, m.meta?.model)}:** ${m.text.trim().slice(0, 4000)}`),
+        .map((m) => `**${m.author === "Bubble" ? "Bubble" : name(m.author, m.meta?.model)}:** ${m.text.trim().slice(0, 4000)}`),
     ]
       .filter(Boolean)
       .join("\n\n") + "\n";
   }
-  /** write WALT.md into the project (only over a WALT.md Walt wrote); a chat without a project gets the text back */
+  /** write BUBBLE.md into the project (only over a BUBBLE.md Bubble wrote); a chat without a project gets the text back */
   exportContext(roomId: string) {
     const r = this.room(roomId);
     const text = this.contextMarkdown(r);
     const p = this.projectOf(r);
     if (!p) return { text };
-    const file = join(p.root, "WALT.md");
-    if (existsSync(file) && !readFileSync(file, "utf8").startsWith(WALT_MD)) throw new Error("This project already has a WALT.md that Walt did not write. Rename it, then export again.");
+    const file = join(p.root, "BUBBLE.md");
+    if (existsSync(file) && !readFileSync(file, "utf8").startsWith(WALT_MD)) throw new Error("This project already has a BUBBLE.md that Bubble did not write. Rename it, then export again.");
     writeFileSync(file, text);
     return { path: file, text };
   }
@@ -642,7 +642,7 @@ export class Host extends EventEmitter {
     this.supervisor.claudeShell = !!this.state.settings.claudeShell;
     // a read-only turn inside a project is a review (or a question to a member): project files only
     const session = await this.supervisor.get(r.id, def, this.rootOf(r), readonly, tune, r.sessions?.[slot], this.kit(readonly && !!this.projectOf(r)));
-    // an API keeps no conversation of its own: a new session (first message, or after Walt restarted) gets the chat so far
+    // an API keeps no conversation of its own: a new session (first message, or after Bubble restarted) gets the chat so far
     if (session instanceof ApiSession && session.fresh) {
       const before = this.unseen(r, "");
       if (before) prompt = `The chat so far:\n${before}\n\nNow:\n${prompt}`;
@@ -676,7 +676,7 @@ export class Host extends EventEmitter {
           // a member, reviewer or chat without a project only reads: refuse here and say why once, instead of a card
           // you could never answer and a reply that talks about a permission prompt
           if (readonly && CHANGE_TOOLS.has(tool)) {
-            if (!refused) this.message(r, "Walt", this.readOnly(r, persona).told);
+            if (!refused) this.message(r, "Bubble", this.readOnly(r, persona).told);
             refused = true;
             return false;
           }
@@ -717,7 +717,7 @@ export class Host extends EventEmitter {
     this.commit("run.finished");
     return result;
   }
-  /** what a read-only AI is told up front, and what Walt says when it still tries to make or change something */
+  /** what a read-only AI is told up front, and what Bubble says when it still tries to make or change something */
   private readOnly(r: Room, who: Persona) {
     const name = this.persona(who).name;
     if (!this.projectOf(r))
@@ -728,15 +728,15 @@ export class Host extends EventEmitter {
     const builders = buildersOf(r).filter((b) => b !== who).map((b) => "@" + this.persona(b).name);
     const ask = builders.length ? `ask ${builders.join(" or ")}` : "ask a builder";
     return {
-      brief: `You can only read in this chat: you cannot create, change or delete files or run commands, and Walt refuses it if you try (image generation and web search still work). If the user asks for that, say so in one line and tell them to ${ask}, or to make you a builder.`,
+      brief: `You can only read in this chat: you cannot create, change or delete files or run commands, and Bubble refuses it if you try (image generation and web search still work). If the user asks for that, say so in one line and tell them to ${ask}, or to make you a builder.`,
       told: `${name} can only read in this chat, so nothing was created or changed. To make files, ${ask}, or make ${name} a builder.`,
     };
   }
 /** a run failed: a usage limit gets its own card (who, when it resets, hand-off buttons), anything else stays an error */
   private failed(r: Room, e: unknown) {
     const limit = (e as { limit?: { persona: Persona; reset?: string } }).limit;
-    if (!limit) return void this.message(r, "Walt", String(e), "error");
-    const m = this.message(r, "Walt", String(e).replace(/^Error: /, ""), "limit");
+    if (!limit) return void this.message(r, "Bubble", String(e), "error");
+    const m = this.message(r, "Bubble", String(e).replace(/^Error: /, ""), "limit");
     m.meta = { to: limit.persona, reset: limit.reset };
   }
   /** after a usage limit: give the work to `to` and send your last message again. Plain chats switch model
@@ -774,7 +774,7 @@ export class Host extends EventEmitter {
     };
     const lines = msgs
       .slice(from)
-      .filter((m) => m.text.trim() && m.author !== "Walt" && m.kind !== "setting" && m.kind !== "error")
+      .filter((m) => m.text.trim() && m.author !== "Bubble" && m.kind !== "setting" && m.kind !== "error")
       .map((m) => `[${name(m)}] ${m.text.trim().slice(0, 2000)}`);
     let out = "";
     for (const l of lines.reverse()) {
@@ -860,7 +860,7 @@ export class Host extends EventEmitter {
         acceptance:
           "Explain changes and provide actual test evidence. Never claim a test ran without executing it.",
         decisions:
-          "If you need the user to choose before you can continue, stop and end your reply with one line 'DECISION: <question>' followed by 2 to 4 lines that start with '- ', one option each. Walt shows them as buttons.",
+          "If you need the user to choose before you can continue, stop and end your reply with one line 'DECISION: <question>' followed by 2 to 4 lines that start with '- ', one option each. Bubble shows them as buttons.",
       };
       let asked = false;
       r.packet = packet;
@@ -884,7 +884,7 @@ export class Host extends EventEmitter {
             const name = (id: string) => this.state.personas.find((p) => p.id === id)?.name ?? id;
             const old = r.builder;
             this.swapBuilder(r, pick.id);
-            this.message(r, "Walt", `Auto roles: ${name(pick.id)} builds this one (good at ${pick.why}); ${name(old)} reviews. Stop now if you want it the other way.`);
+            this.message(r, "Bubble", `Auto roles: ${name(pick.id)} builds this one (good at ${pick.why}); ${name(old)} reviews. Stop now if you want it the other way.`);
           }
         }
         // the builder for this task: the one you mentioned, else the chat's first builder
@@ -907,8 +907,8 @@ export class Host extends EventEmitter {
           // a reply that changed no file (an answer, a plan, tests run) makes no revision and leaves your acceptance alone
           if (!Object.keys(after.files).some((f) => prevFiles[f] !== after.files[f]) && !Object.keys(prevFiles).some((f) => !(f in after.files))) {
             if (decision(said)) asked = true;
-            else if (round) this.message(r, "Walt", `${this.persona(builder).name} changed nothing in fix round ${round}. Read its reply and decide: accept, or ask again.`);
-            else if (!mention && !r.pause) this.message(r, "Walt", "No files changed, so there is nothing to review.");
+            else if (round) this.message(r, "Bubble", `${this.persona(builder).name} changed nothing in fix round ${round}. Read its reply and decide: accept, or ask again.`);
+            else if (!mention && !r.pause) this.message(r, "Bubble", "No files changed, so there is nothing to review.");
             break;
           }
           for (const a of r.artifacts) a.accepted = false;
@@ -933,7 +933,7 @@ export class Host extends EventEmitter {
           if (mention || r.pause) break;
           // a first build that edited nothing (it ran tests, answered, planned) has nothing to review
           if (!round && !changed.length && !deleted.length) {
-            this.message(r, "Walt", "No files changed, so there is nothing to review.");
+            this.message(r, "Bubble", "No files changed, so there is nothing to review.");
             break;
           }
           // every reviewer in the team reviews (members added later included); the template only set the first team
@@ -978,7 +978,7 @@ export class Host extends EventEmitter {
             else
               this.message(
                 r,
-                "Walt",
+                "Bubble",
                 "Review incomplete: " + String(result.reason),
               );
           const current = await manifest(p.root);
@@ -988,19 +988,19 @@ export class Host extends EventEmitter {
           const name = (id: string) => this.persona(id).name;
           const unclear = artifact.reviews.filter((v) => verdict(v.text) === undefined);
           if (unclear.length) {
-            this.message(r, "Walt", `${unclear.map((v) => name(v.persona)).join(", ")} gave no verdict on r${artifact.revision}. Read the review and decide: accept, or ask the builder for a fix.`);
+            this.message(r, "Bubble", `${unclear.map((v) => name(v.persona)).join(", ")} gave no verdict on r${artifact.revision}. Read the review and decide: accept, or ask the builder for a fix.`);
             break;
           }
           findings = artifact.reviews.filter((v) => verdict(v.text) === false).map((v) => ({ reviewer: name(v.persona), text: v.text }));
           if (!findings.length) {
-            this.message(r, "Walt", `r${artifact.revision} approved by ${artifact.reviews.map((v) => name(v.persona)).join(" and ")}. Your acceptance is next.`);
+            this.message(r, "Bubble", `r${artifact.revision} approved by ${artifact.reviews.map((v) => name(v.persona)).join(" and ")}. Your acceptance is next.`);
             break;
           }
           if (r.budget - r.used < 1 + reviewers.length) {
-            this.message(r, "Walt", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, and the automatic loop has used its turns for this task. Send "fix the review findings" to start a fix round, or accept as it is.`);
+            this.message(r, "Bubble", `${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}, and the automatic loop has used its turns for this task. Send "fix the review findings" to start a fix round, or accept as it is.`);
             break;
           }
-          this.message(r, "Walt", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(builder)} fixes them.`);
+          this.message(r, "Bubble", `Fix round ${round + 1}: ${findings.map((f) => f.reviewer).join(" and ")} asked for changes on r${artifact.revision}; ${name(builder)} fixes them.`);
         }
       }
       r.state = r.pause ? "paused" : "idle";
@@ -1053,14 +1053,14 @@ export class Host extends EventEmitter {
     const r = this.room(id);
     if (r.state === "recovery_required") {
       if (action !== "recovered")
-        throw new Error("Check the project files, then press I checked, continue. Walt never retries an interrupted run on its own.");
+        throw new Error("Check the project files, then press I checked, continue. Bubble never retries an interrupted run on its own.");
       // you looked at the files after the interrupted run: unlock the chat and its project; nothing is replayed
       r.state = "idle";
       r.pause = false;
       r.step = "ready";
       const p = this.projectOf(r);
       if (p && this.leases.get(p.root) === r.id) this.leases.delete(p.root);
-      this.message(r, "Walt", "You checked the project after the interrupted run. The chat can continue.");
+      this.message(r, "Bubble", "You checked the project after the interrupted run. The chat can continue.");
       this.commit("recovery.done");
       return;
     }

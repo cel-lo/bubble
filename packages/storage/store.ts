@@ -14,7 +14,7 @@ const mark = (m: Message) => `${m.text.length}|${m.text.slice(-64)}|${m.kind ?? 
 export class Store {
   readonly db: DatabaseSync;
   private written = new Map<string, string>(); // message id -> mark at last write
-  /** a consistent copy of the whole database (works while Walt runs) */
+  /** a consistent copy of the whole database (works while Bubble runs) */
   backup(file: string) {
     this.db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
   }

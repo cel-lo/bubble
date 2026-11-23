@@ -15,10 +15,10 @@ import { tmpdir } from "node:os";
 import type { Engine, ModelInfo } from "../domain/model";
 type Session = ClaudeSession | CodexSession | ApiSession | AcpSession;
 /** what every API model is told: it only talks */
-const API_SYSTEM = "You are chatting with the user inside Walt, a desktop app. You cannot open, read or change files or run commands; when you need a file, ask the user to paste it. Reply in the language the user writes in.";
+const API_SYSTEM = "You are chatting with the user inside Bubble, a desktop app. You cannot open, read or change files or run commands; when you need a file, ask the user to paste it. Reply in the language the user writes in.";
 export class Supervisor {
   sessions = new Map<string, Session>();
-  /** every CLI process goes in here, so a crash of Walt still ends them and what they started */
+  /** every CLI process goes in here, so a crash of Bubble still ends them and what they started */
   readonly job = new Job();
   /** last session/thread id per room:persona:readonly, to resume after a restart */
   private resumeIds = new Map<string, string>();
@@ -42,14 +42,14 @@ export class Supervisor {
     const exe = this.find("agy") ?? (local && existsSync(local) ? local : undefined);
     if (!exe) return undefined;
     // agy's ACP server auto-approves workspace edits even in default mode (seen with agy 1.5.9); "strict" makes every
-    // tool ask, and Walt answers reads itself. Walt keeps its own agy data folder (~/.gemini/walt) so the owner's agy
+    // tool ask, and Bubble answers reads itself. Bubble keeps its own agy data folder (~/.gemini/bubble) so the owner's agy
     // settings and history stay untouched; the Google login lives in Credential Manager and is shared.
-    const dir = join(homedir(), ".gemini", "walt");
+    const dir = join(homedir(), ".gemini", "bubble");
     try {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "settings.json"), JSON.stringify({ toolPermission: "strict" }, null, 2));
     } catch {}
-    return { exe, args: ["acp", "--app-data-dir", "walt"] };
+    return { exe, args: ["acp", "--app-data-dir", "bubble"] };
   }
   /** the models Antigravity listed when the doctor signed in; [] until then */
   private agyModels: ModelInfo[] = [];

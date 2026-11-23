@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { Host } from "./service";
 import { Store } from "../storage/store";
-import { controlServer } from "../control-api/server";
 import { MODEL_ID } from "../domain/command";
 const parent = (process as any).parentPort;
 const dir = process.argv[2];
@@ -10,9 +9,6 @@ const persona = z.string().min(1).max(80);
 const effort = z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]);
 /** a CLI, or an API provider added in Customize */
 const engine = z.string().regex(/^(claude|codex|antigravity|api:[a-z0-9-]{1,40})$/) as unknown as z.ZodType<import("../domain/model").Engine>;
-const api = await controlServer(host, dir, (roomId) =>
-  parent.postMessage({ type: "open", roomId }),
-);
 const view = () => ({ ...host.state, procs: host.supervisor.list() });
 host.on("state", () => parent.postMessage({ type: "state", state: view() }));
 host.on("delta", (delta) => parent.postMessage({ type: "delta", delta }));
@@ -103,9 +99,6 @@ parent.on("message", async ({ data }: any) => {
       case "backup":
         result = host.backup();
         break;
-      case "island":
-        result = { connected: api.clients() > 0 };
-        break;
       case "limit.handoff": {
         const v = z.object({ roomId: z.string(), to: z.string().min(1).max(120) }).parse(input);
         result = await host.handOff(v.roomId, v.to);
@@ -132,7 +125,6 @@ parent.on("message", async ({ data }: any) => {
               idleMinutes: z.number().int().min(5).max(60),
               onboarded: z.boolean(),
               claudeShell: z.boolean(),
-              islandAnswers: z.boolean(),
               closeAction: z.enum(["tray", "quit"]),
               instructions: z.string().max(4000),
               notify: z.boolean(),
@@ -242,7 +234,6 @@ parent.on("message", async ({ data }: any) => {
       }
       case "quit":
         clearInterval(timer);
-        await api.close();
         await host.close();
         process.exit(0);
         break;

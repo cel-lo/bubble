@@ -1,6 +1,6 @@
-// Windows Job Object for AI processes: every claude.exe / codex.exe Walt starts is put in one job marked
+// Windows Job Object for AI processes: every claude.exe / codex.exe Bubble starts is put in one job marked
 // KILL_ON_JOB_CLOSE, and whatever those processes start later (tests, dev servers) joins it automatically.
-// The job handle lives in a small PowerShell helper that reads PIDs from Walt on stdin; when Walt's host goes away,
+// The job handle lives in a small PowerShell helper that reads PIDs from Bubble on stdin; when Bubble's host goes away,
 // even by crashing, the pipe closes, the helper exits, and Windows ends every process in the job.
 // No native module: PowerShell compiles the few kernel32 calls with Add-Type (allowed under Smart App Control here).
 import { spawn, type ChildProcess } from "node:child_process";
@@ -54,7 +54,7 @@ export class Job {
       stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true,
     });
-    p.on("error", () => {}); // no PowerShell: Walt still runs, only without crash containment
+    p.on("error", () => {}); // no PowerShell: Bubble still runs, only without crash containment
     p.stdout?.on("data", (b) => this.log.push(...String(b).split(/\r?\n/).filter(Boolean)));
     return p;
   }

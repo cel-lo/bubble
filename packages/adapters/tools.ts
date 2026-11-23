@@ -1,5 +1,5 @@
 // What each AI may use besides the project files: built-in tools (images, web, apps), the user's own plugins and
-// MCP servers, found where Claude Code and Codex keep them. Walt only reads these configs; it never writes them.
+// MCP servers, found where Claude Code and Codex keep them. Bubble only reads these configs; it never writes them.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, cpSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,7 +56,7 @@ export function codexPlugins(config = join(homedir(), ".codex", "config.toml")) 
 }
 
 /** skills the Claude app synced from claude.ai (~/.claude/skills/synced/<account>/<skill>/SKILL.md). Claude Code does
- * not look that deep, so Walt hands them over as one local plugin. Left out: skills that drive tools only the Claude
+ * not look that deep, so Bubble hands them over as one local plugin. Left out: skills that drive tools only the Claude
  * app has (its browser, Chrome, computer use, the morning brief, Claude Docs). */
 const APP_ONLY = new Set(["built-in-browser", "chrome-browser", "computer-use", "morning", "docs"]);
 export const synced = { dir: join(tmpdir(), "walt-claude-skills") };
@@ -87,7 +87,7 @@ export function syncedPlugin(home = homedir()) {
   if (!existsSync(mark) || readFileSync(mark, "utf8") !== stamp) {
     rmSync(synced.dir, { recursive: true, force: true });
     mkdirSync(join(synced.dir, ".claude-plugin"), { recursive: true });
-    writeFileSync(join(synced.dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "claude-ai-skills", version: "1.0.0", description: "Skills synced from claude.ai, loaded by Walt" }));
+    writeFileSync(join(synced.dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "claude-ai-skills", version: "1.0.0", description: "Skills synced from claude.ai, loaded by Bubble" }));
     for (const s of skills) cpSync(s.dir, join(synced.dir, "skills", s.name), { recursive: true });
     writeFileSync(mark, stamp);
   }

@@ -17,7 +17,7 @@ export interface AcpCommand {
   args: string[];
 }
 
-/** a tool call Walt shows the owner, in the shapes the approval card knows (Shell, Edit, WebFetch) */
+/** a tool call Bubble shows the owner, in the shapes the approval card knows (Shell, Edit, WebFetch) */
 export function askFor(tc: any): { tool: string; input: unknown } {
   const raw = tc?.rawInput ?? {};
   if (tc?.kind === "execute") return { tool: "Shell", input: { command: raw.command ?? raw.CommandLine ?? tc.title, cwd: raw.dir_path ?? raw.directory ?? raw.Cwd, reason: raw.description } };
@@ -124,12 +124,12 @@ export class AcpSession {
     this.ready = (async () => {
       await acp.init();
       const params = { cwd, mcpServers: [] };
-      // a failed resume starts a new session; Walt resends what the model missed, so the chat carries on
+      // a failed resume starts a new session; Bubble resends what the model missed, so the chat carries on
       const r = resume
         ? await acp.call("session/load", { sessionId: resume, ...params }).then(() => ({ sessionId: resume }), () => acp.call("session/new", params))
         : await acp.call("session/new", params);
       this.sessionId = r.sessionId;
-      // the model picked in Walt, when the agent offers model switching and it is not already on it
+      // the model picked in Bubble, when the agent offers model switching and it is not already on it
       const offered: any[] = r?.models?.availableModels ?? [];
       if (model && model !== "default" && r?.models?.currentModelId !== model && offered.some((m) => m.modelId === model))
         await acp.call("session/set_model", { sessionId: this.sessionId, modelId: model }).catch(() => {});
@@ -150,7 +150,7 @@ export class AcpSession {
   }
   private onMessage(m: any) {
     if (m.method === "session/request_permission" && m.id != null) return void this.permission(m);
-    if (m.id != null) return this.acp.write({ id: m.id, error: { code: -32601, message: `Walt does not offer ${m.method}` } });
+    if (m.id != null) return this.acp.write({ id: m.id, error: { code: -32601, message: `Bubble does not offer ${m.method}` } });
     const u = m.params?.update;
     if (m.method !== "session/update" || m.params?.sessionId !== this.sessionId) return;
     if (u?.sessionUpdate === "usage_update" && u.size) return void (this.context = { used: u.used ?? 0, size: u.size });
@@ -164,7 +164,7 @@ export class AcpSession {
     const tc = m.params?.toolCall;
     // read-only chats never change anything; elsewhere every change asks the owner
     if (this.readonly && CHANGES.has(tc?.kind)) {
-      // tell Walt (it says why in the chat), then refuse whatever it answers
+      // tell Bubble (it says why in the chat), then refuse whatever it answers
       const a = askFor(tc);
       await this.pending?.approve(a.tool, a.input).catch(() => false);
       return this.acp.write({ id: m.id, result: choose(m.params?.options, false) });

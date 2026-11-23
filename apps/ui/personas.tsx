@@ -19,7 +19,7 @@ export const personaItem = (p: PersonaDef, r: string, st: string, detail: string
 /** an AI message; `name` overrides the persona name (plain chats show the model, e.g. "Opus 5.5"); an empty role hides the tag */
 export const personaMsg = (p: PersonaDef, r: string, time: string, body: string, name = p.name) =>
   `<div class="msg">${av(p.avatar, 32)}<div class="col" style="min-width:0"><div class="mh"><span class="n">${esc(name)}</span>${r ? roleTag(p.avatar, r) : ""}<span>${time}</span></div><div class="bub">${body}</div></div></div>`;
-/** the chip under cello's message that shows what Walt read from @mention and /commands */
+/** the chip under cello's message that shows what Bubble read from @mention and /commands */
 export function metaChip(meta: NonNullable<Room["messages"][number]["meta"]>, name: (id: string) => string, setting: boolean) {
   const who = meta.to ? [meta.to, ...(meta.also ?? [])].map(name).join(" + ") : t("everyone");
   const what = [meta.effort && t("effort {0}", meta.effort), meta.model && t("model {0}", esc(meta.model))].filter(Boolean).join(" · ");

@@ -1,47 +1,24 @@
-# Walt
+# Bubble
 
-Private Windows desktop app for cello. Source, copied blueprint and design sources are in `D:\WALT`.
+Private Windows desktop app for cello: Claude Code, Codex and Antigravity in one project chat, signed in with each CLI's own login.
 
-**Status: development implementation, not a completed v1. The P0 gate has not passed.**
+Bubble started as a copy of Walt (`D:\WALT`, commit `bc68621`) with the same functions and a new design: a glass window over a wallpaper, the Bubble logo, and List in place of Search. It does not connect to Ce:L. The design reference is the Figma file "Bubble"; its pipeline lives in `D:\NEWNUSA\design-pipeline\bubble`.
 
-The Electron entry, separate Node host and React UI build successfully. The real Claude CLI completed its stream-json initialization handshake. Six core tests passed. A model-response smoke was blocked by the execution sandbox preventing Claude from creating its OAuth refresh lock. No successful model output, file editing, parallel review, packaged executable, or complete visual parity is claimed.
+Bubble and Walt can run side by side: Bubble keeps its data in `%APPDATA%\Bubble`, has its own app id (`local.cello.bubble`) and its own Antigravity folder (`~/.gemini/bubble`).
 
 ## Run on this laptop
 
-1. Run `Install-Walt.cmd` from Windows with internet access. It installs dependencies, builds the source and creates an unpacked desktop app in `release\win-unpacked`.
-2. Open `release\win-unpacked\Walt.exe`, or use `Start-Walt.cmd` for development.
-3. Open Settings → Engines → Refresh doctor. Claude uses the existing native CLI login.
-4. Create a project and room. Currently only Claude Opus and Claude Sonnet have an implemented adapter. Start with Sonnet as Builder and Opus as Reviewer.
-
-The installation script has been prepared but could not complete here: npm registry DNS resolution is unavailable in the execution sandbox. Electron is not installed and no `Walt.exe` has been produced yet. `npm run package:portable` creates a portable executable once dependencies and smoke tests pass.
+- Development: `Start-Bubble.cmd` (builds, then starts Electron).
+- Installer: `Install-Bubble.cmd`, or `npm run package:setup`.
+- A test copy that leaves your data alone: set `WALT_DATA` to another folder before `npm start`.
 
 ## Commands
 
 ```text
 npm run build
 npm run test
-npm run typecheck:core
 npm run typecheck
-npm run smoke:claude
-npm run smoke:provider
-npm run package
-node scripts/island-client.mjs
+npm run package:setup
 ```
 
-`typecheck:core` covers domain, host, adapters, storage, API, UI and tests. Full typechecking also requires the Electron package and its official types. Tests currently use Node's test runner so they can run with the available offline dependencies; Vitest/Playwright migration and full UI tests remain pending.
-
-## Structure
-
-- `apps/desktop`: Electron window, preload, tray and utility-process host.
-- `apps/ui`: React UI; original setup layouts bound to inputs.
-- `packages/domain`: records, budget and root overlap rules.
-- `packages/host`: project/room service and artifact manifests.
-- `packages/adapters`: CLI probing, credential filtering and Claude transport.
-- `packages/storage`: SQLite WAL state, events and command history.
-- `packages/control-api`: authenticated loopback API and SSE for Ce:L.
-- `design`: unchanged source used to generate the FigCraft frames, including all 51 original screens.
-- `docs/blueprint`: supplied blueprint v1.1, preserved.
-
-Runtime data belongs in `%APPDATA%\Walt`, per the PRD. Project folders stay where selected. Source and build output remain in `D:\WALT`.
-
-Read `docs/PROGRESS.md`, `docs/COMPATIBILITY.md` and `docs/PARITY.md` before continuing development. The original FigCraft document has not been edited. Full implementation-to-frame visual verification is outstanding.
+`docs/PROGRESS.md` is the log; everything before 2026-11-24 happened in Walt.

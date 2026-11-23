@@ -1,4 +1,4 @@
-// Real Codex smoke (codex app-server, ChatGPT login): Walt's broker allow + deny, a warm second turn on the same
+// Real Codex smoke (codex app-server, ChatGPT login): Bubble's broker allow + deny, a warm second turn on the same
 // process, a read-only reviewer that cannot write, and resume after a restart. Spends a few low-effort turns.
 import { build } from "esbuild";
 import fs from "node:fs/promises";

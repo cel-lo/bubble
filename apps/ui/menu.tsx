@@ -1,4 +1,4 @@
-// Minimal menus in the Walt style: one popover component used for dropdowns, the model picker and row actions.
+// Minimal menus in the Bubble style: one popover component used for dropdowns, the model picker and row actions.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ic, T } from "./generated/kit.mjs";

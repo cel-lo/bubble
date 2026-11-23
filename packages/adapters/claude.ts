@@ -187,7 +187,7 @@ export class ClaudeSession {
         ? { behavior: "allow", updatedInput: r.input }
         : {
             behavior: "deny",
-            message: "Denied by Walt permission policy or user",
+            message: "Denied by Bubble permission policy or user",
           };
     }
     this.write({
@@ -256,7 +256,7 @@ export class ClaudeSession {
             else
               reject(
                 new Error(
-                  "Process shutdown could not be verified. Restart Walt and inspect recovery.",
+                  "Process shutdown could not be verified. Restart Bubble and inspect recovery.",
                 ),
               );
           });

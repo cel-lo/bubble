@@ -1,5 +1,5 @@
 {
-  "name": "walt-desktop",
+  "name": "bubble-desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -38,8 +38,8 @@
     "prettier": "3.8.3"
   },
   "build": {
-    "appId": "local.cello.walt",
-    "productName": "Walt",
+    "appId": "local.cello.bubble",
+    "productName": "Bubble",
     "directories": {
       "output": "release"
     },
@@ -53,10 +53,10 @@
       "icon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "Walt.exe"
+      "artifactName": "Bubble.exe"
     },
     "nsis": {
-      "artifactName": "Walt-Setup-${version}.exe",
+      "artifactName": "Bubble-Setup-${version}.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -69,6 +69,6 @@
     "esbuild": true,
     "electron-winstaller@5.4.0": true
   },
-  "description": "Walt: Claude Code and Codex in one project chat",
+  "description": "Bubble: your AIs in one project chat",
   "author": "cello"
 }

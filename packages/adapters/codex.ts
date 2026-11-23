@@ -11,9 +11,9 @@ import type { Approval } from "./claude";
 import { LEVELS, type ModelInfo, type ContextUse } from "../domain/model";
 import { NO_TOOLS, saveImage, codexQuota, usage, type ToolKit } from "./tools";
 
-/** Features Walt always turns off: hooks run the user's own commands, sub-agents run outside Walt's view */
+/** Features Bubble always turns off: hooks run the user's own commands, sub-agents run outside Bubble's view */
 const ALWAYS_OFF = ["hooks", "multi_agent"];
-/** names of the user's own MCP servers, so each can be switched off for Walt sessions (names only, no values) */
+/** names of the user's own MCP servers, so each can be switched off for Bubble sessions (names only, no values) */
 export function userMcpServers(config = join(homedir(), ".codex", "config.toml")) {
   try {
     return [...new Set([...readFileSync(config, "utf8").matchAll(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/gm)].map((m) => m[1]))];
@@ -86,7 +86,7 @@ export class CodexSession {
     resume?: string,
     /** Plugins & tools for this session (reviewers: none) */
     kit: ToolKit = NO_TOOLS,
-    /** the user's Codex plugins, so the ones switched off in Walt can be named */
+    /** the user's Codex plugins, so the ones switched off in Bubble can be named */
     plugins: string[] = [],
   ) {
     const args = codexArgs(userMcpServers().filter((s) => !kit.mcp.includes(s)), userSkills(), kit, plugins);
@@ -99,7 +99,7 @@ export class CodexSession {
     });
     createInterface({ input: this.child.stdout }).on("line", (line) => this.onLine(line));
     this.ready = (async () => {
-      await this.call("initialize", { clientInfo: { name: "walt", title: "Walt", version: "0.1.0" }, capabilities: { experimentalApi: false, requestAttestation: false } });
+      await this.call("initialize", { clientInfo: { name: "bubble", title: "Bubble", version: "0.1.0" }, capabilities: { experimentalApi: false, requestAttestation: false } });
       this.write({ method: "initialized" });
       const thread = {
         cwd,
@@ -109,7 +109,7 @@ export class CodexSession {
         ...(model ? { model } : {}),
         ...(kit.instructions ? { developerInstructions: kit.instructions } : {}),
       };
-      // shortcut: a failed resume silently starts a new thread (Walt resends the full packet each turn, so the task
+      // shortcut: a failed resume silently starts a new thread (Bubble resends the full packet each turn, so the task
       // context survives); show "new session" in the timeline once resume state is surfaced in the UI
       const r = resume
         ? await this.call("thread/resume", { threadId: resume, ...thread }).catch(() => this.call("thread/start", thread))
@@ -165,7 +165,7 @@ export class CodexSession {
       run.delta(p.delta);
     }
     if (m.method === "item/completed" && p.item.type === "agentMessage") run.last = p.item.text;
-    // a generated picture arrives as base64 PNG: keep it in Walt's images folder and show it in the reply
+    // a generated picture arrives as base64 PNG: keep it in Bubble's images folder and show it in the reply
     if (m.method === "item/completed" && p.item.type === "imageGeneration" && typeof p.item.result === "string" && p.item.result) {
       const md = saveImage(`${this.sessionId}-${p.item.id}`, p.item.result, p.item.revisedPrompt || "image");
       run.images.push(md);
@@ -195,13 +195,13 @@ export class CodexSession {
       return;
     }
     if (!ask) {
-      // extra permissions, user-input prompts, MCP elicitations, tool calls: Walt grants none of these
-      this.write({ id: m.id, error: { code: -32601, message: `Walt does not allow ${m.method}` } });
+      // extra permissions, user-input prompts, MCP elicitations, tool calls: Bubble grants none of these
+      this.write({ id: m.id, error: { code: -32601, message: `Bubble does not allow ${m.method}` } });
       return;
     }
-    // Walt hears about every request (a read-only turn is refused there and says why); read-only stays refused here too
+    // Bubble hears about every request (a read-only turn is refused there and says why); read-only stays refused here too
     const allowed = !!this.pending && (await this.pending.approve(ask.tool, ask.input)) && !this.readonly;
-    const decision = legacy ? (allowed ? "approved" : { denied: { rejection: "Denied by Walt permission policy or user" } }) : allowed ? "accept" : "decline";
+    const decision = legacy ? (allowed ? "approved" : { denied: { rejection: "Denied by Bubble permission policy or user" } }) : allowed ? "accept" : "decline";
     this.write({ id: m.id, result: { decision } });
   }
   async warm() {
@@ -242,7 +242,7 @@ export class CodexSession {
         const killer = spawn("taskkill.exe", ["/PID", String(this.child.pid), "/T", "/F"], { windowsHide: true, shell: false });
         killer.once("error", reject);
         // taskkill fails when the process exited on its own a moment earlier; that is a clean stop too
-        killer.once("close", (code) => (code === 0 || this.closed || gone(this.child.pid!) ? resolve() : reject(new Error("Codex shutdown could not be verified. Restart Walt and inspect recovery."))));
+        killer.once("close", (code) => (code === 0 || this.closed || gone(this.child.pid!) ? resolve() : reject(new Error("Codex shutdown could not be verified. Restart Bubble and inspect recovery."))));
       }, 3000);
       this.child.once("close", () => {
         clearTimeout(timer);
@@ -276,7 +276,7 @@ export async function codexModels(executable: string, cwd: string): Promise<Mode
     });
   const timer = setTimeout(() => p.kill(), 30000);
   try {
-    await call("initialize", { clientInfo: { name: "walt", title: "Walt", version: "0.1.0" }, capabilities: { experimentalApi: false, requestAttestation: false } });
+    await call("initialize", { clientInfo: { name: "bubble", title: "Bubble", version: "0.1.0" }, capabilities: { experimentalApi: false, requestAttestation: false } });
     const out: any[] = [];
     let cursor: string | null = null;
     do {

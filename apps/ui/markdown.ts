@@ -4,7 +4,7 @@ import { t } from "./i18n";
 export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-/** pictures Walt saved (generated or attached): walt-img links become images; also used in your own bubbles */
+/** pictures Bubble saved (generated or attached): walt-img links become images; also used in your own bubbles */
 export const pics = (s: string) =>
   s.replace(
     /!\[([^\]\n]*)\]\(walt-img:\/\/img\/([\w.-]+\.(?:png|jpe?g|webp|gif))\)/g,
@@ -14,7 +14,7 @@ const inline = (s: string) =>
   pics(s)
     .replace(/`([^`\n]+)`/g, '<span class="mono" style="font-size:.9em;background:#ffffff14;border-radius:5px;padding:1px 5px">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-    // a web link opens in Walt's Browser tab or your browser (Settings · Browser); any other target (a file path)
+    // a web link opens in Bubble's Browser tab or your browser (Settings · Browser); any other target (a file path)
     // shows its text only, with the target in the tooltip
     .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, text: string, to: string) =>
       /^https?:\/\//i.test(to)

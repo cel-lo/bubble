@@ -22,10 +22,10 @@ export function address(s: string, search: keyof typeof SEARCH = "google") {
   return (SEARCH[search] ?? SEARCH.google) + encodeURIComponent(v);
 }
 
-/** thin scrollbars that suit Walt's dark panel, on every page (pages that style their own keep theirs) */
+/** thin scrollbars that suit Bubble's dark panel, on every page (pages that style their own keep theirs) */
 const SCROLLBARS = `::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}::-webkit-scrollbar-thumb{background:rgba(128,128,128,.45);border-radius:10px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background-color:rgba(128,128,128,.75)}`;
 
-/** runs inside the page: click things to mark them (numbered), write a comment under each; Walt calls finish() */
+/** runs inside the page: click things to mark them (numbered), write a comment under each; Bubble calls finish() */
 const annotate = (placeholder: string) => `(() => {
   if (window.__waltAnno) return;
   const host = document.createElement("div");
@@ -101,7 +101,7 @@ const store = {
     } catch {}
   },
 };
-/** shortcut: history lives in this window's storage (500 visits), not in Walt's database; move it there if other devices or the AIs need it */
+/** shortcut: history lives in this window's storage (500 visits), not in Bubble's database; move it there if other devices or the AIs need it */
 function visit(url: string, title: string) {
   const h = store.get<Visit[]>(HISTORY, []);
   if (h[0]?.url === url) h[0] = { ...h[0], title: title || h[0].title, at: Date.now() };
@@ -143,7 +143,7 @@ export function HistoryList({ open, onClose, height }: { open?: (url: string) =>
   );
 }
 const newTab = (start = ""): Tab => ({ id: Math.random().toString(36).slice(2, 10), start, url: start, title: "" });
-/** a chat's tabs; older Walt kept one address per chat as a plain string */
+/** a chat's tabs; older Bubble kept one address per chat as a plain string */
 function loadTabs(key: string): { tabs: Tab[]; active: string } {
   try {
     const raw = localStorage.getItem(key) || "";
@@ -446,7 +446,7 @@ export function BrowserSettings({ state, invoke }: { state: State; invoke: (meth
   };
   const rows: [string, string, React.ReactNode][] = [
     ["Search with", "What the address bar uses for words that are not an address.", <Dropdown label="Search with" value={b.search ?? "google"} width={170} onChange={(v) => set({ search: v as Prefs["search"] })} options={[{ value: "google", label: "Google" }, { value: "duckduckgo", label: "DuckDuckGo" }, { value: "bing", label: "Bing" }]} />],
-    ["Web links in chats", "Where a link in an AI's reply opens.", seg<NonNullable<Prefs["links"]>>(b.links ?? "walt", [["walt", "Walt's Browser"], ["system", "Your browser"]], (v) => set({ links: v }))],
+    ["Web links in chats", "Where a link in an AI's reply opens.", seg<NonNullable<Prefs["links"]>>(b.links ?? "walt", [["walt", "Bubble's Browser"], ["system", "Your browser"]], (v) => set({ links: v }))],
     ["Annotation pictures", "Annotate sends a picture of the page with the marks. Notes only uses fewer tokens; the AI then reads the element and your comment.", seg(b.shots !== false, [[true, "Always include"], [false, "Notes only"]], (v) => set({ shots: v }))],
     ["Downloads", "Off blocks every download. On asks where to save each file.", seg(!!b.downloads, [[false, "Off"], [true, "Ask where to save"]], (v) => set({ downloads: v }))],
     ["Camera, microphone, location, notifications", "Always refused for every site. The AIs cannot use the Browser either.", <span className="s12 dim">{t("Refused")}</span>],

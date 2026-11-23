@@ -1,4 +1,4 @@
-// Real Claude smoke: Walt's permission broker (allow + deny), a warm second turn on the same process,
+// Real Claude smoke: Bubble's permission broker (allow + deny), a warm second turn on the same process,
 // and a read-only reviewer that cannot write. Uses the CLI's own login; spends a few small turns.
 import { build } from "esbuild";
 import fs from "node:fs/promises";
@@ -20,7 +20,7 @@ const timer = setTimeout(() => { console.error("tools smoke timed out"); process
 try {
   await builder.warm();
   const pid = builder.child.pid;
-  // 1. allow: the Write goes through Walt's broker and lands on disk
+  // 1. allow: the Write goes through Bubble's broker and lands on disk
   await builder.run("Create a file named allowed.txt containing exactly WALT. Use the Write tool. Then reply DONE.", () => {}, policy(true));
   assert.ok(asked.includes("Write"), "Write was not routed through the approval broker");
   assert.equal((await fs.readFile(join(root, "allowed.txt"), "utf8")).trim(), "WALT");

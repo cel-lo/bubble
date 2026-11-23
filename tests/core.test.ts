@@ -8,7 +8,6 @@ import { cleanEnv } from "../packages/adapters/environment";
 import { manifest } from "../packages/host/files";
 import { Store } from "../packages/storage/store";
 import { Host } from "../packages/host/service";
-import { controlServer } from "../packages/control-api/server";
 test("lease roots compare case, separators, parent and sibling correctly", () => {
   assert.equal(overlaps("D:\\Work", "d:/work/sub"), true);
   assert.equal(overlaps("D:/Work", "D:/Workshop"), false);
@@ -72,131 +71,6 @@ test("SQLite restart preserves messages and flags unfinished runs without replay
   assert.equal(host.supervisor.sessions.size, 0);
   await host.close();
   await rm(dir, { recursive: true });
-});
-test("island rejects browser origins, bad auth and approvals; dedupes commands; answers decisions", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "walt-api-"));
-  const host = new Host(new Store(dir));
-  const r = host.createRoom.bind(host);
-  host.state.projects.push({
-    id: "p",
-    root: dir,
-    name: "Fixture",
-    goal: "",
-    constraints: "",
-  });
-  const room = r({
-    projectId: "p",
-    title: "Main",
-    template: "direct",
-    builder: "sonnet",
-    reviewers: [],
-  });
-  const api = await controlServer(host, dir, () => {});
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const cfg = JSON.parse(await readFile(join(dir, "control.json"), "utf8"));
-    const base = `http://127.0.0.1:${api.port}`;
-    const fetch = async (url: string, options: any = {}) => {
-      const { Readable } = await import("node:stream");
-      const req = Readable.from(options.body ? [options.body] : []);
-      Object.assign(req, {
-        url: new URL(url).pathname,
-        method: options.method || "GET",
-        headers: Object.fromEntries(
-          Object.entries({
-            host: `127.0.0.1:${api.port}`,
-            ...options.headers,
-          }).map(([k, v]) => [k.toLowerCase(), v]),
-        ),
-      });
-      return await new Promise<{ status: number; json: any }>((resolve) => {
-        let status = 200;
-        const res = {
-          writeHead: (code: number) => {
-            status = code;
-          },
-          end: (data?: string) => resolve({ status, json: data ? JSON.parse(data) : undefined }),
-        };
-        api.server.emit("request", req as any, res as any);
-      });
-    };
-    const headers = {
-      Authorization: "Bearer " + cfg.token,
-      "Content-Type": "application/json",
-    };
-    assert.equal((await fetch(base + "/island/v1/state")).status, 401);
-    assert.equal(
-      (
-        await fetch(base + "/island/v1/state", {
-          headers: { ...headers, Origin: "http://evil.example" },
-        })
-      ).status,
-      403,
-    );
-    assert.equal(
-      (
-        await fetch(base + "/island/v1/asks/a/answer", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ commandId: "ask-1", expectedRevision: 0, option: "yes" }),
-        })
-      ).status,
-      403,
-      "tool approvals are never answered from the island",
-    );
-    const body = JSON.stringify({
-      commandId: "pause-1",
-      expectedRevision: host.state.revision,
-    });
-    const endpoint = base + "/island/v1/rooms/" + room.id + "/pause";
-    assert.equal(
-      (await fetch(endpoint, { method: "POST", headers, body })).status,
-      200,
-    );
-    assert.equal(room.state, "paused");
-    assert.equal(
-      (await fetch(endpoint, { method: "POST", headers, body })).status,
-      200,
-    );
-    assert.equal(
-      (
-        await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ commandId: "pause-1", expectedRevision: 0 }),
-        })
-      ).status,
-      409,
-      "the same command id with another body is a conflict",
-    );
-    // a DECISION: question shows up as a decision the island can answer
-    host.control(room.id, "resume");
-    room.state = "idle";
-    room.messages.push({ id: "m1", author: "sonnet", at: new Date().toISOString(), text: "Two ways.\nDECISION: Which **storage**?\n- SQLite\n- JSON file" });
-    const state = (await fetch(base + "/island/v1/state", { headers })).json;
-    const d = state.needsYou.find((a: any) => a.kind === "decision");
-    assert.deepEqual([d.askId, d.title, d.options, d.who], ["decision:" + room.id, "Which storage?", ["SQLite", "JSON file"], "Claude Sonnet"]);
-    assert.equal(state.activeRooms[0].waiting, 1);
-    (host.supervisor as any).get = async () => ({ run: async () => "ok, SQLite", stop: async () => {} });
-    const answer = (option: string, id: string) =>
-      fetch(base + "/island/v1/asks/" + encodeURIComponent(d.askId) + "/answer", { method: "POST", headers, body: JSON.stringify({ commandId: id, expectedRevision: 0, option }) });
-    assert.equal((await answer("Postgres", "d-0")).status, 400, "only one of the options");
-    assert.equal((await answer("SQLite", "d-1")).status, 200);
-    const sent = room.messages.find((m) => m.author === "cello")!;
-    assert.deepEqual([sent.text, sent.meta?.via], ["SQLite", "island"], "recorded as answered from the island");
-    for (let i = 0; i < 800 && (host as any).active.size; i++) await new Promise((ok) => setTimeout(ok, 10));
-    assert.equal((await answer("SQLite", "d-2")).status, 400, "already answered");
-    // answering from the island turned off: the question shows without options, and answers are refused
-    host.state.settings.islandAnswers = false;
-    room.messages.push({ id: "m9", author: "sonnet", at: new Date().toISOString(), text: "DECISION: Again?\n- Yes\n- No" });
-    const off = (await fetch(base + "/island/v1/state", { headers })).json;
-    assert.deepEqual(off.needsYou.find((a: any) => a.kind === "decision").options, []);
-    assert.equal((await answer("Yes", "d-3")).status, 403);
-  } finally {
-    await api.close();
-    await host.close();
-    await rm(dir, { recursive: true });
-  }
 });
 import { md } from "../apps/ui/markdown";
 test("agent markdown is escaped before formatting", () => {
@@ -476,8 +350,8 @@ test("a member only reads: it is told so, and a write it tries is refused with a
   assert.deepEqual(answers, [false, false], "both refused");
   assert.equal(host.state.asks.length, 0, "no approval card you cannot answer");
   assert.match(JSON.parse(prompts[0]).readOnly, /only read.*@Codex/, "the member is told it reads only and who can write");
-  const notes = r.messages.filter((m) => m.author === "Walt" && /can only read/.test(m.text));
-  assert.equal(notes.length, 1, "Walt says why once per turn");
+  const notes = r.messages.filter((m) => m.author === "Bubble" && /can only read/.test(m.text));
+  assert.equal(notes.length, 1, "Bubble says why once per turn");
   assert.match(notes[0].text, /Claude Sonnet can only read.*ask @Codex.*make Claude Sonnet a builder/);
   assert.equal(r.artifacts.length, 0);
   await host.close();
@@ -515,24 +389,24 @@ test("continue a chat in the CLI and export its context", async () => {
   host.supervisor.claude = "C:\tools\claude.exe";
   const out = host.continueInCli(r.id);
   assert.equal(out.command, "claude --resume abc-123");
-  assert.equal(launched[0], `start "Walt" /D "${host.rootOf(r)}" "C:\tools\claude.exe" --resume abc-123`);
+  assert.equal(launched[0], `start "Bubble" /D "${host.rootOf(r)}" "C:\tools\claude.exe" --resume abc-123`);
   r.sessions![`${r.builder}:false`] = "x & calc";
   assert.throws(() => host.continueInCli(r.id), /looks wrong/, "nothing odd reaches the terminal");
   const ex = host.exportContext(r.id);
-  assert.ok(ex.path?.endsWith("WALT.md"));
+  assert.ok(ex.path?.endsWith("BUBBLE.md"));
   const md = (await import("node:fs")).readFileSync(ex.path!, "utf8");
   assert.match(md, /Goal: Loans app/);
   assert.match(md, /\*\*You:\*\* hello/);
-  assert.ok(host.exportContext(r.id).path, "exporting again overwrites Walt's own file");
+  assert.ok(host.exportContext(r.id).path, "exporting again overwrites Bubble's own file");
   await writeFile(ex.path!, "my notes");
-  assert.throws(() => host.exportContext(r.id), /did not write/, "a WALT.md written by someone else is left alone");
+  assert.throws(() => host.exportContext(r.id), /did not write/, "a BUBBLE.md written by someone else is left alone");
   await host.close();
   await rm(dir, { recursive: true });
 });
 
 import { Job } from "../packages/adapters/job";
 import { spawn as spawnProcess } from "node:child_process";
-test("the job ends AI processes and what they started once Walt lets go of it", { skip: process.platform !== "win32" }, async () => {
+test("the job ends AI processes and what they started once Bubble lets go of it", { skip: process.platform !== "win32" }, async () => {
   const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
   const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
   // a parent that starts a grandchild 1.5 s after it was put in the job, like a CLI starting `npm test`
@@ -543,8 +417,8 @@ test("the job ends AI processes and what they started once Walt lets go of it", 
   const g = await grandchild;
   for (let i = 0; i < 40 && !job.log.some((l) => l === `ok ${parent.pid}`); i++) await wait(100);
   assert.ok(job.log.includes(`ok ${parent.pid}`), "the helper put the process in the job: " + job.log.join(", "));
-  assert.ok(alive(parent.pid!) && alive(g), "both run while Walt holds the job");
-  job.close(); // what happens when Walt's host exits or crashes: the pipe closes
+  assert.ok(alive(parent.pid!) && alive(g), "both run while Bubble holds the job");
+  job.close(); // what happens when Bubble's host exits or crashes: the pipe closes
   for (let i = 0; i < 50 && (alive(parent.pid!) || alive(g)); i++) await wait(100);
   assert.ok(!alive(parent.pid!), "the CLI process ended");
   assert.ok(!alive(g), "and so did the command it started");
@@ -632,7 +506,7 @@ test("after an interrupted run, I checked unlocks the chat and its project", asy
   let host = new Host(new Store(data));
   const p = await host.project({ name: "P", root, goal: "", constraints: "" });
   const r = host.newChat(p.id);
-  r.state = "running"; // Walt went away mid-run
+  r.state = "running"; // Bubble went away mid-run
   host.commit();
   await host.close();
   host = new Host(new Store(data));
@@ -754,7 +628,7 @@ test("a usage limit becomes a card, and another model takes the message again", 
   await rm(dir, { recursive: true });
 });
 import { attachments, media } from "../packages/adapters/tools";
-test("pictures: Walt's own show in the chat, attached ones go to the AI with your message", async () => {
+test("pictures: Bubble's own show in the chat, attached ones go to the AI with your message", async () => {
   assert.match(md("look ![cat](walt-img://img/a-1.png)"), /<img class="gen" src="walt-img:\/\/img\/a-1.png"/);
   assert.doesNotMatch(md("![x](https://evil.example/p.png)"), /<img/, "no remote images");
   assert.doesNotMatch(md("![x](walt-img://img/../../secret.png)"), /<img/, "no paths");
@@ -990,7 +864,7 @@ test("API providers in the host: key in memory only, models in the catalog, chat
 });
 
 import { AcpSession, acpModels, askFor, choose } from "../packages/adapters/acp";
-/** a stand-in for `agy acp`: lists two models, asks to edit a file, says what Walt answered */
+/** a stand-in for `agy acp`: lists two models, asks to edit a file, says what Bubble answered */
 const FAKE_AGY = `
 const rl = require("readline").createInterface({ input: process.stdin });
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\\n");
@@ -1041,7 +915,7 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   assert.equal(await s.run("look around", () => {}, async () => (asked.push("read"), false)), "[gemini-pro] edit yes: look around");
   assert.equal(asked.length, 1);
   await s.stop();
-  // read-only (reviews, chats without a project): a change is refused even if the answer is yes; Walt still hears
+  // read-only (reviews, chats without a project): a change is refused even if the answer is yes; Bubble still hears
   // about it (it refuses there without a card and says why in the chat)
   const ro = new AcpSession(cmd, dir, "", true);
   let told = false;

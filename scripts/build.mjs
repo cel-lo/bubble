@@ -17,7 +17,12 @@ fs.writeFileSync(
   "dist/ui/design.css",
   CSS +
     "\nhtml,body,#root{width:100%;height:100%;overflow:hidden} .tl{overflow:auto}.btn,.chip,[data-hot],.tab,.ri,.send,.wctl span{cursor:pointer}input,textarea,select{font:inherit;color:inherit;background:#232325;border:1px solid #3A3A3C;border-radius:9px;padding:9px 12px;outline:none}input:focus,textarea:focus,select:focus{border-color:#30C759}.tb{-webkit-app-region:drag}.tb [data-hot],.wctl{-webkit-app-region:no-drag}.bub{white-space:pre-wrap;overflow-wrap:anywhere}.cbox textarea{resize:none;border:0;flex:1;min-width:0;background:transparent;padding:12px 0}.btn:focus-visible,[data-hot]:focus-visible{outline:2px solid #30C759}\n" +
-    fs.readFileSync("apps/ui/walt.css", "utf8"),
+    fs.readFileSync("apps/ui/walt.css", "utf8") +
+    // the wallpaper behind the glass window, inline because the page only loads data: and walt-img: pictures
+    `
+body{background:#0c0d12 url(data:image/jpeg;base64,${fs.readFileSync("design/assets/wallpaper.jpg").toString("base64")}) center/cover no-repeat}
+.light body,body:has(.light){background:#FFFFFF}
+`,
 );
 await build({
   entryPoints: ["apps/ui/app.tsx"],
@@ -55,8 +60,8 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   "dist/ui/index.html",
-  '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; img-src \'self\' data: walt-img:; style-src \'self\' \'unsafe-inline\'; script-src \'self\'"><title>Walt</title><link rel="stylesheet" href="design.css"></head><body><div id="root"></div><script src="app.js"></script></body></html>',
+  '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; img-src \'self\' data: walt-img:; style-src \'self\' \'unsafe-inline\'; script-src \'self\'"><title>Bubble</title><link rel="stylesheet" href="design.css"></head><body><div id="root"></div><script src="app.js"></script></body></html>',
 );
 console.log(
-  "Built Walt desktop, host and UI. Original design sources retained in design/.",
+  "Built Bubble desktop, host and UI. Original design sources retained in design/.",
 );

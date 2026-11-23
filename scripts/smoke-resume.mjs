@@ -1,5 +1,5 @@
 // Real Claude smoke: --effort is accepted, and a restarted process with --resume continues the conversation
-// (what Walt does when /effort or /model changes, or after a persona slept). Spends two tiny turns.
+// (what Bubble does when /effort or /model changes, or after a persona slept). Spends two tiny turns.
 import { build } from "esbuild";
 import fs from "node:fs/promises";
 import { join, resolve } from "node:path";

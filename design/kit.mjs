@@ -1,4 +1,4 @@
-// Walt design kit: tokens, icons, avatars and shared layout pieces (HTML strings rendered by build.mjs).
+// Bubble design kit: tokens, icons, avatars and shared layout pieces (HTML strings rendered by build.mjs).
 import fs from "fs";
 import path from "path";
 const HERE = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, "$1");
@@ -118,6 +118,7 @@ const P = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
+  list: '<path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
   folder: '<path d="M3.5 7a2 2 0 0 1 2-2H10l2 2h6.5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   users: '<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 19.5c.8-3.3 3.4-5 6.5-5s5.7 1.7 6.5 5"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6M18 14.8c1.8.8 3 2.4 3.5 4.7"/>',
   more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
@@ -202,7 +203,7 @@ export const stack = (es, s = 26) => `<div class="row">${es.map((e, i) => av(e, 
 export const role = (e, r) => `<span class="role" style="background:${hexA(ENG[e].color, 0.16)};color:${ENG[e].color}">${r}</span>`;
 export function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 export const mention = (e, t) => `<span style="color:${ENG[e].color};font-weight:600">@${t}</span>`;
-export const wordmark = (s = 19) => `<div class="row" style="gap:${s * 0.4}px;font-size:${s}px;font-weight:800;letter-spacing:-.02em"><img src="${waltPng}" alt="" style="width:${s * 1.25}px;height:${s * 1.25}px;display:block;flex:none">Walt</div>`;
+export const wordmark = (s = 19) => `<div class="row" style="gap:${s * 0.4}px;font-size:${s}px;font-weight:800;letter-spacing:-.02em"><img src="${waltPng}" alt="" style="width:${s * 1.25}px;height:${s * 1.25}px;display:block;flex:none">Bubble</div>`;
 export const dot = (c, s = 8) => `<span style="width:${s}px;height:${s}px;border-radius:${s}px;background:${c};display:block;flex:none"></span>`;
 
 // ---------- shell ----------

@@ -1,6 +1,6 @@
 // API adapter: any OpenAI-compatible chat API (9Router, Groq, OpenRouter …), streamed over HTTPS; xAI (Grok) goes
 // through its Responses API with web and X search on, so answers can use what was posted minutes ago.
-// No process and no project tools: the model talks, it cannot read or change the project. Walt keeps the
+// No process and no project tools: the model talks, it cannot read or change the project. Bubble keeps the
 // conversation here (the API has no sessions); a new session gets the chat so far from the host.
 // Every call leaves `lastCall`: tokens in and out, search tools used, time, result (Customize · AI & models shows it).
 import { readFileSync } from "node:fs";
@@ -80,7 +80,7 @@ export class ApiSession {
   constructor(
     private readonly target: ApiTarget,
     readonly model: string,
-    /** Customize · Instructions plus what Walt tells every API model */
+    /** Customize · Instructions plus what Bubble tells every API model */
     private readonly system: string,
     readonly effort?: string,
   ) {}

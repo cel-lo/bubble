@@ -1,4 +1,4 @@
-// Reads the composer shortcuts Walt handles itself (never sent to a model):
+// Reads the composer shortcuts Bubble handles itself (never sent to a model):
 //   @Opus /effort high fix the date check     -> to Opus, effort high for this turn
 //   @Opus /effort high keep                    -> Opus keeps effort high in this room
 //   /model gpt-6.1-sol review this             -> model for this turn, whoever runs it
@@ -45,7 +45,7 @@ export function parseMessage(input: string, personas: PersonaDef[]): Parsed {
   const tos = found.sort((a, b) => a.at - b.at).map((f) => f.id);
   const to = tos[0];
   const leftover = text.match(/@[\w.-]+/);
-  if (leftover && !to) throw new Error(`No persona called ${leftover[0]} in Walt.`);
+  if (leftover && !to) throw new Error(`No persona called ${leftover[0]} in Bubble.`);
   let effort: Effort | undefined, model: string | undefined, keep = false;
   text = text.replace(/(?:\buse\s+)?\/effort(?:\s+(\S+))?(\s+keep\b)?/gi, (_, v: string | undefined, k) => {
     if (!v || !LEVELS.includes(v.toLowerCase() as Effort)) throw new Error(`/effort needs one of: ${LEVELS.join(", ")}.`);

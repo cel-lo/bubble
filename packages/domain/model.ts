@@ -1,6 +1,6 @@
 /** a persona id; the record lives in State.personas */
 export type Persona = string;
-/** an app Walt runs (CLI), or an API provider added in Customize ("api:<provider id>") */
+/** an app Bubble runs (CLI), or an API provider added in Customize ("api:<provider id>") */
 export type Engine = "codex" | "claude" | "antigravity" | ApiEngine;
 export type ApiEngine = `api:${string}`;
 export const isApi = (e: string): e is ApiEngine => e.startsWith("api:");
@@ -8,7 +8,7 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 /** one of the design kit's avatar tiles; an API provider gets a letter tile */
 export type Avatar = "codex" | "claude" | "sonnet" | "antigravity" | ApiEngine;
 /** an OpenAI-compatible API (Groq, 9Router, OpenRouter …). Its key is kept encrypted by the desktop app, never here */
-/** xAI (Grok): Walt uses its Responses API with web and X search instead of chat completions */
+/** xAI (Grok): Bubble uses its Responses API with web and X search instead of chat completions */
 export const isXai = (baseUrl: string) => {
   try {
     return /(^|\.)api\.x\.ai$/i.test(new URL(baseUrl).hostname);
@@ -81,7 +81,7 @@ export interface ModelInfo {
   /** shown under "More models" */
   more?: boolean;
 }
-/** engines Walt can run today; the others stay hidden until their adapter works */
+/** engines Bubble can run today; the others stay hidden until their adapter works */
 export const ENGINES_ON: Engine[] = ["claude", "codex", "antigravity"];
 /** per-message or per-room override of a persona's model/effort */
 export interface Tune {
@@ -111,7 +111,7 @@ export interface Message {
   text: string;
   at: string;
   kind?: string;
-  /** what Walt read from @mention and /commands in this message */
+  /** what Bubble read from @mention and /commands in this message */
   /** to: the first persona mentioned; also: the others mentioned in the same message */
   meta?: { to?: Persona; also?: Persona[]; keep?: boolean; via?: "island"; reset?: string } & Tune;
 }
@@ -150,7 +150,7 @@ export interface Room {
   sessions?: Record<string, string>;
   /** context use per persona, from its latest reply in this chat */
   context?: Record<Persona, ContextUse & { at: number }>;
-  /** Auto roles: before each build task Walt makes the best-fitting reviewer the builder */
+  /** Auto roles: before each build task Bubble makes the best-fitting reviewer the builder */
   auto?: boolean;
 }
 export interface Ask {
@@ -189,7 +189,7 @@ export interface Quota {
 export interface BrowserSettings {
   /** what the address bar searches with (google) */
   search?: "google" | "duckduckgo" | "bing";
-  /** web links in chat messages open in Walt's Browser tab, or in your own browser (walt) */
+  /** web links in chat messages open in Bubble's Browser tab, or in your own browser (walt) */
   links?: "walt" | "system";
   /** Annotate sends a picture of the page with the marks; off = the notes only, fewer tokens (on) */
   shots?: boolean;
@@ -246,14 +246,12 @@ export interface State {
     lastTarget?: { engine: Engine; model: string; effort?: Effort };
     /** Claude builders get Bash; every command still asks the owner first (Codex always has its shell) */
     claudeShell?: boolean;
-    /** the Ce:L island may answer DECISION: questions (default on); tool approvals always open Walt */
-    islandAnswers?: boolean;
     tools?: ToolSettings;
     /** Customize · Instructions: sent to every AI, like ChatGPT's custom instructions */
     instructions?: string;
-    /** the window's close button: hide to the tray (default, so the island stays connected) or quit Walt */
+    /** the window's close button: hide to the tray (default) or quit Bubble */
     closeAction?: "tray" | "quit";
-    /** Windows notifications when an AI needs you or finishes while Walt is in the background (default on) */
+    /** Windows notifications when an AI needs you or finishes while Bubble is in the background (default on) */
     notify?: boolean;
     /** onboarding (Welcome + Engines) seen */
     onboarded?: boolean;
@@ -278,10 +276,10 @@ export function overlaps(a: string, b: string) {
 export const buildersOf = (r: Room): Persona[] => [r.builder, ...(r.builders ?? []).filter((p) => p !== r.builder)];
 export function takeTurn(room: Room) {
   if (room.used >= room.budget)
-    throw new Error("Turn budget exhausted. Continue from Walt to add turns.");
+    throw new Error("Turn budget exhausted. Continue from Bubble to add turns.");
   room.used++;
 }
-/** "Good at" for a persona Walt makes from a model pick, so Auto roles has something to go on */
+/** "Good at" for a persona Bubble makes from a model pick, so Auto roles has something to go on */
 export function defaultStrengths(engine: Engine, model: string) {
   if (engine === "codex") return ["Code changes", "Tests", "Refactors"];
   if (engine === "antigravity") return ["Second opinion", "Web research", "Long files"];
