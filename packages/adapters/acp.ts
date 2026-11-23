@@ -163,7 +163,12 @@ export class AcpSession {
   private async permission(m: any) {
     const tc = m.params?.toolCall;
     // read-only chats never change anything; elsewhere every change asks the owner
-    if (this.readonly && CHANGES.has(tc?.kind)) return this.acp.write({ id: m.id, result: choose(m.params?.options, false) });
+    if (this.readonly && CHANGES.has(tc?.kind)) {
+      // tell Walt (it says why in the chat), then refuse whatever it answers
+      const a = askFor(tc);
+      await this.pending?.approve(a.tool, a.input).catch(() => false);
+      return this.acp.write({ id: m.id, result: choose(m.params?.options, false) });
+    }
     if (LOOKS.has(tc?.kind)) return this.acp.write({ id: m.id, result: choose(m.params?.options, true) });
     const ask = askFor(tc);
     const allowed = !!this.pending && (await this.pending.approve(ask.tool, ask.input).catch(() => false));

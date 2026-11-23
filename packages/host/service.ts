@@ -44,6 +44,16 @@ export function verdict(text: string) {
   const v = [...text.matchAll(/VERDICT:\s*\**\s*(APPROVE|CHANGES)/gi)].at(-1)?.[1].toUpperCase();
   return v === "APPROVE" ? true : v === "CHANGES" ? false : undefined;
 }
+/** approval requests that create, change or run something: a read-only turn gets them refused without a card */
+const CHANGE_TOOLS = new Set(["Shell", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"]);
+/** cleanup on load for revisions old builds made after replies that changed nothing: one with the same files as the
+ * one before, and an old one whose file list was trimmed (it can't be opened, compared or accepted). A revision
+ * that was reviewed or accepted always stays */
+export function dropRepeats(artifacts: Room["artifacts"]) {
+  return artifacts.filter((a, i) => a.accepted || a.reviews.length > 0 || (!a.trimmed && (i === 0 || a.hash !== artifacts[i - 1].hash)));
+}
+/** the next revision number: one past the highest, so numbers never repeat after old ones were dropped */
+const nextRevision = (r: Room) => Math.max(0, ...r.artifacts.map((a) => a.revision)) + 1;
 export class Host extends EventEmitter {
   state: State;
   readonly supervisor = new Supervisor();
@@ -67,7 +77,10 @@ export class Host extends EventEmitter {
       if ((p.engine as string) === "gemini") Object.assign(p, { engine: "antigravity", avatar: "antigravity", model: "", effort: undefined, name: p.name === "Gemini" ? "Antigravity" : p.name });
     if (!this.state.personas.some((p) => p.engine === "antigravity")) this.state.personas.push(structuredClone(DEFAULT_PERSONAS.find((p) => p.engine === "antigravity")!));
     // chats from before old revisions were trimmed
-    for (const r of this.state.rooms) this.trim(r);
+    for (const r of this.state.rooms) {
+      r.artifacts = dropRepeats(r.artifacts);
+      this.trim(r);
+    }
     for (const r of this.state.rooms)
       if (["running", "awaiting_user"].includes(r.state)) {
         r.state = "recovery_required";
@@ -643,6 +656,7 @@ export class Host extends EventEmitter {
     let flush = 0,
       saved = Date.now();
     let result: string;
+    let refused = false;
     try {
       result = await session.run(
         prompt,
@@ -659,6 +673,13 @@ export class Host extends EventEmitter {
           }
         },
         async (tool, input) => {
+          // a member, reviewer or chat without a project only reads: refuse here and say why once, instead of a card
+          // you could never answer and a reply that talks about a permission prompt
+          if (readonly && CHANGE_TOOLS.has(tool)) {
+            if (!refused) this.message(r, "Walt", this.readOnly(r, persona).told);
+            refused = true;
+            return false;
+          }
           const ask = {
             id: randomUUID(),
             roomId: r.id,
@@ -695,6 +716,21 @@ export class Host extends EventEmitter {
     m.text = result;
     this.commit("run.finished");
     return result;
+  }
+  /** what a read-only AI is told up front, and what Walt says when it still tries to make or change something */
+  private readOnly(r: Room, who: Persona) {
+    const name = this.persona(who).name;
+    if (!this.projectOf(r))
+      return {
+        brief: "This chat has no project folder, so you can only read and talk: you cannot create or change files or run commands (image generation and web search still work). If the user asks for a file, say so in one line and tell them to start the chat inside a project.",
+        told: `${name} cannot make or change files in a chat without a project. Start the chat inside a project to let it make files.`,
+      };
+    const builders = buildersOf(r).filter((b) => b !== who).map((b) => "@" + this.persona(b).name);
+    const ask = builders.length ? `ask ${builders.join(" or ")}` : "ask a builder";
+    return {
+      brief: `You can only read in this chat: you cannot create, change or delete files or run commands, and Walt refuses it if you try (image generation and web search still work). If the user asks for that, say so in one line and tell them to ${ask}, or to make you a builder.`,
+      told: `${name} can only read in this chat, so nothing was created or changed. To make files, ${ask}, or make ${name} a builder.`,
+    };
   }
 /** a run failed: a usage limit gets its own card (who, when it resets, hand-off buttons), anything else stays an error */
   private failed(r: Room, e: unknown) {
@@ -760,7 +796,7 @@ export class Host extends EventEmitter {
       // prompts first (each model's recap of what it missed), then every model at once
       const prompts = whos.map((who) => {
         const first = !r.messages.some((m) => m.author === who);
-        const brief = p && first ? `Project ${p.name} (${p.root}). Goal: ${p.goal || "-"}. Constraints: ${p.constraints || "-"}. Reply in the language the user writes in.\n\n` : "";
+        const brief = p && first ? `Project ${p.name} (${p.root}). Goal: ${p.goal || "-"}. Constraints: ${p.constraints || "-"}. Reply in the language the user writes in.\n\n` : !p && first && !isApi(this.persona(who).engine) ? this.readOnly(r, who).brief + "\n\n" : ""; // an API model has no tools to refuse
         // each CLI keeps its own session, so a model switched in mid-chat gets what it missed as a recap
         const missed = this.unseen(r, who);
         const recap = missed ? `Earlier in this chat another model was answering; you did not see these messages:\n${missed}\n\nNow the user writes:\n` : "";
@@ -782,7 +818,7 @@ export class Host extends EventEmitter {
         const after = await manifest(p.root);
         if (after.hash !== before.hash) {
           for (const a of r.artifacts) a.accepted = false;
-          r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+          r.artifacts.push({ revision: nextRevision(r), ...after, reviews: [], accepted: false });
           this.trim(r);
           this.commit("artifact.registered");
         }
@@ -835,11 +871,11 @@ export class Host extends EventEmitter {
       } else if (r.template === "roundtable") {
         for (const persona of [r.builder, ...r.reviewers]) {
           if (r.pause) break;
-          await this.turn(r, persona, JSON.stringify(packet), true, msg, undefined, att.files);
+          await this.turn(r, persona, JSON.stringify({ ...packet, readOnly: this.readOnly(r, persona).brief }), true, msg, undefined, att.files);
         }
       } else if (mention && !buildersOf(r).includes(mention)) {
         // a mentioned reviewer or member answers read-only: only the builder edits files, so there is no new revision
-        await this.turn(r, mention, JSON.stringify(packet), true, msg, undefined, att.files);
+        await this.turn(r, mention, JSON.stringify({ ...packet, readOnly: this.readOnly(r, mention).brief }), true, msg, undefined, att.files);
       } else {
         if (r.auto) {
           const team = [r.builder, ...r.reviewers].filter((id) => !isApi(this.persona(id).engine)).map((id) => ({ id, strengths: ((p) => (p?.strengths.length ? p.strengths : p ? defaultStrengths(p.engine, p.model) : []))(this.state.personas.find((p) => p.id === id)) }));
@@ -877,7 +913,7 @@ export class Host extends EventEmitter {
           }
           for (const a of r.artifacts) a.accepted = false;
           const artifact = {
-            revision: r.artifacts.length + 1,
+            revision: nextRevision(r),
             ...after,
             reviews: [] as { persona: Persona; text: string; hash: string }[],
             accepted: false,
@@ -1007,7 +1043,7 @@ export class Host extends EventEmitter {
     const after = await manifest(root);
     if (after.hash !== before.hash) {
       for (const a of r.artifacts) a.accepted = false;
-      r.artifacts.push({ revision: r.artifacts.length + 1, ...after, reviews: [], accepted: false });
+      r.artifacts.push({ revision: nextRevision(r), ...after, reviews: [], accepted: false });
       this.trim(r);
       this.commit("artifact.registered");
     }

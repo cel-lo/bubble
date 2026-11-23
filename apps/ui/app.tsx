@@ -1036,6 +1036,14 @@ function limitCardFor(state: State, room: Room) {
   };
 }
 
+/** a revision's line in the Files tab: how many files it changed against the one before (not how many the project has) */
+function filesLine(list: { files: Record<string, string>; reviews: unknown[]; trimmed?: boolean }[], a: (typeof list)[number]) {
+  const prev = list[list.indexOf(a) - 1];
+  if (a.trimmed) return t("{0} reviews · older revision", a.reviews.length);
+  if (!prev || prev.trimmed) return t("{0} reviews · {1} files tracked", a.reviews.length, Object.keys(a.files).length);
+  const changed = new Set([...Object.keys(prev.files), ...Object.keys(a.files)].filter((f) => prev.files[f] !== a.files[f])).size;
+  return t("{0} reviews · {1} files changed", a.reviews.length, changed);
+}
 type Diff = { revision: number; files: { path: string; status: string; patch: string }[]; more?: number };
 /** the latest revision's changes, read-only: git diff when the project uses git, else the new text */
 function DiffView({ diff, title, onClose }: { diff: Diff; title: string; onClose: () => void }) {
@@ -1410,7 +1418,7 @@ const teamOf = team;
 function inspectorHtml(state: State, room: Room, tab: string, wide: boolean) {
   const direct = room.template === "direct";
   const btn = (l: string, a: string) => `<button class="btn" data-hot="${a}" style="border:0">${l}</button>`;
-  const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${a.trimmed ? t("{0} reviews · older revision", a.reviews.length) : t("{0} reviews · {1} files", a.reviews.length, Object.keys(a.files).length)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
+  const files = [...room.artifacts].reverse().map((a) => `<div class="card" style="padding:12px;margin:10px 0"><div class="row sb"><span>r${a.revision} · ${t(a.accepted ? "Accepted" : "Awaiting acceptance")}</span><button class="btn sm" data-hot="diff:${a.revision}" style="border:0">${t("Open diff")}</button></div><div class="mono s11 dim">${a.hash.slice(0, 16)}</div><div class="s12">${filesLine(room.artifacts, a)}</div></div>`).join("") || `<div class="s13 dim">${t("No changes yet.")}</div>`;
   // read-only here: the team is managed in the sidebar (Team · Add, and each member's … menu)
   const can: Record<string, string> = { Builder: "can edit files", Reviewer: "read-only", Talks: "read-only", Member: "when @mentioned" };
   const locked = busy(room);

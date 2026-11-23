@@ -199,7 +199,8 @@ export class CodexSession {
       this.write({ id: m.id, error: { code: -32601, message: `Walt does not allow ${m.method}` } });
       return;
     }
-    const allowed = !this.readonly && !!this.pending && (await this.pending.approve(ask.tool, ask.input));
+    // Walt hears about every request (a read-only turn is refused there and says why); read-only stays refused here too
+    const allowed = !!this.pending && (await this.pending.approve(ask.tool, ask.input)) && !this.readonly;
     const decision = legacy ? (allowed ? "approved" : { denied: { rejection: "Denied by Walt permission policy or user" } }) : allowed ? "accept" : "decline";
     this.write({ id: m.id, result: { decision } });
   }

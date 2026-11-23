@@ -451,6 +451,46 @@ test("build, review, fix, review again until the reviewers approve", async () =>
   await rm(dir, { recursive: true });
 });
 
+import { dropRepeats } from "../packages/host/service";
+test("a member only reads: it is told so, and a write it tries is refused with a note, not a card", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "walt-ro-"));
+  const root = join(dir, "proj");
+  await mkdir(root);
+  const host = new Host(new Store(join(dir, "data")));
+  const p = await host.project({ name: "P", root, goal: "", constraints: "" });
+  const r = host.createRoom({ projectId: p.id, title: "T", template: "build_review", builder: "codex", reviewers: [] });
+  host.member(r.id, "sonnet", "Member");
+  const prompts: string[] = [];
+  const answers: boolean[] = [];
+  (host.supervisor as any).get = async () => ({
+    run: async (prompt: string, _delta: unknown, approve: (tool: string, input: unknown) => Promise<boolean>) => {
+      prompts.push(prompt);
+      answers.push(await approve("Shell", { command: "New-Item Blank.docx" }));
+      answers.push(await approve("Edit", { changes: [] }));
+      return "could not";
+    },
+    stop: async () => {},
+  });
+  await host.send(r.id, "@Claude Sonnet make me an empty Word file");
+  for (let i = 0; i < 200 && (r.state === "running" || !answers.length); i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.deepEqual(answers, [false, false], "both refused");
+  assert.equal(host.state.asks.length, 0, "no approval card you cannot answer");
+  assert.match(JSON.parse(prompts[0]).readOnly, /only read.*@Codex/, "the member is told it reads only and who can write");
+  const notes = r.messages.filter((m) => m.author === "Walt" && /can only read/.test(m.text));
+  assert.equal(notes.length, 1, "Walt says why once per turn");
+  assert.match(notes[0].text, /Claude Sonnet can only read.*ask @Codex.*make Claude Sonnet a builder/);
+  assert.equal(r.artifacts.length, 0);
+  await host.close();
+  await rm(dir, { recursive: true });
+});
+test("revisions that repeat the one before, or are trimmed and untouched, are dropped; reviewed or accepted ones stay", () => {
+  const a = (revision: number, hash: string, extra = {}) => ({ revision, hash, files: {}, reviews: [], accepted: false, ...extra });
+  const kept = dropRepeats([a(1, "x"), a(2, "x"), a(3, "x"), a(4, "y"), a(5, "y", { accepted: true }), a(6, "x")] as any);
+  assert.deepEqual(kept.map((k) => k.revision), [1, 4, 5, 6]);
+  // the Main chat as it was: r1 trimmed, r2..r6 the same files
+  assert.deepEqual(dropRepeats([a(1, "z", { trimmed: true }), a(2, "z"), a(3, "z"), a(4, "z"), a(5, "z"), a(6, "z")] as any), []);
+  assert.deepEqual(dropRepeats([a(1, "z", { trimmed: true, accepted: true }), a(2, "w", { trimmed: true, reviews: [{}] })] as any).map((k) => k.revision), [1, 2]);
+});
 test("continue a chat in the CLI and export its context", async () => {
   const dir = await mkdtemp(join(tmpdir(), "walt-cli-"));
   const root = join(dir, "proj");
@@ -1001,11 +1041,12 @@ test("Antigravity over ACP: models, picked model, streamed text, edits ask the o
   assert.equal(await s.run("look around", () => {}, async () => (asked.push("read"), false)), "[gemini-pro] edit yes: look around");
   assert.equal(asked.length, 1);
   await s.stop();
-  // read-only (reviews, chats without a project): a change is refused without asking
+  // read-only (reviews, chats without a project): a change is refused even if the answer is yes; Walt still hears
+  // about it (it refuses there without a card and says why in the chat)
   const ro = new AcpSession(cmd, dir, "", true);
-  let bothered = false;
-  assert.equal(await ro.run("look only", () => {}, async () => ((bothered = true), true)), "[auto] edit no: look only");
-  assert.equal(bothered, false);
+  let told = false;
+  assert.equal(await ro.run("look only", () => {}, async () => ((told = true), true)), "[auto] edit no: look only");
+  assert.equal(told, true);
   await ro.stop();
   // not signed in: say what to do
   process.env.FAKE_UNSIGNED = "1";

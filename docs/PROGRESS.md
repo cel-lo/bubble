@@ -216,6 +216,12 @@ Second pass (cello's feedback, same day):
 - Audit (ponytail-audit) and fixes: messages sent while an AI works were queued and never sent (now run after the run; Resume runs them after a pause); the 6-process cap threw instead of putting the idlest AI to sleep; answering one of two approval cards dropped "waiting for approval"; a builder reply that changed nothing made an identical revision and undid Accept; React rewrote the timeline on every render because the {__html} object was new each time (useMemo now: selection survives, pictures do not reload); only the latest 5 revisions keep their full file list (older ones say "older revision", diff refuses them); API log 200 calls; the events table (written on every save, read by nothing) is no longer written.
 - Checked live: two members answering their own parts at once, statuses, job menu, queued message ran after the first, timeline DOM kept across re-renders. 38 unit tests.
 
+## Read-only refusals said, empty revisions gone — 2026-11-22
+
+- cello asked GPT-6-Astra (a Member) for an empty Word file. Codex sessions of members, reviewers and chats without a project are read-only, and Walt refused the command silently; the AI then talked about "a permission prompt" that never showed. Now every read-only AI is told up front that it only reads and who can write (`readOnly` in the packet; the first message of a plain chat without a project; image generation and web search still work), and when it still asks to run or edit something Walt refuses it without a card and says once in the chat: "GPT-6-Astra can only read in this chat, so nothing was created or changed. To make files, ask @Codex or @Claude Opus, or make GPT-6-Astra a builder." Codex and Antigravity pass the request on so Walt can say it; they still refuse it themselves. Claude members never get write tools.
+- Files tab: r1–r6 in Main were left by the Nov 13–14 builds (a revision after every message to the builder, even when nothing changed; fixed on Nov 15). On load Walt now drops a revision with the same files as the one before, and an old trimmed one, unless it was reviewed or accepted. New revision numbers continue from the highest, so they never repeat. Each revision says how many files it changed against the one before, or "N files tracked" for the first, instead of the project's whole file count.
+- 40 unit tests (a member's write refused with one note and no card; the cleanup).
+
 ## Found while testing (next work, in order)
 
 1. Code signing certificate (only if Smart App Control gets turned on, or to share Walt).
